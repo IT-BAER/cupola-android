@@ -661,7 +661,10 @@ excluded (by the owner).
 | P0.9 | done | Blue Marble 2002 clouds mirrored to local/sources/bm2002-clouds (8192 TIF, 21600 px E and W PNG halves; sizes match the server, PNG IEND present, TIF header valid, pixel decode not checked); tools/textures/sources.lock with SHA-256 |
 | P1.1 | done | Tle.parse with checksum, line and catalog validation; TleTest 5/5 |
 | P1.2 | done | SGP4 near-Earth port of python-sgp4 2.27 (6e7428d, MIT); TcppverTest: 9 near-Earth satellites, 158 lines, max deviation 1.0e-8 (limit 2e-7), error codes 22312->1, 28350->1, 28872->6, 29141->6 at the tcppver steps; 24 deep-space rejected |
-| P1.3-P1.9 | open | Horizons fixtures fetched (tools/orbit/fetch_horizons_fixtures.ps1); GMST epochs 1950-1960 because Horizons time tags before 1962 are UT1 |
+| P1.3 | done | UTC->TT leap-second table (valid to 2027-06-30, IERS Bulletin C 72), GMST82, TEME->ECEF->WGS-84; GMST+eq. of equinoxes vs Horizons LAST at 10 epochs 1950-1960 (UT1 tags): max 0.0205 s (limit 0.1 s) |
+| P1.4 | done | Sun and Moon vs Horizons, 50 epochs 2026-2035: Sun max 0.00838 deg (limit 0.01, thin margin: Meeus low-precision Sun), Moon max 0.0033 deg (limit 0.3); topocentric Moon parallax and phase tests |
+| P1.5 | done | Conical shadow with penumbra ramp linear in disk overlap; 420 km, beta 0: cylindrical 38.7525 % (recomputed; the carried 38.9 % was slightly off), conical 38.7536 % |
+| P1.6-P1.9 | open | |
 | P2.1-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
 | P4.1-P4.7 | open | |
