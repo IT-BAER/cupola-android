@@ -20,7 +20,8 @@ public:
 
     void requestResize(uint32_t width, uint32_t height);
     void setInputs(const float* values, int count);
-    // VK_SUCCESS when a frame was presented, VK_NOT_READY when skipped (zero-sized surface).
+    // VK_SUCCESS when a frame was presented, VK_NOT_READY when skipped (zero-sized surface, no image in time).
+    // Once dead (device lost, or a failure after an image was acquired) returns the stored error without waiting.
     VkResult renderFrame();
 
 private:
@@ -36,6 +37,7 @@ private:
     VkResult createSwapchain();
     void destroySwapchainResources();
     VkResult recreateSwapchain();
+    VkResult drawFrame();
 
     Device* device_ = nullptr;
     ANativeWindow* window_ = nullptr;
@@ -46,6 +48,8 @@ private:
     VkExtent2D requested_{};
     int32_t rotation_ = 0;
     bool dirty_ = false;
+    // First fatal error; a dead target may hold an unsignaled fence or a pending acquire semaphore.
+    VkResult dead_ = VK_SUCCESS;
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
     VkQueryPool queries_ = VK_NULL_HANDLE;

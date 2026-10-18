@@ -82,6 +82,8 @@ PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t 
         static_cast<int32_t>(iterations),
         inputs[inputs::kLoad],
         inputs[inputs::kTimeSeconds],
+        inputs[inputs::kLookYawDeg],
+        inputs[inputs::kLookPitchDeg],
     };
 }
 

@@ -20,10 +20,15 @@ internal class RenderSession {
     private val look = LookAroundController(System::nanoTime)
     private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, ISS_MEAN_MOTION_REV_PER_DAY)
     private var wasVisible = false
-    private var rateSurface: Surface? = null
-    private var rateFps = -1
+    private val rateVote = FrameRateVote<Surface> { surface, fps ->
+        if (surface.isValid) surface.setFrameRate(fps.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+    }
 
-    @Volatile var surface: Surface? = null
+    var surface: Surface?
+        get() = rateVote.surface
+        set(value) {
+            rateVote.surface = value
+        }
 
     /** Last [FrameScheduler.moving] pushed to the scheduler. */
     var scheduledMoving = false
@@ -45,14 +50,14 @@ internal class RenderSession {
 
     fun onOrientation(orientation: Orientation) = look.setOrientation(orientation.yawRad, orientation.pitchRad)
 
-    /**
-     * Frame inputs in the [FrameInputs] layout. The layout has no look-around slots yet, so yaw and pitch
-     * drive only [moving]; unused slots stay zero.
-     */
+    /** Frame inputs in the [FrameInputs] layout; unused slots stay zero. */
     fun nextFrameInputs(): FloatArray {
-        moving = look.update().isMoving
+        val view = look.update()
+        moving = view.isMoving
         val inputs = FloatArray(FrameInputs.COUNT)
         inputs[FrameInputs.TIME_SECONDS] = (clock.nowUtcMillis() % MILLIS_PER_DAY / 1000.0).toFloat()
+        inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
+        inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
         return inputs
     }
 
@@ -62,20 +67,37 @@ internal class RenderSession {
         syncRate(scheduler)
     }
 
-    private fun syncRate(scheduler: FrameScheduler) {
-        val fps = scheduler.targetFps
-        val current = surface
-        if (fps == rateFps && current === rateSurface) return
-        rateFps = fps
-        rateSurface = current
-        if (current != null && current.isValid) {
-            current.setFrameRate(fps.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
-        }
-    }
+    private fun syncRate(scheduler: FrameScheduler) = rateVote.sync(scheduler.targetFps)
 
     private companion object {
         // Until P3 loads the bundled TLE.
         const val ISS_MEAN_MOTION_REV_PER_DAY = 15.5
         const val MILLIS_PER_DAY = 86_400_000L
+    }
+}
+
+/**
+ * Sends a frame-rate vote when the rate changes or [surface] is set. WallpaperService reuses one Surface
+ * object across recreation, so a set (main thread) bumps a generation instead of relying on identity.
+ */
+internal class FrameRateVote<S : Any>(private val send: (surface: S, fps: Int) -> Unit) {
+    @Volatile private var generation = 0
+
+    @Volatile var surface: S? = null
+        set(value) {
+            field = value
+            generation++
+        }
+
+    // Render thread only.
+    private var sentGeneration = -1
+    private var sentFps = -1
+
+    fun sync(fps: Int) {
+        val current = generation
+        if (fps == sentFps && current == sentGeneration) return
+        sentFps = fps
+        sentGeneration = current
+        surface?.let { send(it, fps) }
     }
 }

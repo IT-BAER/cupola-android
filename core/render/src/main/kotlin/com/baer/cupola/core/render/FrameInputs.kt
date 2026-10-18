@@ -9,7 +9,12 @@ object FrameInputs {
     const val LOAD_ITERATIONS = 1
 
     const val TIME_SECONDS = 2
-    const val COUNT = 3
+
+    /** Look-around offset in degrees: yaw shifts the view horizontally, pitch vertically. */
+    const val LOOK_YAW_DEG = 3
+    const val LOOK_PITCH_DEG = 4
+
+    const val COUNT = 5
 
     fun empty() = FloatArray(COUNT)
 }

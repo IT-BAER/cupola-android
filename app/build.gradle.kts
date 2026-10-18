@@ -14,6 +14,8 @@ plugins {
 android {
     namespace = "com.baer.cupola"
     compileSdk = 37
+    // Same NDK as :core:render so packaging can strip the release .so.
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.baer.cupola"
