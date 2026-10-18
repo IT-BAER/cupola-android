@@ -673,7 +673,7 @@ excluded (by the owner).
 | P2.4-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
 | P4.1-P4.7 | open | |
-| P5.1 | in progress | Mirror of BMNG 2004, Black Marble 2016, ESO eso0932a, ETOPO 2022 (chosen over GEBCO) running; rows go to tools/textures/sources.lock when every size matches the server |
+| P5.1 | done | 24 sources mirrored to local/sources (12 BMNG 2004 monthly world.topo.bathy, 8 July 2004 86400 tiles, Black Marble 2016 colour + gray, ESO eso0932a TIF CC BY 4.0, ETOPO 2022 60 s surface GeoTIFF; ETOPO chosen over GEBCO, CC0) plus the earlier BM2002 clouds, GeoNames, Natural Earth; every size equals the server Content-Length; rows with SHA-256, licence and credit in tools/textures/sources.lock; controller re-hash of 2 files matched |
 | P5.2 | done | tools/textures/bootstrap.ps1 + tools.lock (GitHub release digests). Red: one changed hash digit -> "checksum mismatch for astcenc", exit 1, nothing extracted. Green: astcenc v5.7.0, ktx v4.4.2, vips-8.18.7 report their versions; rerun uses the cache. astcenc hash also matches Arm's release-sha256.txt |
 | P5.3-P5.5 | open | |
 | P6.1-P6.9 | open | |
