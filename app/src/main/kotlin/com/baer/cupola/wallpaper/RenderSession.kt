@@ -24,6 +24,10 @@ internal class RenderSession {
         if (surface.isValid) surface.setFrameRate(fps.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
     }
 
+    /** Last state applied on the render thread; read by the debug gate. */
+    @Volatile var engineState = EngineState()
+        private set
+
     var surface: Surface?
         get() = rateVote.surface
         set(value) {
@@ -38,6 +42,7 @@ internal class RenderSession {
         private set
 
     fun apply(state: EngineState, scheduler: FrameScheduler) {
+        engineState = state
         if (state.visible && !wasVisible) look.onVisible()
         wasVisible = state.visible
         clock.setPreview(state.preview)
@@ -48,16 +53,30 @@ internal class RenderSession {
         syncRate(scheduler)
     }
 
-    fun onOrientation(orientation: Orientation) = look.setOrientation(orientation.yawRad, orientation.pitchRad)
+    fun onOrientation(orientation: Orientation) {
+        if (!Gate.sensorBlocked()) look.setOrientation(orientation.yawRad, orientation.pitchRad)
+    }
+
+    private var tracing = false
+
+    /** Feeds the gate trace, if one runs, like a sensor sample; the reference is recaptured at both ends. */
+    private fun feedTrace() {
+        val traced = Gate.traceOrientation(System.nanoTime())
+        if ((traced != null) != tracing) look.onVisible()
+        tracing = traced != null
+        if (traced != null) look.setOrientation(traced.yawRad, traced.pitchRad)
+    }
 
     /** Frame inputs in the [FrameInputs] layout; unused slots stay zero. */
     fun nextFrameInputs(): FloatArray {
+        feedTrace()
         val view = look.update()
         moving = view.isMoving
         val inputs = FloatArray(FrameInputs.COUNT)
         inputs[FrameInputs.TIME_SECONDS] = (clock.nowUtcMillis() % MILLIS_PER_DAY / 1000.0).toFloat()
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
+        Gate.applyLoad(inputs)
         return inputs
     }
 
