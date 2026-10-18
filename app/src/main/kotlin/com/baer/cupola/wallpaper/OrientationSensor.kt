@@ -15,7 +15,7 @@ import com.baer.cupola.core.render.NativeRenderer
  */
 internal class OrientationSensor(
     private val manager: SensorManager?,
-    private val onOrientation: (Orientation) -> Unit,
+    private val onOrientation: (orientation: Orientation, timestampNs: Long) -> Unit,
 ) : SensorEventListener {
     private val sensor = manager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
     private val lock = Any()
@@ -47,7 +47,7 @@ internal class OrientationSensor(
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        if (event.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR) onOrientation(RotationVector.fromSensorValues(event.values))
+        if (event.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR) onOrientation(RotationVector.fromSensorValues(event.values), event.timestamp)
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) = Unit

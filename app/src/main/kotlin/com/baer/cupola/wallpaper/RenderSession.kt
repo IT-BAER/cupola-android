@@ -53,8 +53,8 @@ internal class RenderSession {
         syncRate(scheduler)
     }
 
-    fun onOrientation(orientation: Orientation) {
-        if (!Gate.sensorBlocked()) look.setOrientation(orientation.yawRad, orientation.pitchRad)
+    fun onOrientation(orientation: Orientation, timestampNs: Long) {
+        if (!Gate.sensorBlocked()) look.setOrientation(orientation.yawRad, orientation.pitchRad, timestampNs)
     }
 
     private var tracing = false
@@ -86,7 +86,7 @@ internal class RenderSession {
         syncRate(scheduler)
     }
 
-    private fun syncRate(scheduler: FrameScheduler) = rateVote.sync(scheduler.targetFps)
+    private fun syncRate(scheduler: FrameScheduler) = rateVote.sync(scheduler.voteFps)
 
     private companion object {
         // Until P3 loads the bundled TLE.

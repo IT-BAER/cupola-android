@@ -28,6 +28,18 @@ class FrameSchedulerTest {
         assertEquals(15, s.targetFps)
     }
 
+    @Test fun displayVoteStaysAt60WhileStillAndIsZeroWhenNothingRenders() {
+        val s = FrameScheduler()
+        assertEquals(0, s.voteFps)
+        s.setVisible(true)
+        assertEquals(15, s.targetFps)
+        assertEquals(60, s.voteFps)
+        s.moving = true
+        assertEquals(60, s.voteFps)
+        s.batterySaver = true
+        assertEquals(0, s.voteFps)
+    }
+
     @Test fun batterySaverRendersExactlyOneFramePerVisibleTransition() {
         val s = FrameScheduler()
         s.batterySaver = true
