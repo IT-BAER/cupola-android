@@ -130,6 +130,7 @@ class CupolaWallpaperService : WallpaperService() {
         }
 
         override fun onCommand(action: String, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
+            Gate.onCommand(action, x, y, z, extras)
             if (action == WallpaperManager.COMMAND_TAP) {
                 tapDetector.onTap(x.toFloat(), y.toFloat(), SystemClock.uptimeMillis())
                 mainHandler.removeCallbacks(tapTick)

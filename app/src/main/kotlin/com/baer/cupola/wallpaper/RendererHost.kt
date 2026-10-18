@@ -30,6 +30,7 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
     // Render thread only.
     private val governor = QualityGovernor(QUALITY_STEPS, QUALITY_STEPS - 1, clockNs = System::nanoTime)
     private var governedFrameNanos = Long.MIN_VALUE
+    private var lastGpuNanos = -1L
 
     private var visibleEngines = 0
 
@@ -39,11 +40,12 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
 
     internal fun openSession(): Pair<Int, RenderSession> {
         val id = nextId.incrementAndGet()
-        return id to RenderSession().also { sessions[id] = it }
+        return id to RenderSession().also { sessions[id] = it; Gate.opened(id, it) }
     }
 
     internal fun closeSession(id: Int) {
         sessions.remove(id)
+        Gate.closed(id)
     }
 
     /** Thermal updates run only while at least one engine is visible. */
@@ -60,10 +62,11 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
         val session = sessions[surfaceId] ?: return null
         if (frameTimeNanos != governedFrameNanos) {
             governedFrameNanos = frameTimeNanos
-            val gpuNanos = renderer?.lastGpuTimeNanos() ?: return null
-            if (gpuNanos >= 0) governor.onFrame(gpuNanos / 1e6)
+            lastGpuNanos = renderer?.lastGpuTimeNanos() ?: return null
+            if (lastGpuNanos >= 0) governor.onFrame(lastGpuNanos / 1e6)
             governor.onThermalHeadroom(thermal.current())
         }
+        Gate.onFrame(surfaceId, lastGpuNanos)
         val inputs = session.nextFrameInputs()
         if (session.moving != session.scheduledMoving) {
             renderer?.updateScheduler(surfaceId) { session.applyMoving(this) }
