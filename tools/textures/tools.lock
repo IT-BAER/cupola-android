@@ -1,0 +1,7 @@
+# Pinned texture tools (plan P5.2). Asset tools only, never shipped. Windows x64 builds.
+# Columns (tab-separated): name, version, url, bytes, sha256, licence.
+# sha256 = GitHub release asset digest, 2026-10-18; bootstrap.ps1 refuses any other file.
+name	version	url	bytes	sha256	licence
+astcenc	5.7.0	https://github.com/ARM-software/astc-encoder/releases/download/5.7.0/astcenc-5.7.0-windows-x64.zip	1691501	cbde7c78adcc90d0d90ecf10f32d03f3340fbe1720cb6d6c892147d625e74d2d	Apache-2.0
+ktx	4.4.2	https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Windows-x64.exe	6417024	1f323b0fec19794f5e6c0425a61d4b1da396872a10be862d105f4f4b2d2957fe	Apache-2.0
+vips	8.18.7	https://github.com/libvips/build-win64-mxe/releases/download/v8.18.7/vips-dev-x64-all-8.18.7.zip	19734071	78e56ba30c267ba32ff965200534bd5721364cadbead8c4d595e44b58dfeff15	LGPL-2.1-or-later (used as a CLI)
