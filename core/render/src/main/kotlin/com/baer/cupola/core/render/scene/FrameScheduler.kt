@@ -22,6 +22,13 @@ class FrameScheduler {
             else -> 15
         }
 
+    /**
+     * Display frame-rate vote: 60 whenever anything renders. A 15 vote lets SurfaceFlinger lower the render
+     * rate, which on the A35 delayed the switch back to 60 fps by 116-284 ms; still mode skips vsyncs itself.
+     */
+    val voteFps: Int
+        get() = if (targetFps > 0) 60 else 0
+
     fun setVisible(value: Boolean) {
         if (value && !visible) renderOnce = true
         if (!value) renderOnce = false

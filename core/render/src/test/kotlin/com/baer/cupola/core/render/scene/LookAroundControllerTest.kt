@@ -146,6 +146,28 @@ class LookAroundControllerTest {
         assertFalse(o.isMoving)
     }
 
+    @Test fun bunchedSensorDeliveryIsNotMotion() {
+        c.onVisible()
+        val sampleNs = 20_000_000L
+        val base = now
+        var nextFrame = now + 66_666_667L
+        var movingAfterSettle = 0
+        for (i in 1..300) {
+            // Phone flat: yaw noise of +-0.3 deg is 0.37 deg/s on the view sphere at 20 ms steps.
+            // Every 25th sample is delivered 19 ms late, right before the next one (a 1 ms delivery gap).
+            val deliveryNs = base + i * sampleNs + if (i % 25 == 0) 19_000_000L else 0L
+            while (nextFrame <= deliveryNs) {
+                now = nextFrame
+                val o = c.update()
+                if (now - base > 3_000_000_000L && o.isMoving) movingAfterSettle++
+                nextFrame += 66_666_667L
+            }
+            now = deliveryNs
+            c.setOrientation(deg(if (i % 2 == 0) 0.3 else -0.3), deg(-89.3), base + i * sampleNs)
+        }
+        assertEquals(0, movingAfterSettle)
+    }
+
     @Test fun isMovingWhileSpringUnsettled() {
         start()
         c.setOrientation(deg(15.0), 0.0)

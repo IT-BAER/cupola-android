@@ -1,6 +1,7 @@
 package com.baer.cupola.core.render.scene
 
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -51,8 +52,11 @@ class LookAroundController(private val clockNs: () -> Long) {
         springMoving = false
     }
 
-    fun setOrientation(yawRad: Double, pitchRad: Double) {
-        val now = clockNs()
+    /**
+     * [timestampNs] is the sample time (any monotonic base, e.g. SensorEvent.timestamp). Speed uses it rather
+     * than the delivery time, because a busy render thread delivers queued samples about 1 ms apart.
+     */
+    fun setOrientation(yawRad: Double, pitchRad: Double, timestampNs: Long = clockNs()) {
         oriYaw = Math.toDegrees(yawRad)
         oriPitch = Math.toDegrees(pitchRad)
         if (needsRef) {
@@ -62,12 +66,12 @@ class LookAroundController(private val clockNs: () -> Long) {
             hasRef = true
         }
         if (sampleNs == NONE) {
-            sampleNs = now
-        } else if (now - sampleNs >= MIN_SAMPLE_NS) {
-            val dtS = (now - sampleNs) / NS
-            val speed = hypot(wrap(oriYaw - sampleYaw), oriPitch - samplePitch) / dtS
-            if (speed >= STILL_DEG_PER_S) lastMotionNs = now
-            sampleNs = now
+            sampleNs = timestampNs
+        } else if (timestampNs - sampleNs >= MIN_SAMPLE_NS) {
+            val dtS = (timestampNs - sampleNs) / NS
+            val speed = angle(wrap(oriYaw - sampleYaw), oriPitch - samplePitch) / dtS
+            if (speed >= STILL_DEG_PER_S) lastMotionNs = clockNs()
+            sampleNs = timestampNs
         } else {
             return
         }
@@ -107,7 +111,7 @@ class LookAroundController(private val clockNs: () -> Long) {
             velPitch = (velPitch - OMEGA * ay * dtS) * k
             x = nx
             y = ny
-            springMoving = hypot(x, y) >= SETTLE_DEG || hypot(velYaw, velPitch) >= SETTLE_DEG_PER_S
+            springMoving = angle(x, y) >= SETTLE_DEG || angle(velYaw, velPitch) >= SETTLE_DEG_PER_S
             if (!springMoving) {
                 x = 0.0
                 y = 0.0
@@ -131,6 +135,12 @@ class LookAroundController(private val clockNs: () -> Long) {
         smoothPitch += dp
         moving = springMoving || hypot(dy, dp) / dtS > MOVING_DEG_PER_S
     }
+
+    /**
+     * Length in degrees on the view sphere of a small yaw/pitch step at the current pitch. Near +-90 deg pitch
+     * (phone flat) sensor noise swings yaw by degrees while the view direction moves by hundredths.
+     */
+    private fun angle(yawDeg: Double, pitchDeg: Double) = hypot(yawDeg * cos(Math.toRadians(oriPitch)), pitchDeg)
 
     private fun softClamp(offsetDeg: Double) = strength * LIMIT_DEG * tanh(offsetDeg / LIMIT_DEG)
 
