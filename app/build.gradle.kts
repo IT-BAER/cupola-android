@@ -1,4 +1,7 @@
 import com.android.build.api.artifact.SingleArtifact
+import java.time.Duration
+import java.time.Instant
+import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
@@ -79,4 +82,38 @@ androidComponents {
         }
         tasks.named { it == "assemble$variantName" || it == "check" }.configureEach { dependsOn(guard) }
     }
+}
+
+// Release builds must not ship a stale ISS TLE (design decisions 13 and 40). Same rule as :tools:tle Guard.
+@UntrackedTask(because = "The verdict depends on the clock unless cupola.tleCheckTime is set")
+abstract class CheckReleaseTleAge : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val issJson: RegularFileProperty
+
+    @get:Input
+    @get:Optional
+    abstract val checkTime: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val epochText = Regex(""""epoch"\s*:\s*"([^"]+)"""").find(issJson.get().asFile.readText())?.groupValues?.get(1)
+            ?: throw GradleException("No \"epoch\" field in ${issJson.get().asFile}")
+        val epoch = Instant.parse(epochText)
+        val now = checkTime.map { Instant.parse(it) }.getOrElse(Instant.now())
+        val age = Duration.between(epoch, now)
+        if (age > Duration.ofDays(7)) {
+            throw GradleException("Bundled ISS TLE epoch $epoch is ${"%.1f".format(Locale.ROOT, age.toMillis() / 86_400_000.0)} days old at $now; limit is 7 days. Run the release-prep workflow.")
+        }
+    }
+}
+
+val checkReleaseTleAge = tasks.register<CheckReleaseTleAge>("checkReleaseTleAge") {
+    issJson.set(layout.projectDirectory.file("src/main/assets/orbit/iss.json"))
+    checkTime.set(providers.gradleProperty("cupola.tleCheckTime"))
+}
+
+// A normal CI build between releases always carries an older TLE, so only tagged release builds are guarded.
+if (providers.gradleProperty("cupola.releaseTag").orNull == "true") {
+    tasks.named { it == "bundleRelease" || it == "assembleRelease" }.configureEach { dependsOn(checkReleaseTleAge) }
 }
