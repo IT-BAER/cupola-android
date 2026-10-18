@@ -658,7 +658,7 @@ excluded (by the owner).
 | P0.6 | done | Red: planted INTERNET, `:app:checkReleaseManifestPermissions` failed "Merged manifest declares forbidden permissions: android.permission.INTERNET". Green: removed, task and `:app:assembleRelease` passed. apkanalyzer `manifest permissions` on app-release-unsigned.apk: empty |
 | P0.7 | done | .github/workflows/ci.yml, actions pinned by SHA; run 39137521404 on 3a27425: success (gradlew build + apkanalyzer check) |
 | P0.8 | done | OC1 report 18 October 2026, built-in browser (owner choice; Chrome device file missing): Lizzner Apps, 1+ downloads, $0.19, updated 25 Sep 2026; 6 screenshots: 3 orbit renders (soft low-res clouds, plain globe from far, thin limb glow), 3 settings screens (zoom, tumbling, orbit speed, cloud coverage, weather with location). No Cupola interior, no real ISS orbit ("does not track the station's actual position"), not photoreal; shares location data. Coverage of Cupola's niche: low. GO (NICHE) unchanged |
-| P0.9 | open | |
+| P0.9 | done | Blue Marble 2002 clouds mirrored to local/sources/bm2002-clouds (8192 TIF, 21600 px E and W PNG halves; sizes match the server, PNG IEND present, TIF header valid, pixel decode not checked); tools/textures/sources.lock with SHA-256 |
 | P1.1 | done | Tle.parse with checksum, line and catalog validation; TleTest 5/5 |
 | P1.2 | done | SGP4 near-Earth port of python-sgp4 2.27 (6e7428d, MIT); TcppverTest: 9 near-Earth satellites, 158 lines, max deviation 1.0e-8 (limit 2e-7), error codes 22312->1, 28350->1, 28872->6, 29141->6 at the tcppver steps; 24 deep-space rejected |
 | P1.3-P1.9 | open | Horizons fixtures fetched (tools/orbit/fetch_horizons_fixtures.ps1); GMST epochs 1950-1960 because Horizons time tags before 1962 are UT1 |

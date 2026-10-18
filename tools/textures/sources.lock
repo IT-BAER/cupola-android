@@ -1,0 +1,8 @@
+# Mirrored texture sources (plan P5.1). Files live in the gitignored local/sources/ cache, never in git.
+# Columns (tab-separated): local path, source URL, bytes, sha256, licence, credit.
+# Licence and credit text come from the 2026-10-18 texture research (NASA EO pages and the archived
+# Visible Earth 57747 page); sizes and hashes were measured on download, 2026-10-18.
+path	url	bytes	sha256	licence	credit
+local/sources/bm2002-clouds/cloud_combined_8192.tif	https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif	35870468	d137775d8966ab8d443fd5126dc6e7ad72072bc1ed50555c5818d221735daf0f	NASA imagery, not copyrighted in the US	NASA Goddard Space Flight Center Image by Reto Stöckli
+local/sources/bm2002-clouds/cloud.E.2001210.21600x21600.png	https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud.E.2001210.21600x21600.png	211800444	11eb1aaf8e6056b9aebc0de4894dc5ad8a21cbe8738c6ddc92e88701eb7e1b99	NASA imagery, not copyrighted in the US	NASA Goddard Space Flight Center Image by Reto Stöckli
+local/sources/bm2002-clouds/cloud.W.2001210.21600x21600.png	https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud.W.2001210.21600x21600.png	210808929	d7a6b03bb54b8ba56f72af6d1d49f191a25c12e911c43739c900e893d10eb814	NASA imagery, not copyrighted in the US	NASA Goddard Space Flight Center Image by Reto Stöckli
