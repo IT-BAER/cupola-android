@@ -1,0 +1,8 @@
+Geo index data credits
+
+City names, coordinates, countries and populations: GeoNames (https://www.geonames.org),
+cities15000 extract, licensed under Creative Commons Attribution 4.0 (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/). Reduced and re-encoded by tools/geoindex.
+
+Sea and ocean names and outlines: Made with Natural Earth (https://www.naturalearthdata.com),
+ne_10m_geography_marine_polys, public domain. Rasterized to 0.1 degree cells by tools/geoindex.
