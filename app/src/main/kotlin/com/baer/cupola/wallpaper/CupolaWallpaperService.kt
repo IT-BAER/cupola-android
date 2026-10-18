@@ -77,7 +77,12 @@ class CupolaWallpaperService : WallpaperService() {
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
             session.surface = holder.surface
-            renderer.attachSurface(surfaceId, holder.surface)
+            val result = renderer.attachSurface(surfaceId, holder.surface)
+            if (result < 0) {
+                // No renderer for this surface; the engine stays inert until the next onSurfaceCreated.
+                Log.w(LOG_TAG, "attach $surfaceId failed: VkResult $result")
+                return
+            }
             attached = true
             logWallpaperFlags()
             pushState()

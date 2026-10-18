@@ -6,6 +6,9 @@
 namespace cupola {
 namespace {
 
+// Bounded so a stalled compositor cannot hold the render thread (and every postAndWait caller) forever.
+constexpr uint64_t kAcquireTimeoutNs = 100'000'000;
+
 int32_t quarterTurns(VkSurfaceTransformFlagBitsKHR transform) {
     switch (transform) {
         case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR: return 1;
@@ -204,17 +207,37 @@ void SurfaceTarget::destroySwapchainResources() {
 }
 
 VkResult SurfaceTarget::recreateSwapchain() {
+    // Stays set until a recreate succeeds, so a failed one is retried on the next frame.
+    dirty_ = true;
     VK_TRY(vkDeviceWaitIdle(device_->device));
     destroySwapchainResources();
-    return createSwapchain();
+    VK_TRY(createSwapchain());
+    dirty_ = false;
+    return VK_SUCCESS;
 }
 
 VkResult SurfaceTarget::renderFrame() {
     TraceSection trace("cupola.render");
-    if (dirty_) {
-        dirty_ = false;
-        VK_TRY(recreateSwapchain());
-    }
+    if (dead_ < 0) return dead_;
+    VkResult result = drawFrame();
+    if (result == VK_ERROR_DEVICE_LOST) dead_ = result;
+    return result;
+}
+
+// After a successful acquire the acquire semaphore is pending and, once reset, the fence is unsignaled:
+// a failure there must never be waited on again.
+#define VK_TRY_OR_DIE(expr)                                              \
+    do {                                                                 \
+        VkResult vk_die_result_ = (expr);                                \
+        if (vk_die_result_ < 0) {                                        \
+            LOGE("%s failed: %d (%s:%d)", #expr, vk_die_result_, __FILE__, __LINE__); \
+            dead_ = vk_die_result_;                                      \
+            return vk_die_result_;                                       \
+        }                                                                \
+    } while (0)
+
+VkResult SurfaceTarget::drawFrame() {
+    if (dirty_) VK_TRY(recreateSwapchain());
     if (swapchain_ == VK_NULL_HANDLE) return VK_NOT_READY;
 
     VkDevice dev = device_->device;
@@ -229,22 +252,23 @@ VkResult SurfaceTarget::renderFrame() {
     VkResult acquired;
     {
         TraceSection acquire("cupola.acquire");
-        acquired = vkAcquireNextImageKHR(dev, swapchain_, UINT64_MAX, frame.acquired, VK_NULL_HANDLE, &imageIndex);
+        acquired = vkAcquireNextImageKHR(dev, swapchain_, kAcquireTimeoutNs, frame.acquired, VK_NULL_HANDLE,
+                                         &imageIndex);
     }
+    if (acquired == VK_TIMEOUT || acquired == VK_NOT_READY) return VK_NOT_READY;
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
         VK_TRY(recreateSwapchain());
         return VK_NOT_READY;
     }
     VK_TRY(acquired);
 
-    VK_TRY(vkResetFences(dev, 1, &frame.fence));
-    VK_TRY(vkResetCommandBuffer(frame.cmd, 0));
+    VK_TRY_OR_DIE(vkResetCommandBuffer(frame.cmd, 0));
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_TRY(vkBeginCommandBuffer(frame.cmd, &begin));
+    VK_TRY_OR_DIE(vkBeginCommandBuffer(frame.cmd, &begin));
     device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline_, extent_,
                          makePushConstants(inputs_, extent_, rotation_), queries_, frameIndex_ * 2);
-    VK_TRY(vkEndCommandBuffer(frame.cmd));
+    VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -255,7 +279,8 @@ VkResult SurfaceTarget::renderFrame() {
     submit.pCommandBuffers = &frame.cmd;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &rendered_[imageIndex];
-    VK_TRY(vkQueueSubmit(device_->queue, 1, &submit, frame.fence));
+    VK_TRY_OR_DIE(vkResetFences(dev, 1, &frame.fence));
+    VK_TRY_OR_DIE(vkQueueSubmit(device_->queue, 1, &submit, frame.fence));
     frame.queriesWritten = queries_ != VK_NULL_HANDLE;
 
     VkResult presented;

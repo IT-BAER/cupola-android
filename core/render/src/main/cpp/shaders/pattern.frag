@@ -7,7 +7,11 @@ layout(push_constant) uniform Push {
     int loadIterations;
     float load;
     float time;
+    float lookYawDeg;
+    float lookPitchDeg;
 } pc;
+
+const float kLookPixelsPerDegree = 8.0;
 
 layout(location = 0) out vec4 outColor;
 
@@ -31,6 +35,8 @@ void main() {
         outColor = vec4(fract(v), 0.5, 1.0);
         return;
     }
+    // Zero look offset leaves p untouched, so the pattern stays byte-exact.
+    p += ivec2(round(vec2(pc.lookYawDeg, pc.lookPitchDeg) * kLookPixelsPerDegree));
     uint x = uint(p.x);
     uint y = uint(p.y);
     // Integer values divided by 255 convert exactly to UNORM8.

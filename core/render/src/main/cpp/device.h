@@ -14,6 +14,8 @@ struct PushConstants {
     int32_t loadIterations;
     float load;
     float timeSeconds;
+    float lookYawDeg;
+    float lookPitchDeg;
 };
 
 PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t rotationQuarterTurns);

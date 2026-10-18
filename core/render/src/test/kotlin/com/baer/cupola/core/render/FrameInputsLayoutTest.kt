@@ -15,6 +15,8 @@ class FrameInputsLayoutTest {
             "Load" to FrameInputs.LOAD,
             "LoadIterations" to FrameInputs.LOAD_ITERATIONS,
             "TimeSeconds" to FrameInputs.TIME_SECONDS,
+            "LookYawDeg" to FrameInputs.LOOK_YAW_DEG,
+            "LookPitchDeg" to FrameInputs.LOOK_PITCH_DEG,
             "Count" to FrameInputs.COUNT,
         )
         assertEquals(kotlin, cpp)
