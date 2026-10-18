@@ -1,0 +1,87 @@
+name: Release prep
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Branch to open the TLE PR against
+        required: false
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  tle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.base }}
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Gradle configures :app, which needs the Android SDK even for :tools:tle:run.
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # The tool exits 2 when CelesTrak has no entry for 25544 (design decision 38: the owner decides on the retired flag).
+      # Gradle maps any non-zero tool exit to its own exit 1, so the tool message is what identifies P7.4.
+      - name: Fetch and validate the ISS TLE
+        run: |
+          ./gradlew :tools:tle:run --args="fetch --out app/src/main/assets/orbit" 2>&1 | tee fetch.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            if grep -q 'missing or decayed' fetch.log; then
+              {
+                echo '## ISS catalogue entry missing or decayed'
+                echo
+                grep 'missing or decayed' fetch.log
+                echo
+                echo 'No PR was opened. The owner decides on the retired flag.'
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo '## TLE fetch or validation failed'
+                echo
+                echo '```'
+                grep -v -e '^$' -e '^Picked up' fetch.log | head -20
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit "$status"
+          fi
+
+      - name: Open the TLE PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ inputs.base }}
+        run: |
+          epoch=$(sed -n 's/.*"epoch": *"\([^"]*\)".*/\1/p' app/src/main/assets/orbit/iss.json)
+          source=$(sed -n 's/.*"source": *"\([^"]*\)".*/\1/p' app/src/main/assets/orbit/iss.json)
+          branch="release-prep/tle-$(date -u -d "$epoch" +%Y%m%d-%H%M)"
+          if [ -z "$(git status --porcelain -- app/src/main/assets/orbit)" ]; then
+            echo "Bundled TLE already matches the fetched one (epoch $epoch); no PR." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add app/src/main/assets/orbit/iss.tle app/src/main/assets/orbit/iss.json
+          git commit -m "Update bundled ISS TLE to epoch $epoch"
+          git push origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" \
+            --title "Update bundled ISS TLE (epoch $epoch)" \
+            --body "Bundled ISS TLE for the next feature release.
+
+          - Epoch: $epoch
+          - Source: $source"
