@@ -1,0 +1,10 @@
+# Credits shown in the app (plan P6.9). Columns (tab-separated): work, licence, credit.
+# :app:checkCredits requires a row with the same licence and credit for every tools/textures/sources.lock row.
+work	licence	credit
+Blue Marble Next Generation 2004 (surface colour)	NASA imagery, not copyrighted in the US	NASA Earth Observatory (Blue Marble Next Generation)
+Blue Marble 2002 clouds	NASA imagery, not copyrighted in the US	NASA Goddard Space Flight Center Image by Reto Stöckli
+Black Marble 2016 (night lights)	NASA imagery, not copyrighted in the US	NASA Earth Observatory images by Joshua Stevens, using Suomi NPP VIIRS data from Miguel Roman, NASA GSFC
+ETOPO 2022 (terrain relief)	CC0 / public domain (NOAA NCEI)	NOAA National Centers for Environmental Information, ETOPO 2022
+GeoNames cities	CC BY 4.0	GeoNames (geonames.org)
+Natural Earth marine areas	Public domain	Made with Natural Earth
+Milky Way panorama (eso0932a, stars)	CC BY 4.0	ESO/S. Brunier

@@ -37,6 +37,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    assetPacks += listOf(":earthpack")
+
+    bundle {
+        texture {
+            enableSplit = true
+        }
+    }
 }
 
 dependencies {
@@ -48,6 +56,10 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
 
 // The app ships without INTERNET or any runtime permission (design decisions 12 and 35).
@@ -127,3 +139,41 @@ val checkReleaseTleAge = tasks.register<CheckReleaseTleAge>("checkReleaseTleAge"
 if (providers.gradleProperty("cupola.releaseTag").orNull == "true") {
     tasks.named { it == "bundleRelease" || it == "assembleRelease" }.configureEach { dependsOn(checkReleaseTleAge) }
 }
+
+// Every mirrored source behind a shipped texture or index (tools/textures/sources.lock) needs a credits row
+// with the same licence and credit text (plan P5 acceptance); P6.9 shows credits.tsv in the app.
+abstract class CheckCredits : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val sourcesLock: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val credits: RegularFileProperty
+
+    @get:OutputFile
+    abstract val report: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        // Tab-separated, '#' comments, first remaining line is the header.
+        fun rows(file: File) = file.readLines(Charsets.UTF_8)
+            .filter { it.isNotBlank() && !it.startsWith("#") }.drop(1).map { it.split('\t') }
+        val credited = rows(credits.get().asFile).map { it[1] to it[2] }.toSet()
+        val needed = rows(sourcesLock.get().asFile).map { it[4] to it[5] }.toSet()
+        val missing = needed - credited
+        report.get().asFile.writeText("needed=${needed.size} credited=${credited.size} missing=${missing.size}\n")
+        if (missing.isNotEmpty()) {
+            throw GradleException("No credits.tsv row for: " + missing.joinToString("; ") { "${it.second} (${it.first})" })
+        }
+    }
+}
+
+val checkCredits = tasks.register<CheckCredits>("checkCredits") {
+    sourcesLock.set(rootProject.layout.projectDirectory.file("tools/textures/sources.lock"))
+    credits.set(layout.projectDirectory.file("src/main/assets/credits.tsv"))
+    report.set(layout.buildDirectory.file("reports/credits.txt"))
+}
+tasks.named { it == "check" }.configureEach { dependsOn(checkCredits) }
+// A release bundle must stay inside the texture budget and credit every source.
+tasks.named { it == "bundleRelease" }.configureEach { dependsOn(checkCredits, ":earthpack:checkTexturePack") }
