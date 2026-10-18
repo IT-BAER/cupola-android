@@ -31,7 +31,9 @@ add_library(cupola_render SHARED
     device.cpp
     jni_bridge.cpp
     offscreen.cpp
-    surface_target.cpp)
+    surface_target.cpp
+    texture_loader.cpp
+    ktx2_reader.cpp)
 add_dependencies(cupola_render cupola_shaders)
 target_include_directories(cupola_render PRIVATE "${SHADER_OUT}")
 target_compile_options(cupola_render PRIVATE -Wall -Wextra -Werror -Wno-missing-field-initializers -fno-exceptions -fno-rtti)

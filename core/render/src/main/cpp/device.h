@@ -50,6 +50,9 @@ public:
     VkResult createPipeline(VkRenderPass renderPass, VkPipeline* out) const;
     // Returns UINT32_MAX when no memory type matches.
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) const;
+    // Memory of type `preferred`, else `required`; VK_ERROR_OUT_OF_DEVICE_MEMORY when neither exists.
+    VkResult allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
+                      VkDeviceMemory* out) const;
     // Two timestamps per frame: [begin, end] at query index `first`.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkExtent2D extent, const PushConstants& push,

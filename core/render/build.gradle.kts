@@ -36,6 +36,11 @@ android {
         (debugSources as com.android.build.api.dsl.AndroidSourceSet).jniLibs.directories += vulkanLayerDir.asFile.path
     }
 
+    // The host-test KTX2 fixtures double as instrumented-test assets (TextureLoaderTest).
+    val androidTestSources = (sourceSets as NamedDomainObjectContainer<*>).getByName("androidTest")
+    (androidTestSources as com.android.build.api.dsl.AndroidSourceSet).assets.directories +=
+        file("src/test/cpp/fixtures").path
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

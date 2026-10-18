@@ -29,6 +29,13 @@ jobs:
       # build = assemble + check (unit tests, lint, manifest permission guard per variant).
       - run: ./gradlew build
 
+      # Host tests of the native KTX2 reader (g++, no Android or Vulkan); real textures are local-only and skip.
+      - name: Native host tests
+        run: |
+          cmake -S core/render/src/test/cpp -B build/host-tests
+          cmake --build build/host-tests
+          ctest --test-dir build/host-tests --output-on-failure
+
       # Independent of the Gradle guard: the packaged release APK must declare no permission
       # outside the allowlist (plan rule 3).
       - name: apkanalyzer permission check

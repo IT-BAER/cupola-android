@@ -352,6 +352,17 @@ uint32_t Device::findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) 
     return UINT32_MAX;
 }
 
+VkResult Device::allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
+                          VkDeviceMemory* out) const {
+    uint32_t type = findMemoryType(req.memoryTypeBits, preferred);
+    if (type == UINT32_MAX) type = findMemoryType(req.memoryTypeBits, required);
+    if (type == UINT32_MAX) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    VkMemoryAllocateInfo info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    info.allocationSize = req.size;
+    info.memoryTypeIndex = type;
+    return vkAllocateMemory(device, &info, nullptr, out);
+}
+
 VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
     *out = VK_NULL_HANDLE;
     if (!timestamps) return VK_SUCCESS;

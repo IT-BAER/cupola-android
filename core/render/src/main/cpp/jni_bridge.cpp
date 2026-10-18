@@ -1,3 +1,4 @@
+#include <android/asset_manager_jni.h>
 #include <android/native_window_jni.h>
 #include <jni.h>
 
@@ -9,6 +10,7 @@
 #include "frame_inputs.h"
 #include "offscreen.h"
 #include "surface_target.h"
+#include "texture_loader.h"
 
 // JNI entry points of com.baer.cupola.core.render.NativeBridge; all run on the CupolaRender thread.
 namespace {
@@ -132,6 +134,46 @@ JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_renderOffsc
                                               copy, reinterpret_cast<uint8_t*>(bytes));
     env->ReleaseByteArrayElements(out, bytes, result == VK_SUCCESS ? 0 : JNI_ABORT);
     Device::release();
+    return result;
+}
+
+// Returns [status, VkResult, format, width, height, layers, levels]; see TextureInfo.kt.
+JNIEXPORT jintArray JNICALL Java_com_baer_cupola_core_render_NativeBridge_loadTextureInfo(JNIEnv* env, jclass,
+                                                                                       jobject assetManager,
+                                                                                       jstring path) {
+    cupola::assertRenderThread("loadTextureInfo");
+    jint values[7] = {};
+    AAssetManager* assets = AAssetManager_fromJava(env, assetManager);
+    const char* chars = env->GetStringUTFChars(path, nullptr);
+    if (chars == nullptr) return nullptr;  // OutOfMemoryError pending
+    if (assets == nullptr) {
+        values[0] = static_cast<jint>(cupola::TextureStatus::kAssetOpen);
+    } else {
+        VkResult error;
+        Device* device = Device::acquire(&error);
+        if (device == nullptr) {
+            values[0] = static_cast<jint>(cupola::TextureStatus::kVulkan);
+            values[1] = error;
+        } else {
+            cupola::Texture texture;
+            VkResult vkResult;
+            values[0] = cupola::loadTexture(*device, assets, chars, &texture, &vkResult);
+            values[1] = vkResult;
+            if (values[0] == static_cast<jint>(cupola::TextureStatus::kOk)) {
+                const cupola::ktx2::Info& info = texture.info;
+                values[2] = static_cast<jint>(info.format);
+                values[3] = static_cast<jint>(info.width);
+                values[4] = static_cast<jint>(info.height);
+                values[5] = static_cast<jint>(info.layers);
+                values[6] = static_cast<jint>(info.levels);
+                cupola::destroyTexture(*device, &texture);
+            }
+            Device::release();
+        }
+    }
+    env->ReleaseStringUTFChars(path, chars);
+    jintArray result = env->NewIntArray(7);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, 7, values);
     return result;
 }
 
