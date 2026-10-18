@@ -1,0 +1,78 @@
+package com.baer.cupola.wallpaper
+
+import android.content.Context
+import com.baer.cupola.core.render.NativeRenderer
+import com.baer.cupola.core.render.platform.ThermalHeadroomSource
+import com.baer.cupola.core.render.scene.QualityGovernor
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * One [NativeRenderer] (and so one render thread) per process, shared by every wallpaper engine
+ * (home, lock, preview). Started by the first [acquire], quit after the last [release].
+ */
+@Singleton
+class RendererHost @Inject constructor(@ApplicationContext context: Context) {
+    private val thermal = ThermalHeadroomSource.create(context)
+    private val sessions = ConcurrentHashMap<Int, RenderSession>()
+    private val nextId = AtomicInteger()
+    private val shared = RefCounted(
+        create = { NativeRenderer(::inputsFor).also { renderer = it } },
+        destroy = { renderer = null; it.close() },
+    )
+
+    // Read by the render thread, which must never take the RefCounted lock (destroy waits for that thread).
+    @Volatile private var renderer: NativeRenderer? = null
+
+    // Render thread only.
+    private val governor = QualityGovernor(QUALITY_STEPS, QUALITY_STEPS - 1, clockNs = System::nanoTime)
+    private var governedFrameNanos = Long.MIN_VALUE
+
+    private var visibleEngines = 0
+
+    internal fun acquire(): NativeRenderer = shared.acquire()
+
+    internal fun release() = shared.release()
+
+    internal fun openSession(): Pair<Int, RenderSession> {
+        val id = nextId.incrementAndGet()
+        return id to RenderSession().also { sessions[id] = it }
+    }
+
+    internal fun closeSession(id: Int) {
+        sessions.remove(id)
+    }
+
+    /** Thermal updates run only while at least one engine is visible. */
+    @Synchronized
+    internal fun engineVisible(visible: Boolean) {
+        if (visible) {
+            if (visibleEngines++ == 0) thermal.start()
+        } else if (--visibleEngines == 0) {
+            thermal.stop()
+        }
+    }
+
+    private fun inputsFor(surfaceId: Int, frameTimeNanos: Long): FloatArray? {
+        val session = sessions[surfaceId] ?: return null
+        if (frameTimeNanos != governedFrameNanos) {
+            governedFrameNanos = frameTimeNanos
+            val gpuNanos = renderer?.lastGpuTimeNanos() ?: return null
+            if (gpuNanos >= 0) governor.onFrame(gpuNanos / 1e6)
+            governor.onThermalHeadroom(thermal.current())
+        }
+        val inputs = session.nextFrameInputs()
+        if (session.moving != session.scheduledMoving) {
+            renderer?.updateScheduler(surfaceId) { session.applyMoving(this) }
+        }
+        return inputs
+    }
+
+    private companion object {
+        // The governor's step is not consumed until P3 maps steps to render quality.
+        const val QUALITY_STEPS = 3
+    }
+}
