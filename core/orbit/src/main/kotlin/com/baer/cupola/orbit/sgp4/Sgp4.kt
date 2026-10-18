@@ -74,12 +74,21 @@ internal data class NearEarthState(
 /** Near-Earth SGP4 propagator (opsmode 'i'); deep-space orbits are rejected by [create]. */
 class Sgp4 internal constructor(internal val state: NearEarthState) {
 
-    fun propagate(minutesSinceEpoch: Double): PropagationResult = with(state) {
-        val xke = gravity.xke
-        val j2 = gravity.j2
-        val vkmpersec = gravity.radiusEarthKm * xke / 60.0
-        val t = minutesSinceEpoch
+    fun propagate(minutesSinceEpoch: Double): PropagationResult = periodics(secular(minutesSinceEpoch))
 
+    /** Mean elements after the secular gravity and drag update; [mm] already includes the templ drag term. */
+    internal data class Secular(
+        val mm: Double,
+        val argpm: Double,
+        val nodem: Double,
+        val tempa: Double,
+        val tempe: Double,
+    )
+
+    /** Time derivatives (rad/min) of [Secular.mm], [Secular.argpm] and [Secular.nodem] at [t]. */
+    internal data class SecularRates(val mm: Double, val argpm: Double, val nodem: Double)
+
+    internal fun secular(t: Double): Secular = with(state) {
         // ------- update for secular gravity and atmospheric drag -----
         val xmdf = mo + mdot * t
         val argpdf = argpo + argpdot * t
@@ -105,6 +114,34 @@ class Sgp4 internal constructor(internal val state: NearEarthState) {
             tempe = tempe + bstar * cc5 * (sin(mm) - sinmao)
             templ = templ + t3cof * t3 + t4 * (t4cof + t * t5cof)
         }
+        Secular(mm = mm + noUnkozai * templ, argpm = argpm, nodem = nodem, tempa = tempa, tempe = tempe)
+    }
+
+    internal fun secularRates(t: Double): SecularRates = with(state) {
+        val t2 = t * t
+        var templRate = 2.0 * t2cof * t
+        var delRate = 0.0
+        if (!isimp) {
+            val xmdf = mo + mdot * t
+            val delmtemp = 1.0 + eta * cos(xmdf)
+            delRate = omgcof - 3.0 * xmcof * delmtemp * delmtemp * eta * sin(xmdf) * mdot
+            templRate += 3.0 * t3cof * t2 + 4.0 * t4cof * t2 * t + 5.0 * t5cof * t2 * t2
+        }
+        SecularRates(
+            mm = mdot + delRate + noUnkozai * templRate,
+            argpm = argpdot - delRate,
+            nodem = nodedot + 2.0 * nodecf * t,
+        )
+    }
+
+    internal fun periodics(secular: Secular): PropagationResult = with(state) {
+        val xke = gravity.xke
+        val j2 = gravity.j2
+        val vkmpersec = gravity.radiusEarthKm * xke / 60.0
+        var mm = secular.mm
+        var argpm = secular.argpm
+        var nodem = secular.nodem
+        val tempa = secular.tempa
 
         var nm = noUnkozai
         var em = ecco
@@ -113,10 +150,9 @@ class Sgp4 internal constructor(internal val state: NearEarthState) {
 
         val am = (xke / nm).pow(X2O3) * tempa * tempa
         nm = xke / am.pow(1.5)
-        em = em - tempe
+        em = em - secular.tempe
         if (em >= 1.0 || em < -0.001) return PropagationResult.Failure(Sgp4Error.MEAN_ECCENTRICITY)
         if (em < 1.0e-6) em = 1.0e-6
-        mm = mm + noUnkozai * templ
         var xlm = mm + argpm + nodem
 
         // Kotlin % on doubles is C fmod, which is what python-sgp4 applies to nodem.
