@@ -668,7 +668,7 @@ excluded (by the owner).
 | P1.7 | done | `:tools:geoindex` generator (deterministic, test) -> core/orbit resources geo/: cities.bin 1,625,675 B (34,140 cities, 164,756 Latin-script aliases; PPLX search-only, historical codes dropped), marine.bin 68,095 B (0.1 deg raster, rivers excluded), NOTICE.txt; total 1,694,244 B <= 2 MiB. Label rule (controller ruling): within 50 km max population/(d+5 km)^2, else sea name, else nearest city. 20/20 fixtures, "Wien" -> Vienna, "Sao Paulo"/"são paulo" -> São Paulo, Kawasaki not Tokyo; GeoIndexTest 28/28; label 0.046 ms, load 0.8 s cold on desktop JVM |
 | P1.8 | done | PassPredictor (min elevation 10 deg, controller ruling for "visible cap"): 5 cities x 7 days vs 1 s brute force: Vienna 39, Sao Paulo 25, Tokyo 32, Anchorage 20, Nairobi 18 passes, all matched, largest start/end/closest difference 0.997 s (grid limit); pass found at epoch + 400 d |
 | P1.9 | done | OrbitModel.stateAt facade on DragGuardedPropagator; OrbitModelTest 5/5 (geocentric latitude <= i + 0.1 deg; geodetic <= i + 0.25 deg, because the geodetic sub-point lies about 0.18 deg higher). Full `gradlew build` exit 0, 115 tests |
-| P2.1-P2.2 | open | Brief ready: Kotlin HandlerThread + Choreographer render thread (controller ruling instead of AChoreographer), emulator-only instrumented test |
+| P2.1-P2.2 | done | Vulkan core + JNI facade NativeRenderer (merge 7d43a80). Threading: Kotlin HandlerThread `CupolaRender` + Choreographer (controller ruling). A35 (Mali-G68, Vulkan 1.3.219, ASTC yes, timestamps yes; owner ruling: no emulator): red with a constant-colour shader "first mismatch at pixel (0, 0): expected [0, 0, 0, 255] actual [128, 64, 0, 255]"; green `am instrument`: OK (3 tests), OffscreenPatternTest byte-exact 64x48 + SurfaceTargetTest swapchain readback. Validation layer loads in debug. llvm-readelf: all LOAD 0x4000 (debug, release). Release APK lib/ holds only arm64-v8a/libcupola_render.so. JVM 52 tests green. Open: `connectedDebugAndroidTest` exits 1 although the device reports 3/3 passed (host-side, undiagnosed); risk review after P2.4 |
 | P2.3 | done | FrameScheduler 10, LookAroundController 13, PreviewClock 7, QualityGovernor 14 JVM tests green; thermal headroom listener is API 36 (javap android-36 vs 35), polling on 33-35 |
 | P2.4-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
@@ -677,7 +677,8 @@ excluded (by the owner).
 | P5.2 | done | tools/textures/bootstrap.ps1 + tools.lock (GitHub release digests). Red: one changed hash digit -> "checksum mismatch for astcenc", exit 1, nothing extracted. Green: astcenc v5.7.0, ktx v4.4.2, vips-8.18.7 report their versions; rerun uses the cache. astcenc hash also matches Arm's release-sha256.txt |
 | P5.3-P5.5 | open | |
 | P6.1-P6.9 | open | |
-| P7.1-P7.4 | open | |
+| P7.1 | in progress | ci.yml installs ndk;30.0.16248370 and cmake;4.1.2 for the native build; bundle and :earthpack steps follow with P5.4 |
+| P7.2-P7.4 | done (live run pending) | `:tools:tle` fetch/validate/guard (merge a89fcb6), 25 JVM tests; red: 13 tests against stubs. Controller checks: CLI rejects a hand-edited TLE "checksum: line 2 checksum is '4' but computes to 5"; release guard with -Pcupola.releaseTag=true fails at 13.9 days. Bundled TLE epoch 2026-10-18T03:28:15Z in app/src/main/assets/orbit/. Live release-prep run on GitHub still open |
 | P8.1-P8.6 | open | |
 | G-PERF | open | |
 | G-PR | open | |
