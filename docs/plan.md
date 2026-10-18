@@ -664,7 +664,10 @@ excluded (by the owner).
 | P1.3 | done | UTC->TT leap-second table (valid to 2027-06-30, IERS Bulletin C 72), GMST82, TEME->ECEF->WGS-84; GMST+eq. of equinoxes vs Horizons LAST at 10 epochs 1950-1960 (UT1 tags): max 0.0205 s (limit 0.1 s) |
 | P1.4 | done | Sun and Moon vs Horizons, 50 epochs 2026-2035: Sun max 0.00838 deg (limit 0.01, thin margin: Meeus low-precision Sun), Moon max 0.0033 deg (limit 0.3); topocentric Moon parallax and phase tests |
 | P1.5 | done | Conical shadow with penumbra ramp linear in disk overlap; 420 km, beta 0: cylindrical 38.7525 % (recomputed; the carried 38.9 % was slightly off), conical 38.7536 % |
-| P1.6-P1.9 | open | |
+| P1.6 | done | DragGuardedPropagator (ISS TLE of 18 Oct 2026, T = 14 d): (a) identical to SGP4 every 60 s up to T; (b) jump within distance flown + 1 mm; excess over plain SGP4 0.54 mm at h = 1 s, 32.7 mm at h = 60 s, which is the removed decay rate (0.53 mm/s), checked against 2x that rate (controller ruling); velocity excess 1.9e-5 m/s; (c) largest averaged-altitude deviation 0.107 km in 10 years (T altitude 425.616 km); (d) no SGP4 error in 10 years; (e) epoch->T drop 0.6375 km. orbit tests 34/34 |
+| P1.7 | open | |
+| P1.8 | open | |
+| P1.9 | open | |
 | P2.1-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
 | P4.1-P4.7 | open | |
