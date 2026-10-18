@@ -673,7 +673,9 @@ excluded (by the owner).
 | P2.4-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
 | P4.1-P4.7 | open | |
-| P5.1-P5.5 | open | |
+| P5.1 | in progress | Mirror of BMNG 2004, Black Marble 2016, ESO eso0932a, ETOPO 2022 (chosen over GEBCO) running; rows go to tools/textures/sources.lock when every size matches the server |
+| P5.2 | done | tools/textures/bootstrap.ps1 + tools.lock (GitHub release digests). Red: one changed hash digit -> "checksum mismatch for astcenc", exit 1, nothing extracted. Green: astcenc v5.7.0, ktx v4.4.2, vips-8.18.7 report their versions; rerun uses the cache. astcenc hash also matches Arm's release-sha256.txt |
+| P5.3-P5.5 | open | |
 | P6.1-P6.9 | open | |
 | P7.1-P7.4 | open | |
 | P8.1-P8.6 | open | |
