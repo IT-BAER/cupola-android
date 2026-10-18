@@ -15,6 +15,23 @@ Outputs: `local\textures\out\astc\<name>.ktx2`, `local\textures\out\etc2\<name>.
 asset. The script checks every source against `sources.lock`, runs `ktx validate` on every output and
 fails on any tool error. Output is deterministic (identical SHA-256 across runs).
 
+## Asset pack (P5.4)
+
+Copy a finished build into the install-time pack `:earthpack`:
+
+```
+Copy-Item local\textures\out\astc\*.ktx2 'earthpack\src\main\assets\textures#tcf_astc\'
+Copy-Item local\textures\out\etc2\*.ktx2 earthpack\src\main\assets\textures\
+```
+
+- `:earthpack:checkTexturePack` (part of `check`, and run before `:app:bundleRelease`) fails when the two
+  folders hold different file names or the ASTC files exceed 96 MiB. `:app:checkCredits` fails when a
+  `sources.lock` licence and credit pair has no row in `app/src/main/assets/credits.tsv`.
+- In installed APKs the suffix is stripped: the app reads `textures/<name>.ktx2` on every device.
+- `assembleDebug` APKs carry no asset pack. On a device, install from the bundle: `bundletool build-apks`
+  (bundletool 1.18.3 needs `--aapt2=<sdk>\build-tools\37.0.0\aapt2.exe`), then `bundletool install-apks`.
+  `EarthpackLoadTest` in `:app` checks the installed slice.
+
 ## Runtime contract (P5.5)
 
 Common to every file:
