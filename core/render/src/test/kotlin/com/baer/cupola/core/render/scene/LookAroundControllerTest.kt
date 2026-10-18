@@ -1,0 +1,164 @@
+package com.baer.cupola.core.render.scene
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.math.abs
+import kotlin.math.max
+
+class LookAroundControllerTest {
+    private var now = 0L
+    private val frameNs = 16_666_667L
+    private val c = LookAroundController { now }
+
+    private fun deg(d: Double) = Math.toRadians(d)
+
+    private fun frame(): LookAroundOutput {
+        now += frameNs
+        return c.update()
+    }
+
+    private fun run(seconds: Double): LookAroundOutput {
+        var o = frame()
+        repeat((seconds * 60).toInt() - 1) { o = frame() }
+        return o
+    }
+
+    private fun start(strength: Double = 1.0) {
+        c.strength = strength
+        c.onVisible()
+        c.setOrientation(0.0, 0.0)
+        frame()
+    }
+
+    @Test fun restWithoutInput() {
+        start()
+        val o = run(2.0)
+        assertEquals(0.0, o.yawDeg, 1e-9)
+        assertEquals(0.0, o.pitchDeg, 1e-9)
+        assertFalse(o.isMoving)
+    }
+
+    @Test fun offsetIsClampedToTwentyDegreesTimesStrength() {
+        start(strength = 0.5)
+        c.setOrientation(deg(90.0), deg(-90.0))
+        val o = run(0.9)
+        assertTrue(o.yawDeg <= 10.0 && o.yawDeg > 9.9)
+        assertTrue(o.pitchDeg >= -10.0 && o.pitchDeg < -9.9)
+    }
+
+    @Test fun smallOffsetPassesThroughNearlyLinearly() {
+        start()
+        c.setOrientation(deg(2.0), 0.0)
+        assertEquals(1.96, run(0.7).yawDeg, 0.06)
+    }
+
+    @Test fun yawWrapUsesShortestPath() {
+        c.onVisible()
+        c.setOrientation(deg(179.0), 0.0)
+        frame()
+        c.setOrientation(deg(-179.0), 0.0)
+        assertEquals(2.0, run(0.7).yawDeg, 0.1)
+    }
+
+    @Test fun stepResponseReaches63PercentAfterOneTimeConstant() {
+        start()
+        c.setOrientation(deg(2.0), 0.0)
+        now += 80_000_000L
+        assertEquals(2.0 * 0.632, c.update().yawDeg, 0.13)
+    }
+
+    @Test fun springReturnsToRestWithinTwoSecondsAfterOneSecondStill() {
+        start()
+        c.setOrientation(deg(15.0), deg(-8.0))
+        assertTrue("held while not yet still for 1 s", run(0.9).yawDeg > 12.0)
+        val o = run(2.2)
+        assertEquals(0.0, o.yawDeg, 0.1)
+        assertEquals(0.0, o.pitchDeg, 0.1)
+        assertFalse(o.isMoving)
+    }
+
+    @Test fun motionDuringSpringCancelsReturn() {
+        start()
+        c.setOrientation(deg(15.0), 0.0)
+        run(1.5)
+        c.setOrientation(deg(15.0 + 1.0), 0.0)
+        run(0.1)
+        c.setOrientation(deg(15.0 + 6.0), 0.0)
+        val o = run(0.5)
+        assertTrue(o.yawDeg > 10.0)
+    }
+
+    @Test fun idleFloatStaysWithinTwoDegreesAndIsContinuous() {
+        start()
+        c.idleFloat = true
+        var maxAbs = 0.0
+        var maxStep = 0.0
+        var prev = c.update().let { it.yawDeg to it.pitchDeg }
+        repeat(10 * 60 * 60) {
+            val o = frame()
+            maxAbs = max(maxAbs, max(abs(o.yawDeg), abs(o.pitchDeg)))
+            maxStep = max(maxStep, max(abs(o.yawDeg - prev.first), abs(o.pitchDeg - prev.second)))
+            assertFalse(o.isMoving)
+            prev = o.yawDeg to o.pitchDeg
+        }
+        assertTrue("max $maxAbs", maxAbs <= 2.0 && maxAbs > 1.2)
+        assertTrue("step $maxStep", maxStep < 0.05)
+    }
+
+    @Test fun launcherPanMapsOffsetToPlusMinusFourDegrees() {
+        start()
+        c.xOffset = 1.0
+        assertEquals(4.0, run(2.0).yawDeg, 0.01)
+        c.xOffset = 0.0
+        assertEquals(-4.0, run(2.0).yawDeg, 0.01)
+        c.xOffset = 0.5
+        assertEquals(0.0, run(2.0).yawDeg, 0.01)
+    }
+
+    @Test fun reducedMotionPinsRestAndNeverMoves() {
+        start()
+        c.reducedMotion = true
+        c.idleFloat = true
+        c.xOffset = 1.0
+        c.setOrientation(deg(30.0), deg(30.0))
+        repeat(300) {
+            val o = frame()
+            assertEquals(0.0, o.yawDeg, 0.0)
+            assertEquals(0.0, o.pitchDeg, 0.0)
+            assertFalse(o.isMoving)
+        }
+    }
+
+    @Test fun isMovingTransitions() {
+        start()
+        assertFalse(frame().isMoving)
+        c.setOrientation(deg(10.0), 0.0)
+        assertTrue(frame().isMoving)
+        var seenStill = false
+        var o = frame()
+        repeat(60 * 4) {
+            o = frame()
+            if (!o.isMoving) seenStill = true
+        }
+        assertTrue(seenStill)
+        assertFalse(o.isMoving)
+    }
+
+    @Test fun isMovingWhileSpringUnsettled() {
+        start()
+        c.setOrientation(deg(15.0), 0.0)
+        run(1.5)
+        assertTrue(frame().isMoving)
+    }
+
+    @Test fun referenceIsRecapturedOnVisible() {
+        start()
+        c.setOrientation(deg(15.0), 0.0)
+        run(0.5)
+        c.onVisible()
+        c.setOrientation(deg(15.0), 0.0)
+        assertEquals(0.0, run(2.0).yawDeg, 0.05)
+    }
+}
