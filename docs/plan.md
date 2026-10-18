@@ -654,12 +654,14 @@ excluded (by the owner).
 | P0.2 | open | Owner action: Android Studio update (only needed to open the project in Studio) |
 | P0.3 | done | sdkmanager exit 0: platforms;android-37.0, build-tools;37.0.0, ndk;30.0.16248370, cmake;4.1.2 |
 | P0.4 | done | Pins from the 18 October 2026 sweep in gradle/libs.versions.toml; build resolves AGP 9.4.1, KGP 2.4.21 |
-| P0.5 | in progress | Repo and scaffold in D:/VSC/Cupola; gradlew build exit 0; no commit or GitHub repo yet |
+| P0.5 | done | Commit 3a27425 on main, private repo IT-BAER/cupola created and pushed; local gradlew build exit 0 |
 | P0.6 | done | Red: planted INTERNET, `:app:checkReleaseManifestPermissions` failed "Merged manifest declares forbidden permissions: android.permission.INTERNET". Green: removed, task and `:app:assembleRelease` passed. apkanalyzer `manifest permissions` on app-release-unsigned.apk: empty |
-| P0.7 | open | |
-| P0.8 | open | |
+| P0.7 | done | .github/workflows/ci.yml, actions pinned by SHA; run 39137521404 on 3a27425: success (gradlew build + apkanalyzer check) |
+| P0.8 | done | OC1 report 18 October 2026, built-in browser (owner choice; Chrome device file missing): Lizzner Apps, 1+ downloads, $0.19, updated 25 Sep 2026; 6 screenshots: 3 orbit renders (soft low-res clouds, plain globe from far, thin limb glow), 3 settings screens (zoom, tumbling, orbit speed, cloud coverage, weather with location). No Cupola interior, no real ISS orbit ("does not track the station's actual position"), not photoreal; shares location data. Coverage of Cupola's niche: low. GO (NICHE) unchanged |
 | P0.9 | open | |
-| P1.1-P1.9 | open | |
+| P1.1 | done | Tle.parse with checksum, line and catalog validation; TleTest 5/5 |
+| P1.2 | done | SGP4 near-Earth port of python-sgp4 2.27 (6e7428d, MIT); TcppverTest: 9 near-Earth satellites, 158 lines, max deviation 1.0e-8 (limit 2e-7), error codes 22312->1, 28350->1, 28872->6, 29141->6 at the tcppver steps; 24 deep-space rejected |
+| P1.3-P1.9 | open | Horizons fixtures fetched (tools/orbit/fetch_horizons_fixtures.ps1); GMST epochs 1950-1960 because Horizons time tags before 1962 are UT1 |
 | P2.1-P2.6 | open | |
 | P3a, P3.1-P3.6 | open | |
 | P4.1-P4.7 | open | |
