@@ -29,6 +29,9 @@ jobs:
       # build = assemble + check (unit tests, lint, manifest permission guard per variant).
       - run: ./gradlew build
 
+      # Release bundle with the :earthpack asset pack (texture budget and credits checks run first).
+      - run: ./gradlew :app:bundleRelease
+
       # Host tests of the native KTX2 reader (g++, no Android or Vulkan); real textures are local-only and skip.
       - name: Native host tests
         run: |
