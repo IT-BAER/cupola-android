@@ -18,4 +18,6 @@ android {
 
 dependencies {
     implementation(project(":core:orbit"))
+
+    testImplementation(libs.junit)
 }
