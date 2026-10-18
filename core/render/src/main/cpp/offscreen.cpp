@@ -36,17 +36,6 @@ struct OffscreenResources {
     }
 };
 
-VkResult allocate(const Device& device, VkMemoryRequirements req, VkMemoryPropertyFlags preferred,
-                  VkMemoryPropertyFlags required, VkDeviceMemory* out) {
-    uint32_t type = device.findMemoryType(req.memoryTypeBits, preferred);
-    if (type == UINT32_MAX) type = device.findMemoryType(req.memoryTypeBits, required);
-    if (type == UINT32_MAX) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
-    VkMemoryAllocateInfo info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    info.allocationSize = req.size;
-    info.memoryTypeIndex = type;
-    return vkAllocateMemory(device.device, &info, nullptr, out);
-}
-
 }  // namespace
 
 VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const float* inputs, uint8_t* out) {
@@ -71,7 +60,7 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     VK_TRY(vkCreateImage(r.dev, &imageInfo, nullptr, &r.image));
     VkMemoryRequirements imageReq;
     vkGetImageMemoryRequirements(r.dev, r.image, &imageReq);
-    VK_TRY(allocate(device, imageReq, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &r.imageMemory));
+    VK_TRY(device.allocate(imageReq, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &r.imageMemory));
     VK_TRY(vkBindImageMemory(r.dev, r.image, r.imageMemory, 0));
 
     VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -98,8 +87,8 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     VK_TRY(vkCreateBuffer(r.dev, &bufferInfo, nullptr, &r.buffer));
     VkMemoryRequirements bufferReq;
     vkGetBufferMemoryRequirements(r.dev, r.buffer, &bufferReq);
-    VK_TRY(allocate(device, bufferReq, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &r.bufferMemory));
+    VK_TRY(device.allocate(bufferReq, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &r.bufferMemory));
     VK_TRY(vkBindBufferMemory(r.dev, r.buffer, r.bufferMemory, 0));
     VK_TRY(device.createTimestampPool(2, &r.queries));
 

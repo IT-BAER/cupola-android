@@ -1,6 +1,7 @@
 package com.baer.cupola.core.render
 
 import android.util.Log
+import android.content.res.AssetManager
 import android.view.Surface
 import com.baer.cupola.core.render.scene.FrameScheduler
 
@@ -78,6 +79,12 @@ class NativeRenderer(
             check(result >= 0) { "offscreen failed: VkResult $result" }
         }
         return out
+    }
+
+    /** Loads the KTX2 asset [path] into a Vulkan image, records its properties and destroys it again. */
+    fun loadTextureInfo(assets: AssetManager, path: String): TextureInfo = thread.postAndWait {
+        val v = NativeBridge.loadTextureInfo(assets, path)
+        TextureInfo(status = v[0], vkResult = v[1], format = v[2], width = v[3], height = v[4], layers = v[5], levels = v[6])
     }
 
     /** Detaches every surface, releases the device and stops the render thread. */
