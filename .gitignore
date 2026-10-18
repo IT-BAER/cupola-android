@@ -1,0 +1,16 @@
+.gradle/
+.kotlin/
+build/
+.cxx/
+captures/
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Signing material never lives in the repo.
+*.jks
+*.keystore
+
+# Large local caches (mirrored source imagery, bakes, reference photos).
+/local/

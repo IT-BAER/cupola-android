@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # build = assemble + check (unit tests, lint, manifest permission guard per variant).
+      - run: ./gradlew build
+
+      # Independent of the Gradle guard: the packaged release APK must declare no permission
+      # outside the allowlist (plan rule 3).
+      - name: apkanalyzer permission check
+        run: |
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          perms=$(apkanalyzer manifest permissions "$apk")
+          found=$(printf '%s\n' "$perms" | grep -v -x -e 'com.baer.cupola.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION' -e '' || true)
+          if [ -n "$found" ]; then
+            echo "Forbidden permissions in $apk:"
+            echo "$found"
+            exit 1
+          fi
+          echo "No forbidden permissions in $apk"
