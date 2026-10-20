@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.compose.compiler)
 }
 
 android {
@@ -38,6 +39,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     assetPacks += listOf(":earthpack")
 
     bundle {
@@ -55,11 +60,19 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.robolectric)
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
