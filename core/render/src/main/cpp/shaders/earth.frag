@@ -37,6 +37,8 @@ const float PI = 3.14159265358979;
 const float LAT_MAX = 1.2566370614359172;  // 72 deg: edge of every Earth map
 const float JULY_LAYER = 6.0;              // day_detail is July 2004
 const vec3 POLAR_ALBEDO = vec3(0.55, 0.58, 0.62);
+// Deep-ocean diffuse reflectance (linear, water-leaving, no atmosphere): BMNG paints seafloor relief instead.
+const vec3 OCEAN_ALBEDO = vec3(0.010, 0.022, 0.050);
 // Ocean slope variance (Cox-Munk, about 7 m/s wind) for the Beckmann glint lobe; water F0.
 const float GLINT_M2 = 0.04;
 const float WATER_F0 = 0.02;
@@ -111,6 +113,10 @@ void main() {
     vec3 east = normalize(vec3(-n.y, n.x, 0.0));
     vec3 north = cross(n, east);
     vec3 relief = normalize(east * nxy.x + north * nxy.y + n * sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
+
+    // Water: flat surface of one colour; the box-filtered mask blends the coastline.
+    albedo = mix(albedo, OCEAN_ALBEDO, water);
+    relief = normalize(mix(relief, n, water));
 
     if (abs(lat) > LAT_MAX) {
         albedo = POLAR_ALBEDO;

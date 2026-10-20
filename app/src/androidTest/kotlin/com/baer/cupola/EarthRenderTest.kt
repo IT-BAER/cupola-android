@@ -129,10 +129,50 @@ class EarthRenderTest {
         assertTrue("glint centre $angle deg from the specular point", angle <= 1.0)
     }
 
+    /**
+     * On the equator east of the subsolar meridian, looking west (sunward) 50 deg down; the camera longitude puts the
+     * terminator (Sun on the horizon) at the frame centre: lit ground above it, night below.
+     */
     @Test
-    fun terminatorView() {
-        val (lat, lon) = subsolar(GLINT)
-        save("terminator", render(scene(GLINT, lat, lon + 88.0, 0.0, -90.0)))
+    fun terminatorCrossesTheFrameCentre() {
+        val (_, lon) = subsolar(GLINT)
+        val sceneAt = { off: Double -> scene(GLINT, 0.0, lon + off, 270.0, -50.0) }
+        val centreSun = { sc: Scene ->
+            val d = sc.rayEcef(W / 2.0, H / 2.0, W, H)
+            val hit = sc.cameraEcefKm + d * SceneGeometry.intersectEllipsoid(sc.cameraEcefKm, d)!!
+            abs(SceneGeometry.enu(hit).up dot sc.sunDirEcef)
+        }
+        val best = (0..300).map { 90.0 + it * 0.05 }.minBy { centreSun(sceneAt(it)) }
+        val img = render(sceneAt(best))
+        save("terminator", img)
+        // Day above the centre row, night below: compare 200-row bands either side of a 200-row margin.
+        fun band(y0: Int) = (y0 until y0 + 200 step 4).flatMap { y -> (0 until W step 4).map { x -> luma(img, x, y) } }.average()
+        val day = band(H / 2 - 300)
+        val night = band(H / 2 + 100)
+        Log.i(TAG, "terminator lon offset $best day band $day night band $night")
+        assertTrue("day band $day", day > 5.0)
+        assertTrue("night band $night", night < 0.5)
+    }
+
+    /**
+     * Equatorial Atlantic over the Mid-Atlantic Ridge fracture zones (no island in the frame), nadir, Sun about 40 deg
+     * up. The deep ocean is one colour: the mean luma step between pixels 16 apart stays below 1 level (the smooth
+     * shading changes by < 0.3 per 16 px here; BMNG paints the seafloor relief into this area).
+     */
+    @Test
+    fun openOceanIsUniform() {
+        val img = render(scene(DAY, 0.0, -20.0, 0.0, -90.0))
+        save("ocean", img)
+        var sum = 0.0
+        var n = 0
+        for (y in 0 until H step 16) for (x in 0 until W - 16 step 16) {
+            sum += abs(luma(img, x + 16, y) - luma(img, x, y)); n++
+        }
+        for (y in 0 until H - 16 step 16) for (x in 0 until W step 16) {
+            sum += abs(luma(img, x, y + 16) - luma(img, x, y)); n++
+        }
+        Log.i(TAG, "ocean mean |step16| ${sum / n} mean luma ${channelMeans(img)}")
+        assertTrue("ocean step ${sum / n}", sum / n < 1.0)
     }
 
     /**
