@@ -65,6 +65,23 @@ skirt walls are racks (`build_walls`): dark backing, perforated rails, stacked a
 size and depth with connectors, backshells, jumper cables to the lower harness, handles, blank patches,
 corrugated hoses, bags and the LEDs.
 
+Round 3 (P4.7): albedos raised to measured-material levels (black anodize 3 %, shell 10 %, panels 20 %;
+lower values read as unlit holes); rack boxes in off-white, beige, blue-grey and dark grey; tan bags with
+straps; brighter blue anodized handrails and orange-red gaskets; white cable ties on the seam bundles and
+floating cables; red and orange dust caps, pouches, tool handles and tags (own `random.Random` streams,
+so the round-2 layout is unchanged); molded camera bodies (`Part.rounded`, a superellipsoid) with rear
+LCD, dials, mount ring and a floating strap; a rounded laptop with keyboard, touchpad and hinge barrels;
+a procedural screen (`screen_material`: brick-grid UI panels under a glossy coat, no text) and more
+status LEDs (green, amber, red, blue) and small lit displays on the racks for the night interior.
+Emissive strengths are set relative to `L_Cabin` (screen 8, LEDs 60).
+
+Preview exposure chain (round 3): `render_preview.py` uses the Standard view transform (display sRGB, like
+a camera JPEG and the bake's LDR step) instead of the factory AgX, scales screens and LEDs with the cabin
+light (station power: 5 % day, 15 % night), puts the assumed nadirs on cloudy ocean (the Earth is the
+interior's main light), and writes `mask_<pose>.png` (1-sample render with the Earth as holdout, white =
+interior) and `hist.json`: mean and 5/50/95th percentiles of sRGB-encoded luminance for render and photo,
+whole frame and inside the render's interior mask (the photo is only approximately aligned).
+
 `bake_panorama.py [BLEND] [--samples N] [--seed N] [--out DIR] [--faces +X,-Y] [--crop X0 Y0 X1 Y1]`
 (plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, 0.70) with
 Cycles (OptiX, else CUDA, else CPU; the device is printed and stored) into four light layers, denoises

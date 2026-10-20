@@ -6,6 +6,7 @@ local/blender/preview. Earth outside is a 1:1000 sphere with the BMNG 2004 month
 cloud layer from local/sources/ (tools/textures/sources.lock), placed by the pose's nadir and sun angles
 (EARTH below); GPU (OptiX/CUDA) when present. The .blend itself is not modified.
 """
+import json
 import math
 import os
 import sys
@@ -72,12 +73,14 @@ def look(eye, target, right_hint, roll_deg, up=None):
 
 # Preview Earth per pose (1:1000 scale sphere, metres). iss035e010551 uses its EOL record
 # (reference/dev-set.json: nadir, time, sun angles, altitude). The others have no EOL record
-# ("not found"): month from EXIF, nadir and sun ASSUMED (cloudy ocean, sun high, as in the photos).
+# ("not found"): month from EXIF, nadir and sun ASSUMED. The photos show near-overcast ocean, and the
+# Earth is the interior's main light, so the nadirs sit on cloudy ocean of the 2002 cloud layer (mean
+# cloud value in a +-12 deg box: rest 0.35, iss038e013587 0.45, iss073e0025760 0.28; measured 20 Oct 2026).
 EARTH = {
-    "rest": {"month": 7, "lat": 10.0, "lon": 60.0, "alt_km": 410.0, "sun_el": 50.0, "sun_az": 120.0},
+    "rest": {"month": 7, "lat": 40.0, "lon": 160.0, "alt_km": 410.0, "sun_el": 50.0, "sun_az": 120.0},
     "iss035e010551": {"month": 3, "lat": 51.8, "lon": -120.1, "alt_km": 394.0, "sun_el": -20.0, "sun_az": 56.0},
-    "iss038e013587": {"month": 12, "lat": -20.0, "lon": -30.0, "alt_km": 410.0, "sun_el": 65.0, "sun_az": 180.0},
-    "iss073e0025760": {"month": 5, "lat": 35.0, "lon": -40.0, "alt_km": 415.0, "sun_el": 45.0, "sun_az": 220.0},
+    "iss038e013587": {"month": 12, "lat": -50.0, "lon": -30.0, "alt_km": 410.0, "sun_el": 60.0, "sun_az": 180.0},
+    "iss073e0025760": {"month": 5, "lat": 50.0, "lon": -35.0, "alt_km": 415.0, "sun_el": 45.0, "sun_az": 220.0},
 }
 R_EARTH = 6371.0  # km; 1 km -> 1 m in the preview scene
 SRC = os.path.join(ROOT, "local", "sources")
@@ -102,6 +105,12 @@ def setup_world(scene):
     scene.world = w
     for ob in bpy.data.collections["Lights_Cabin"].all_objects:
         ob["base_energy"] = ob.data.energy
+    for m in emissive_materials():
+        m["base_emit"] = m.node_tree.nodes["Principled BSDF"].inputs["Emission Strength"].default_value
+
+
+def emissive_materials():
+    return {s.material for ob in bpy.data.collections["Emissive"].all_objects for s in ob.material_slots}
 
 
 def setup_earth(scene, cfg):
@@ -181,9 +190,14 @@ def setup_earth(scene, cfg):
     sun.rotation_euler = (-to_sun).to_track_quat("-Z", "Y").to_euler()
     scene.collection.objects.link(sun)
     # Daylit Earth dwarfs the Node 3 light (5 %); on the night side it is the main light, dimmed to
-    # the photos' level (30 %). Day exposure +0.5 EV: the photos expose for the bright Earth.
+    # the night photo's measured interior median (15 %; hist.json). Screens and LEDs are station-powered too and keep their ratio to the
+    # cabin light (the bake's cabin and emissive layers scale together). Day exposure +0.5 EV: the
+    # photos expose for the bright Earth.
+    power = 0.15 if night else 0.05
     for ob in bpy.data.collections["Lights_Cabin"].all_objects:
-        ob.data.energy = ob["base_energy"] * (0.3 if night else 0.05)
+        ob.data.energy = ob["base_energy"] * power
+    for m in emissive_materials():
+        m.node_tree.nodes["Principled BSDF"].inputs["Emission Strength"].default_value = m["base_emit"] * power
     scene.view_settings.exposure = 0.0 if night else 0.5
 
 
@@ -213,10 +227,47 @@ def pixels(img):
     return a.reshape(img.size[1], img.size[0], 4)
 
 
-def compare(render_png, photo, out_png):
+def luminance(a):
+    """sRGB-encoded relative luminance 0-255 of 8-bit PNG pixels (Rec.709 weights on linear values)."""
+    c = a[..., :3].astype(np.float64)
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    y = lin @ np.array([0.2126, 0.7152, 0.0722])
+    return 255.0 * np.where(y <= 0.0031308, 12.92 * y, 1.055 * np.power(y, 1 / 2.4) - 0.055)
+
+
+def stats(v):
+    return {"mean": round(float(v.mean()), 1),
+            **{"p%d" % q: round(float(x), 1) for q, x in zip((5, 50, 95), np.percentile(v, (5, 50, 95)))}}
+
+
+def render_mask(scene, path):
+    """Interior mask: 1-sample render with the Earth as holdout on a transparent film (alpha 0 where the
+    view leaves through a window), saved as a grey PNG (white = interior)."""
+    earth = bpy.data.objects["PreviewEarth"]
+    keep = scene.cycles.samples, scene.cycles.use_denoising, scene.render.filepath
+    scene.cycles.samples, scene.cycles.use_denoising = 1, False
+    scene.render.film_transparent, earth.is_holdout = True, True
+    scene.render.filepath = path
+    bpy.ops.render.render(write_still=True)
+    scene.cycles.samples, scene.cycles.use_denoising, scene.render.filepath = keep
+    scene.render.film_transparent, earth.is_holdout = False, False
+    img = bpy.data.images.load(path)
+    a = pixels(img)
+    m = (a[..., 3] > 0.5).astype(np.float32)
+    a[..., 0] = a[..., 1] = a[..., 2] = m
+    a[..., 3] = 1.0
+    img.pixels.foreach_set(a.ravel())
+    img.save()
+    return m > 0.5
+
+
+def compare(render_png, photo, out_png, mask):
     r = bpy.data.images.load(render_png)
     p = bpy.data.images.load(photo)
     p.scale(W, H)
+    lr, lp = luminance(pixels(r)), luminance(pixels(p))
+    hist = {"render_all": stats(lr), "photo_all": stats(lp), "render_interior": stats(lr[mask]),
+            "photo_interior_render_mask": stats(lp[mask]), "mask_fraction": round(float(mask.mean()), 3)}
     arr = np.concatenate([pixels(r), pixels(p)], axis=1)
     arr[..., 3] = 1.0
     img = bpy.data.images.new(os.path.basename(out_png), 2 * W, H, alpha=False)
@@ -224,6 +275,7 @@ def compare(render_png, photo, out_png):
     img.filepath_raw = out_png
     img.file_format = "PNG"
     img.save()
+    return hist
 
 
 def main():
@@ -239,22 +291,29 @@ def main():
     scene.render.resolution_x, scene.render.resolution_y = W, H
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    # Camera JPEGs are display-referred sRGB; Standard matches them and the bake's EXR -> LDR step.
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.look = "None"
     os.makedirs(out_dir, exist_ok=True)
     rest = bpy.data.objects["Cam_Rest"]
     rest.data.clip_end = 30000.0
+    hist = {}
     for name, pose in POSES.items():
         setup_earth(scene, EARTH[name])
         scene.camera = rest if pose is None else make_camera("Cam_" + name, pose)
         path = os.path.join(out_dir, name + ".png")
         scene.render.filepath = path
         bpy.ops.render.render(write_still=True)
-        if pose is not None:
-            compare(path, os.path.join(ROOT, "local", "reference", pose[5]),
-                    os.path.join(out_dir, "compare_" + name + ".png"))
-        else:
-            compare(path, os.path.join(ROOT, "local", "reference", "clip", "clip_f120.png"),
-                    os.path.join(out_dir, "compare_rest_clip.png"))
+        mask = render_mask(scene, os.path.join(out_dir, "mask_" + name + ".png"))
+        ref = pose[5] if pose is not None else os.path.join("clip", "clip_f120.png")
+        tag = name if pose is not None else "rest_clip"
+        hist[tag] = compare(path, os.path.join(ROOT, "local", "reference", ref),
+                            os.path.join(out_dir, "compare_" + tag + ".png"), mask)
+        print("HIST", tag, json.dumps(hist[tag]))
         print("PREVIEW_OK", name, path)
+    with open(os.path.join(out_dir, "hist.json"), "w") as f:
+        json.dump(hist, f, indent=1)
 
 
 main()
