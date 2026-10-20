@@ -57,6 +57,7 @@ class EarthpackLoadTest {
             "city_lights" to ok(ASTC_8X8_SRGB, 8192, 3277, 1, 14),
             "terrain_normal" to ok(ASTC_6X6_UNORM, 4096, 1638, 1, 13),
             "stars" to ok(ASTC_6X6_SRGB, 4096, 2048, 1, 13),
+            "water_mask" to ok(ASTC_8X8_UNORM, 4096, 1638, 1, 13),
         )
         val ETC2 = mapOf(
             "day_detail" to ok(ETC2_RGB_SRGB, 2048, 1638, 8, 12),
@@ -65,6 +66,7 @@ class EarthpackLoadTest {
             "city_lights" to ok(ETC2_RGB_SRGB, 4096, 1638, 1, 13),
             "terrain_normal" to ok(ETC2_RGBA_UNORM, 2048, 819, 1, 12),
             "stars" to ok(ETC2_RGB_SRGB, 2048, 1024, 1, 12),
+            "water_mask" to ok(ETC2_RGB_UNORM, 2048, 819, 1, 12),
         )
     }
 }

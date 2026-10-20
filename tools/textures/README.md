@@ -53,6 +53,7 @@ Common to every file:
 | `clouds` | `ASTC_8x8_UNORM_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_UNORM_BLOCK` | 4096 x 1638, 13 | 1 (no array) | linear | R = G = B = cloud brightness/coverage 0..1 as in the source, A = 1 |
 | `city_lights` | `ASTC_8x8_SRGB_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_SRGB_BLOCK` | 4096 x 1638, 13 | 1 (no array) | sRGB | R = G = B = night-light radiance (sampled value is linear), A = 1 |
 | `terrain_normal` | `ASTC_6x6_UNORM_BLOCK` | 4096 x 1638, 13 | `ETC2_R8G8B8A8_UNORM_BLOCK` | 2048 x 819, 12 | 1 (no array) | linear | RGB = X, A = Y; Z reconstructed |
+| `water_mask` | `ASTC_8x8_UNORM_BLOCK` | 4096 x 1638, 13 | `ETC2_R8G8B8_UNORM_BLOCK` | 2048 x 819, 12 | 1 (no array) | linear | R = G = B = water coverage 0..1, A = 1 |
 | `stars` | `ASTC_6x6_SRGB_BLOCK` | 4096 x 2048, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 2048 x 1024, 12 | 1 (no array) | sRGB | RGB sky colour, A = 1 |
 
 Single-layer files have `layerCount = 0` (plain 2D texture); the two arrays have `layerCount` 8 and 12.
@@ -109,6 +110,13 @@ level's size (not by filtering normals), so each level is a unit-length normal m
 - Shader: `xy = texture(...).ga * 2 - 1; z = sqrt(max(0, 1 - dot(xy, xy)))` for both ASTC (astcenc
   `-normal`, RGB = X, A = Y) and ETC2 (RGBA8 ETC2/EAC with RGB = X, A = Y; Compressonator 4.5.52 offers no
   EAC RG11 format, and the EAC alpha channel keeps Y independent of X).
+
+### water_mask
+
+Source: the ETOPO 2022 surface elevation of terrain_normal (same rows 1080..9719). Water = elevation below
+0 m (255), land 0, box-filtered (`vips resize --kernel linear`) to 4096 x 1638 so coasts get fractional
+coverage; mips from level 0 like the other maps. Inland water above sea level (Great Lakes, Lake Victoria)
+counts as land; the Caspian and the Dead Sea count as water. Used for the ocean sun glint (P3.1).
 
 ### stars (full sky, no crop)
 
