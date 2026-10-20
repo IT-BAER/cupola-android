@@ -74,6 +74,19 @@ class NativeRenderer(
     /** GPU time of the last completed frame in nanoseconds, -1 if unknown. */
     fun lastGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastGpuTimeNanos() }
 
+    /** GPU time of the last frame's scaled Earth pass in nanoseconds (0 without one), -1 if unknown. */
+    fun lastEarthPassGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastEarthPassGpuTimeNanos() }
+
+    /**
+     * Keeps the Vulkan device (and its texture set) alive until the returned handle is closed; without a surface
+     * every [renderOffscreen] otherwise creates and destroys the instance and device.
+     */
+    fun holdDevice(): AutoCloseable {
+        val result = thread.postAndWait { NativeBridge.holdDevice(true) }
+        check(result == VK_SUCCESS) { "device failed: VkResult $result" }
+        return AutoCloseable { thread.postAndWait { NativeBridge.holdDevice(false) } }
+    }
+
     /** Tightly packed RGBA8, row-major, top row first. */
     fun renderOffscreen(width: Int, height: Int, inputs: FloatArray): ByteArray {
         require(width > 0 && height > 0) { "size must be positive: ${width}x$height" }

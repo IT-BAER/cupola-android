@@ -67,7 +67,7 @@ VkResult SurfaceTarget::init(ANativeWindow* window) {
     VK_TRY(device_->createPipeline(renderPass_, false, &pipeline_));
     VK_TRY(device_->createPipeline(renderPass_, true, &earthPipeline_));
     VK_TRY(device_->createPipeline(renderPass_, true, &compositePipeline_, kEarthModeComposite));
-    VK_TRY(device_->createTimestampPool(2 * kFramesInFlight, &queries_));
+    VK_TRY(device_->createTimestampPool(Device::kTimestampsPerFrame * kFramesInFlight, &queries_));
 
     for (Frame& frame : frames_) {
         VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -251,7 +251,7 @@ VkResult SurfaceTarget::drawFrame() {
     Frame& frame = frames_[frameIndex_];
     VK_TRY(vkWaitForFences(dev, 1, &frame.fence, VK_TRUE, UINT64_MAX));
     if (frame.queriesWritten) {
-        device_->collectGpuTime(queries_, frameIndex_ * 2);
+        device_->collectGpuTime(queries_, frameIndex_ * Device::kTimestampsPerFrame);
         frame.queriesWritten = false;
     }
     // Before acquire: the first Earth frame loads the texture set, which must not hold a swapchain image.
@@ -281,8 +281,8 @@ VkResult SurfaceTarget::drawFrame() {
     VkPipeline pipeline = !earth ? pipeline_ : scaled ? compositePipeline_ : earthPipeline_;
     device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline,
                          earth ? frame.scene.set : VK_NULL_HANDLE, extent_,
-                         makePushConstants(inputs_, extent_, rotation_), queries_, frameIndex_ * 2,
-                         scaled ? &earthPass_ : nullptr);
+                         makePushConstants(inputs_, extent_, rotation_), queries_,
+                         frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet);
     VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

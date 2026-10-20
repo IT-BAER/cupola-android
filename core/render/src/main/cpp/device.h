@@ -75,6 +75,9 @@ public:
 
     // GPU duration of the last completed frame (any target, survives device teardown), -1 until known.
     static int64_t lastGpuTimeNs();
+    // GPU time of the last frame's scaled Earth pass (0 without one), -1 if unknown.
+    static int64_t lastEarthPassGpuTimeNs();
+    static constexpr uint32_t kTimestampsPerFrame = 3;
 
     VkResult createRenderPass(VkFormat format, VkImageLayout finalLayout, VkRenderPass* out) const;
     // `earthMode` (kEarthMode*) applies to the Earth pipeline.
@@ -85,11 +88,13 @@ public:
     // Memory of type `preferred`, else `required`; VK_ERROR_OUT_OF_DEVICE_MEMORY when neither exists.
     VkResult allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
                       VkDeviceMemory* out) const;
-    // Two timestamps per frame: [begin, end] at query index `first`. A non-null `earthPass` is recorded before
-    // the main pass, which then uses the composite pipeline.
+    // kTimestampsPerFrame timestamps per frame at query index `first`: begin, after the Earth pass, end.
+    // A non-null `earthPass` is recorded (with `earthScene`) before the main pass, which then uses the composite
+    // pipeline.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
-                     VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr) const;
+                     VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr,
+                     VkDescriptorSet earthScene = VK_NULL_HANDLE) const;
     VkResult createTimestampPool(uint32_t count, VkQueryPool* out) const;
     void collectGpuTime(VkQueryPool queries, uint32_t first);
 

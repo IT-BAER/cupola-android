@@ -58,10 +58,11 @@ class EarthRenderTest {
         return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, override)
     }
 
-    private fun render(scene: Scene, renderScale: Float = 1f): ByteArray {
+    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
         inputs[FrameInputs.RENDER_SCALE] = renderScale
+        if (!interior) inputs[FrameInputs.INTERIOR] = 0f
         return renderer.renderOffscreen(W, H, inputs)
     }
 
@@ -177,16 +178,26 @@ class EarthRenderTest {
     /** Full frame GPU time (interior + Earth) per rest view and render scale; logged, the budget is checked by hand. */
     @Test
     fun gpuTimeFullFrame() {
-        for (rest in RestView.entries) for (scale in floatArrayOf(1f, 0.6f, 0.5f)) {
+        // The DIAGONAL runs without the interior split the composite cost into interior lookups and the rest.
+        val configs = RestView.entries.flatMap { rest -> listOf(1f, 0.6f, 0.5f).map { Triple(rest, it, true) } } +
+            listOf(1f, 0.5f).map { Triple(RestView.DIAGONAL, it, false) }
+        for ((rest, scale, interior) in configs) {
             val scene = restScene(DAY, rest)
-            val times = (0 until GPU_SAMPLES).map {
-                render(scene, scale)
-                renderer.lastGpuTimeNanos() / 1e6
-            }.filter { it >= 0 }.sorted()
-            assertTrue("no GPU timestamps", times.isNotEmpty())
-            val p50 = times[(times.size - 1) / 2]
-            val p95 = times[((times.size - 1) * 95 + 99) / 100]
-            Log.i(TAG, "frame gpu $rest scale $scale ${W}x$H n=${times.size} p50=%.3f ms p95=%.3f ms".format(p50, p95))
+            repeat(GPU_WARMUP) { render(scene, scale, interior) }
+            val samples = (0 until GPU_SAMPLES).map {
+                render(scene, scale, interior)
+                renderer.lastGpuTimeNanos() / 1e6 to renderer.lastEarthPassGpuTimeNanos() / 1e6
+            }.filter { it.first >= 0 && it.second >= 0 }
+            assertTrue("no GPU timestamps", samples.isNotEmpty())
+            fun pct(values: List<Double>, p: Int) = values.sorted()[((values.size - 1) * p + 99) / 100]
+            val total = samples.map { it.first }
+            val earth = samples.map { it.second }
+            val composite = samples.map { it.first - it.second }
+            Log.i(
+                TAG,
+                "frame gpu $rest scale $scale interior $interior ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms earth p50=%.3f composite p50=%.3f"
+                    .format(pct(total, 50), pct(total, 95), pct(earth, 50), pct(composite, 50)),
+            )
         }
     }
 
@@ -416,6 +427,7 @@ class EarthRenderTest {
         private const val H = 2340
         private const val ALT_KM = 420.0
         private const val GPU_SAMPLES = 30
+        private const val GPU_WARMUP = 10
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
         private val DAY = Instant.parse("2026-10-25T09:50:00Z")
@@ -423,6 +435,7 @@ class EarthRenderTest {
 
         private val context = InstrumentationRegistry.getInstrumentation().targetContext
         private lateinit var renderer: NativeRenderer
+        private lateinit var device: AutoCloseable
         private lateinit var orbit: OrbitModel
 
         @BeforeClass
@@ -431,10 +444,14 @@ class EarthRenderTest {
             val lines = context.assets.open("orbit/iss.tle").bufferedReader().use { it.readLines() }.filter { it.isNotBlank() }
             orbit = OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
             renderer = NativeRenderer(assets = context.assets)
+            device = renderer.holdDevice()
         }
 
         @AfterClass
         @JvmStatic
-        fun tearDown() = renderer.close()
+        fun tearDown() {
+            device.close()
+            renderer.close()
+        }
     }
 }

@@ -18,6 +18,7 @@ namespace {
 Device* gDevice = nullptr;
 int gRefs = 0;
 int64_t gLastGpuTimeNs = -1;
+int64_t gLastEarthPassGpuTimeNs = -1;
 AAssetManager* gAssets = nullptr;
 
 #if CUPOLA_DEBUG
@@ -138,6 +139,8 @@ void Device::release() {
 Device* Device::current() { return gDevice; }
 
 int64_t Device::lastGpuTimeNs() { return gLastGpuTimeNs; }
+
+int64_t Device::lastEarthPassGpuTimeNs() { return gLastEarthPassGpuTimeNs; }
 
 VkResult Device::init() {
     uint32_t loaderVersion = VK_API_VERSION_1_0;
@@ -423,12 +426,16 @@ VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
 
 void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                          VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
-                         VkQueryPool queries, uint32_t first, const EarthPass* earthPass) const {
+                         VkQueryPool queries, uint32_t first, const EarthPass* earthPass,
+                         VkDescriptorSet earthScene) const {
     if (queries != VK_NULL_HANDLE) {
-        vkCmdResetQueryPool(cmd, queries, first, 2);
+        vkCmdResetQueryPool(cmd, queries, first, kTimestampsPerFrame);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
     }
-    if (earthPass != nullptr) earthPass->record(*this, cmd, scene, push);
+    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, push);
+    if (queries != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
+    }
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     begin.renderPass = renderPass;
     begin.framebuffer = framebuffer;
@@ -446,19 +453,23 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
     if (queries != VK_NULL_HANDLE) {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 2);
     }
 }
 
 void Device::collectGpuTime(VkQueryPool queries, uint32_t first) {
     if (queries == VK_NULL_HANDLE) return;
-    uint64_t ticks[2] = {};
-    if (vkGetQueryPoolResults(device, queries, first, 2, sizeof(ticks), ticks, sizeof(uint64_t),
+    uint64_t ticks[kTimestampsPerFrame] = {};
+    if (vkGetQueryPoolResults(device, queries, first, kTimestampsPerFrame, sizeof(ticks), ticks, sizeof(uint64_t),
                               VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
         return;
     }
-    uint64_t delta = ((ticks[1] & timestampMask) - (ticks[0] & timestampMask)) & timestampMask;
-    gLastGpuTimeNs = static_cast<int64_t>(std::llround(static_cast<double>(delta) * properties.limits.timestampPeriod));
+    auto ns = [&](uint64_t from, uint64_t to) {
+        uint64_t delta = ((to & timestampMask) - (from & timestampMask)) & timestampMask;
+        return static_cast<int64_t>(std::llround(static_cast<double>(delta) * properties.limits.timestampPeriod));
+    };
+    gLastGpuTimeNs = ns(ticks[0], ticks[2]);
+    gLastEarthPassGpuTimeNs = ns(ticks[0], ticks[1]);
 }
 
 }  // namespace cupola

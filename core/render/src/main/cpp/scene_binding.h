@@ -15,6 +15,9 @@ public:
     VkResult update(Device& device, const float* inputs, VkImageView earthImage = VK_NULL_HANDLE);
 
     VkDescriptorSet set = VK_NULL_HANDLE;
+    // Same uniform buffer and textures, binding 12 always the placeholder: the scaled Earth pass renders into the
+    // image that `set` binds there, and a bound attachment must not be a sampled descriptor of the same draw.
+    VkDescriptorSet earthSet = VK_NULL_HANDLE;
 
 private:
     VkDescriptorPool pool_ = VK_NULL_HANDLE;

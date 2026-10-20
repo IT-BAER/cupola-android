@@ -26,6 +26,11 @@ internal object NativeBridge {
 
     @JvmStatic external fun lastGpuTimeNanos(): Long
 
+    @JvmStatic external fun lastEarthPassGpuTimeNanos(): Long
+
+    /** true acquires a device reference (returns a VkResult), false releases one. */
+    @JvmStatic external fun holdDevice(hold: Boolean): Int
+
     @JvmStatic external fun renderOffscreen(width: Int, height: Int, inputs: FloatArray, out: ByteArray): Int
 
     /** Asset manager for the Earth texture set; the first call wins (kept as a global reference). */

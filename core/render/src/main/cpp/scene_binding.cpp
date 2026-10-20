@@ -10,19 +10,23 @@ namespace cupola {
 VkResult SceneBinding::init(Device& device) {
     VkDevice dev = device.device;
     VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kTextureSlots + 1},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * (kTextureSlots + 1)},
     };
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.maxSets = 1;
+    poolInfo.maxSets = 2;
     poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes = sizes;
     VK_TRY(vkCreateDescriptorPool(dev, &poolInfo, nullptr, &pool_));
     VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     alloc.descriptorPool = pool_;
-    alloc.descriptorSetCount = 1;
-    alloc.pSetLayouts = &device.sceneSetLayout;
-    VK_TRY(vkAllocateDescriptorSets(dev, &alloc, &set));
+    const VkDescriptorSetLayout layouts[2] = {device.sceneSetLayout, device.sceneSetLayout};
+    VkDescriptorSet sets[2];
+    alloc.descriptorSetCount = 2;
+    alloc.pSetLayouts = layouts;
+    VK_TRY(vkAllocateDescriptorSets(dev, &alloc, sets));
+    set = sets[0];
+    earthSet = sets[1];
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = kSceneUniformBytes;
@@ -38,13 +42,16 @@ VkResult SceneBinding::init(Device& device) {
     std::memset(mapped_, 0, kSceneUniformBytes);
 
     VkDescriptorBufferInfo uniform{buffer_, 0, kSceneUniformBytes};
-    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = set;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write.pBufferInfo = &uniform;
-    vkUpdateDescriptorSets(dev, 1, &write, 0, nullptr);
+    VkWriteDescriptorSet writes[2];
+    for (int i = 0; i < 2; ++i) {
+        writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[i].dstSet = sets[i];
+        writes[i].dstBinding = 0;
+        writes[i].descriptorCount = 1;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[i].pBufferInfo = &uniform;
+    }
+    vkUpdateDescriptorSets(dev, 2, writes, 0, nullptr);
     return VK_SUCCESS;
 }
 
@@ -59,7 +66,8 @@ void SceneBinding::destroy(VkDevice dev) {
 VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage) {
     const TextureSet* textures = nullptr;
     VK_TRY(device.textures(&textures));
-    if (earthImage == VK_NULL_HANDLE) earthImage = textures->textures[kInteriorEarth].view;
+    const VkImageView placeholder = textures->textures[kInteriorEarth].view;
+    if (earthImage == VK_NULL_HANDLE) earthImage = placeholder;
     if (earthImage != earthImage_) {
         VkDescriptorImageInfo image{textures->clamp, earthImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -76,13 +84,17 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
         for (uint32_t s = 0; s < kTextureSlots; ++s) {
             images[s] = {textures->sampler(s), textures->textures[s].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         }
-        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = set;
-        write.dstBinding = 1;
-        write.descriptorCount = kTextureSlots;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = images;
-        vkUpdateDescriptorSets(device.device, 1, &write, 0, nullptr);
+        VkDescriptorImageInfo image{textures->clamp, placeholder, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet writes[3];
+        for (int i = 0; i < 3; ++i) {
+            writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            writes[i].dstSet = i == 0 ? set : earthSet;
+            writes[i].dstBinding = i == 2 ? kEarthImageBinding : 1;
+            writes[i].descriptorCount = i == 2 ? 1 : kTextureSlots;
+            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].pImageInfo = i == 2 ? &image : images;
+        }
+        vkUpdateDescriptorSets(device.device, 3, writes, 0, nullptr);
         texturesBound_ = true;
     }
     std::memcpy(mapped_, inputs + inputs::kSceneBlock, sizeof(float) * (inputs::kCount - inputs::kSceneBlock));
