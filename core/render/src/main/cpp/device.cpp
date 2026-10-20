@@ -7,8 +7,10 @@
 #include <cstring>
 #include <vector>
 
+#include "earth_pass.h"
 #include "frame_inputs.h"
 #include "shaders.h"
+#include "texture_set.h"
 
 namespace cupola {
 namespace {
@@ -16,6 +18,8 @@ namespace {
 Device* gDevice = nullptr;
 int gRefs = 0;
 int64_t gLastGpuTimeNs = -1;
+int64_t gLastEarthPassGpuTimeNs = -1;
+AAssetManager* gAssets = nullptr;
 
 #if CUPOLA_DEBUG
 pid_t gRenderTid = 0;
@@ -73,6 +77,26 @@ void assertRenderThread(const char* where) {
 #endif
 }
 
+bool wantsEarth(const float* inputs) {
+    return inputs[inputs::kLoad] == 0.0f && inputs[inputs::kScene] == 1.0f;
+}
+
+void Device::setAssetManager(AAssetManager* assets) { gAssets = assets; }
+
+VkResult Device::textures(const TextureSet** out) {
+    if (!textures_) {
+        auto set = std::make_unique<TextureSet>();
+        VkResult result = loadTextureSet(*this, gAssets, set.get());
+        if (result != VK_SUCCESS) {
+            destroyTextureSet(*this, set.get());
+            return result;
+        }
+        textures_ = std::move(set);
+    }
+    *out = textures_.get();
+    return VK_SUCCESS;
+}
+
 PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t rotationQuarterTurns) {
     float iterations = std::clamp(inputs[inputs::kLoadIterations], 0.0f, 1.0e6f);
     return PushConstants{
@@ -84,6 +108,8 @@ PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t 
         inputs[inputs::kTimeSeconds],
         inputs[inputs::kLookYawDeg],
         inputs[inputs::kLookPitchDeg],
+        1.0f,
+        1.0f,
     };
 }
 
@@ -113,6 +139,8 @@ void Device::release() {
 Device* Device::current() { return gDevice; }
 
 int64_t Device::lastGpuTimeNs() { return gLastGpuTimeNs; }
+
+int64_t Device::lastEarthPassGpuTimeNs() { return gLastEarthPassGpuTimeNs; }
 
 VkResult Device::init() {
     uint32_t loaderVersion = VK_API_VERSION_1_0;
@@ -224,10 +252,28 @@ VkResult Device::init() {
     VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &vertexShader));
     shaderInfo.codeSize = sizeof(shaders::kPatternFrag);
     shaderInfo.pCode = shaders::kPatternFrag;
-    VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &fragmentShader));
+    VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &patternShader));
+    shaderInfo.codeSize = sizeof(shaders::kEarthFrag);
+    shaderInfo.pCode = shaders::kEarthFrag;
+    VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &earthShader));
+
+    VkDescriptorSetLayoutBinding bindings[kEarthImageBinding + 1]{};
+    for (uint32_t i = 0; i <= kEarthImageBinding; ++i) {
+        bindings[i].binding = i;
+        bindings[i].descriptorType =
+            i == 0 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].descriptorCount = 1;
+        bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    setInfo.bindingCount = kEarthImageBinding + 1;
+    setInfo.pBindings = bindings;
+    VK_TRY(vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &sceneSetLayout));
 
     VkPushConstantRange range{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)};
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &sceneSetLayout;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &range;
     VK_TRY(vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout));
@@ -241,8 +287,11 @@ VkResult Device::init() {
 Device::~Device() {
     if (device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device);
+        if (textures_) destroyTextureSet(*this, textures_.get());
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        vkDestroyShaderModule(device, fragmentShader, nullptr);
+        vkDestroyDescriptorSetLayout(device, sceneSetLayout, nullptr);
+        vkDestroyShaderModule(device, earthShader, nullptr);
+        vkDestroyShaderModule(device, patternShader, nullptr);
         vkDestroyShaderModule(device, vertexShader, nullptr);
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDevice(device, nullptr);
@@ -295,7 +344,7 @@ VkResult Device::createRenderPass(VkFormat format, VkImageLayout finalLayout, Vk
     return vkCreateRenderPass(device, &info, nullptr, out);
 }
 
-VkResult Device::createPipeline(VkRenderPass renderPass, VkPipeline* out) const {
+VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out, int32_t earthMode) const {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -303,8 +352,11 @@ VkResult Device::createPipeline(VkRenderPass renderPass, VkPipeline* out) const 
     stages[0].pName = "main";
     stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fragmentShader;
+    stages[1].module = earth ? earthShader : patternShader;
     stages[1].pName = "main";
+    VkSpecializationMapEntry modeEntry{0, 0, sizeof(int32_t)};
+    VkSpecializationInfo specialization{1, &modeEntry, sizeof(int32_t), &earthMode};
+    if (earth) stages[1].pSpecializationInfo = &specialization;
     VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -373,11 +425,16 @@ VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
 }
 
 void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                         VkPipeline pipeline, VkExtent2D extent, const PushConstants& push, VkQueryPool queries,
-                         uint32_t first) const {
+                         VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
+                         VkQueryPool queries, uint32_t first, const EarthPass* earthPass,
+                         VkDescriptorSet earthScene) const {
     if (queries != VK_NULL_HANDLE) {
-        vkCmdResetQueryPool(cmd, queries, first, 2);
+        vkCmdResetQueryPool(cmd, queries, first, kTimestampsPerFrame);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
+    }
+    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, push);
+    if (queries != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
     }
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     begin.renderPass = renderPass;
@@ -385,6 +442,9 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     begin.renderArea.extent = extent;
     vkCmdBeginRenderPass(cmd, &begin, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    if (scene != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &scene, 0, nullptr);
+    }
     VkViewport viewport{0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
     VkRect2D scissor{{0, 0}, extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -393,19 +453,23 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
     if (queries != VK_NULL_HANDLE) {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 2);
     }
 }
 
 void Device::collectGpuTime(VkQueryPool queries, uint32_t first) {
     if (queries == VK_NULL_HANDLE) return;
-    uint64_t ticks[2] = {};
-    if (vkGetQueryPoolResults(device, queries, first, 2, sizeof(ticks), ticks, sizeof(uint64_t),
+    uint64_t ticks[kTimestampsPerFrame] = {};
+    if (vkGetQueryPoolResults(device, queries, first, kTimestampsPerFrame, sizeof(ticks), ticks, sizeof(uint64_t),
                               VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
         return;
     }
-    uint64_t delta = ((ticks[1] & timestampMask) - (ticks[0] & timestampMask)) & timestampMask;
-    gLastGpuTimeNs = static_cast<int64_t>(std::llround(static_cast<double>(delta) * properties.limits.timestampPeriod));
+    auto ns = [&](uint64_t from, uint64_t to) {
+        uint64_t delta = ((to & timestampMask) - (from & timestampMask)) & timestampMask;
+        return static_cast<int64_t>(std::llround(static_cast<double>(delta) * properties.limits.timestampPeriod));
+    };
+    gLastGpuTimeNs = ns(ticks[0], ticks[2]);
+    gLastEarthPassGpuTimeNs = ns(ticks[0], ticks[1]);
 }
 
 }  // namespace cupola

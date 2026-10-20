@@ -64,8 +64,10 @@ VkResult SurfaceTarget::init(ANativeWindow* window) {
     if (format_ == VK_FORMAT_UNDEFINED) return VK_ERROR_FORMAT_NOT_SUPPORTED;
 
     VK_TRY(device_->createRenderPass(format_, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, &renderPass_));
-    VK_TRY(device_->createPipeline(renderPass_, &pipeline_));
-    VK_TRY(device_->createTimestampPool(2 * kFramesInFlight, &queries_));
+    VK_TRY(device_->createPipeline(renderPass_, false, &pipeline_));
+    VK_TRY(device_->createPipeline(renderPass_, true, &earthPipeline_));
+    VK_TRY(device_->createPipeline(renderPass_, true, &compositePipeline_, kEarthModeComposite));
+    VK_TRY(device_->createTimestampPool(Device::kTimestampsPerFrame * kFramesInFlight, &queries_));
 
     for (Frame& frame : frames_) {
         VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -78,6 +80,7 @@ VkResult SurfaceTarget::init(ANativeWindow* window) {
         VK_TRY(vkCreateFence(dev, &fenceInfo, nullptr, &frame.fence));
         VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         VK_TRY(vkCreateSemaphore(dev, &semaphoreInfo, nullptr, &frame.acquired));
+        VK_TRY(frame.scene.init(*device_));
     }
     return createSwapchain();
 }
@@ -90,12 +93,16 @@ SurfaceTarget::~SurfaceTarget() {
         destroySwapchainResources();
         vkDestroySwapchainKHR(dev, swapchain_, nullptr);
         for (Frame& frame : frames_) {
+            frame.scene.destroy(dev);
             vkDestroySemaphore(dev, frame.acquired, nullptr);
             vkDestroyFence(dev, frame.fence, nullptr);
             if (frame.cmd != VK_NULL_HANDLE) vkFreeCommandBuffers(dev, device_->commandPool, 1, &frame.cmd);
         }
         vkDestroyQueryPool(dev, queries_, nullptr);
         vkDestroyPipeline(dev, pipeline_, nullptr);
+        vkDestroyPipeline(dev, earthPipeline_, nullptr);
+        vkDestroyPipeline(dev, compositePipeline_, nullptr);
+        earthPass_.destroy(dev);
         vkDestroyRenderPass(dev, renderPass_, nullptr);
         vkDestroySurfaceKHR(device_->instance, surface_, nullptr);
         Device::release();
@@ -244,9 +251,14 @@ VkResult SurfaceTarget::drawFrame() {
     Frame& frame = frames_[frameIndex_];
     VK_TRY(vkWaitForFences(dev, 1, &frame.fence, VK_TRUE, UINT64_MAX));
     if (frame.queriesWritten) {
-        device_->collectGpuTime(queries_, frameIndex_ * 2);
+        device_->collectGpuTime(queries_, frameIndex_ * Device::kTimestampsPerFrame);
         frame.queriesWritten = false;
     }
+    // Before acquire: the first Earth frame loads the texture set, which must not hold a swapchain image.
+    const bool earth = wantsEarth(inputs_);
+    const bool scaled = EarthPass::wanted(inputs_);
+    if (scaled) VK_TRY(earthPass_.ensure(*device_, extent_, inputs_[inputs::kRenderScale]));
+    if (earth) VK_TRY(frame.scene.update(*device_, inputs_, scaled ? earthPass_.view : VK_NULL_HANDLE));
 
     uint32_t imageIndex = 0;
     VkResult acquired;
@@ -266,8 +278,11 @@ VkResult SurfaceTarget::drawFrame() {
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_TRY_OR_DIE(vkBeginCommandBuffer(frame.cmd, &begin));
-    device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline_, extent_,
-                         makePushConstants(inputs_, extent_, rotation_), queries_, frameIndex_ * 2);
+    VkPipeline pipeline = !earth ? pipeline_ : scaled ? compositePipeline_ : earthPipeline_;
+    device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline,
+                         earth ? frame.scene.set : VK_NULL_HANDLE, extent_,
+                         makePushConstants(inputs_, extent_, rotation_), queries_,
+                         frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet);
     VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

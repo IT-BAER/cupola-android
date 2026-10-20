@@ -2,6 +2,9 @@
 
 #include <cstring>
 
+#include "earth_pass.h"
+#include "scene_binding.h"
+
 namespace cupola {
 namespace {
 
@@ -19,10 +22,14 @@ struct OffscreenResources {
     VkQueryPool queries = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
+    SceneBinding scene;
+    EarthPass earthPass;
 
     ~OffscreenResources() {
         if (fence != VK_NULL_HANDLE) vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
         vkDestroyFence(dev, fence, nullptr);
+        earthPass.destroy(dev);
+        scene.destroy(dev);
         if (cmd != VK_NULL_HANDLE) vkFreeCommandBuffers(dev, pool, 1, &cmd);
         vkDestroyQueryPool(dev, queries, nullptr);
         vkDestroyBuffer(dev, buffer, nullptr);
@@ -78,7 +85,14 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     fbInfo.height = height;
     fbInfo.layers = 1;
     VK_TRY(vkCreateFramebuffer(r.dev, &fbInfo, nullptr, &r.framebuffer));
-    VK_TRY(device.createPipeline(r.renderPass, &r.pipeline));
+    const bool earth = wantsEarth(inputs);
+    const bool scaled = EarthPass::wanted(inputs);
+    VK_TRY(device.createPipeline(r.renderPass, earth, &r.pipeline, scaled ? kEarthModeComposite : kEarthModeSingle));
+    if (scaled) VK_TRY(r.earthPass.ensure(device, extent, inputs[inputs::kRenderScale]));
+    if (earth) {
+        VK_TRY(r.scene.init(device));
+        VK_TRY(r.scene.update(device, inputs, scaled ? r.earthPass.view : VK_NULL_HANDLE));
+    }
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = byteCount;
@@ -90,7 +104,7 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     VK_TRY(device.allocate(bufferReq, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &r.bufferMemory));
     VK_TRY(vkBindBufferMemory(r.dev, r.buffer, r.bufferMemory, 0));
-    VK_TRY(device.createTimestampPool(2, &r.queries));
+    VK_TRY(device.createTimestampPool(Device::kTimestampsPerFrame, &r.queries));
 
     VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     alloc.commandPool = r.pool;
@@ -100,8 +114,9 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_TRY(vkBeginCommandBuffer(r.cmd, &begin));
-    device.recordFrame(r.cmd, r.renderPass, r.framebuffer, r.pipeline, extent, makePushConstants(inputs, extent, 0),
-                       r.queries, 0);
+    device.recordFrame(r.cmd, r.renderPass, r.framebuffer, r.pipeline, earth ? r.scene.set : VK_NULL_HANDLE, extent,
+                       makePushConstants(inputs, extent, 0), r.queries, 0, scaled ? &r.earthPass : nullptr,
+                       r.scene.earthSet);
     VkBufferImageCopy region{};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {width, height, 1};

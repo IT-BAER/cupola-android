@@ -3,8 +3,10 @@
 # The runtime contract for every output is in README.md next to this script.
 # Intermediates live in local\textures\work\<asset> and are wiped at the start of each asset.
 param(
-    [ValidateSet('day', 'monthly', 'clouds', 'lights', 'normal', 'stars')]
-    [string[]]$Assets = @('day', 'monthly', 'clouds', 'lights', 'normal', 'stars'),
+    [ValidateSet('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars', 'interior')]
+    [string[]]$Assets = @('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars', 'interior'),
+    # Interior panorama bake (tools/blender/bake_panorama.py output with manifest.json and ldr\).
+    [string]$BakeDir = '',
     # Exaggeration of the physical terrain slope in the normal map (1 = true slope).
     [double]$NormalStrength = 10
 )
@@ -13,6 +15,7 @@ $Inv = [Globalization.CultureInfo]::InvariantCulture
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Local = Join-Path $Root 'local'
+if (-not $BakeDir) { $BakeDir = Join-Path $Local 'blender\r3\bake' }
 $Work = Join-Path $Local 'textures\work'
 $Out = Join-Path $Local 'textures\out'
 $VipsBin = Join-Path $Local 'tools\vips\vips-dev-8.18\bin'
@@ -342,6 +345,27 @@ function Build-Normal {
     Write-Outputs 'terrain_normal' @(, $rgb) @(, $xy) '6x6' @('-cl', '-normal') 'ASTC_6x6_UNORM_BLOCK' 'ETC2_RGBA' 'ETC2_R8G8B8A8_UNORM_BLOCK' 16 '-dl'
 }
 
+function Build-Water {
+    $dir = New-AssetDir 'water'
+    $src = Get-Source 'etopo2022/ETOPO_2022_v1_60s_N90W180_surface.tif'
+    $crop = Join-Path $dir 'crop.v'; $mask = Join-Path $dir 'mask.v'; $small = Join-Path $dir 'small.v'
+    $master = Join-Path $dir 'water.v'
+    V crop $src "$crop[keep=none]" 0 1080 21600 8640
+    # Water = surface elevation below 0 m: 255, land 0. Box-filtered (linear kernel) so coasts become
+    # fractional coverage without Lanczos overshoot.
+    V relational_const $crop $mask less 0
+    Remove-Item $crop
+    V resize $mask $small (4096 / 21600.0) --vscale (1638 / 8640.0) --kernel linear
+    # R = G = B = coverage; tagged sRGB so pngsave and compressonator see a plain RGB image.
+    V bandjoin (ImageList $small $small $small) "$master[keep=none]"
+    Remove-Item $mask, $small
+    $rgbMaster = Join-Path $dir 'water_rgb.v'
+    V copy $master $rgbMaster --interpretation srgb
+    Assert-Dims $rgbMaster 4096 1638
+    $layer = Write-Levels $rgbMaster $dir 'water' $false
+    Write-Outputs 'water_mask' @(, $layer) @(, $layer[1..($layer.Count - 1)]) '8x8' @('-cl', '-esw', 'rrr1') 'ASTC_8x8_UNORM_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_UNORM_BLOCK' 8 '-dl'
+}
+
 function Build-Stars {
     $dir = New-AssetDir 'stars'
     $src = Get-Source 'stars/eso0932a.tif'
@@ -352,9 +376,52 @@ function Build-Stars {
     Write-Outputs 'stars' @(, $layer) @(, $layer[1..($layer.Count - 1)]) '6x6' @('-cs') 'ASTC_6x6_SRGB_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_SRGB_BLOCK' 8 '-ds'
 }
 
+# Interior atlas (README "interior_*"): the cropped faces of one layer stacked top to bottom in the order
+# +X, -X, +Y, -Y, +Z, each padded (edge rows repeated) to a multiple of 96 rows on the 2048 grid (24 on the
+# 512 grid), so no 6x6 or 8x8 block spans two faces. One mip level: the panorama is viewed near 1:1.
+$InteriorFaces = @('+X', '-X', '+Y', '-Y', '+Z')
+function Build-Interior {
+    $dir = New-AssetDir 'interior'
+    $manifestPath = Join-Path $BakeDir 'manifest.json'
+    $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
+    foreach ($spec in @(
+            @{ Layer = 'earth'; Grid = 2048; Align = 96; Block = '6x6'; Astc = 'ASTC_6x6_SRGB_BLOCK'; EtcFd = 'ETC2_RGBA'; Etc = 'ETC2_R8G8B8A8_SRGB_BLOCK'; EtcBytes = 16 },
+            @{ Layer = 'cabin'; Grid = 2048; Align = 96; Block = '8x8'; Astc = 'ASTC_8x8_SRGB_BLOCK'; EtcFd = 'ETC2_RGB'; Etc = 'ETC2_R8G8B8_SRGB_BLOCK'; EtcBytes = 8 },
+            @{ Layer = 'emissive'; Grid = 2048; Align = 96; Block = '8x8'; Astc = 'ASTC_8x8_SRGB_BLOCK'; EtcFd = 'ETC2_RGB'; Etc = 'ETC2_R8G8B8_SRGB_BLOCK'; EtcBytes = 8 },
+            @{ Layer = 'ambient'; Grid = 512; Align = 24; Block = '8x8'; Astc = 'ASTC_8x8_SRGB_BLOCK'; EtcFd = 'ETC2_RGB'; Etc = 'ETC2_R8G8B8_SRGB_BLOCK'; EtcBytes = 8 })) {
+        $parts = @()
+        foreach ($face in $InteriorFaces) {
+            $rel = "ldr/$($spec.Layer)_$face.png"
+            $png = Join-Path $BakeDir $rel.Replace('/', '\')
+            $sha = (Get-FileHash -LiteralPath $png -Algorithm SHA256).Hash.ToLower()
+            if ($sha -ne $manifest.sha256.$rel) { throw "bake file differs from manifest.json: $rel is $sha" }
+            $rect = $manifest.faces.$face."px_$($spec.Grid)"
+            $rows = $rect[3] - $rect[1]
+            Assert-Dims $png $spec.Grid $rows
+            $padded = [int]([Math]::Ceiling($rows / $spec.Align) * $spec.Align)
+            $part = Join-Path $dir "$($spec.Layer)_$($face.Replace('+', 'p').Replace('-', 'm')).v"
+            V embed $png $part 0 0 $spec.Grid $padded --extend copy
+            $parts += $part
+        }
+        # vips arrayjoin pads every cell to the largest image, so the faces are joined pairwise.
+        $master = $parts[0]
+        for ($i = 1; $i -lt $parts.Count; $i++) {
+            $joined = Join-Path $dir "$($spec.Layer).join$i.v"
+            V join $master $parts[$i] $joined vertical
+            $master = $joined
+        }
+        $l0 = Join-Path $dir "$($spec.Layer).L0.png"
+        V copy $master "$l0[compression=1]"
+        $d = Get-Dims $l0
+        $l1 = Join-Path $dir "$($spec.Layer).L1.png"
+        Run $Vips @('thumbnail', $master, "$l1[compression=1]", ($d[0] -shr 1), '--height', ($d[1] -shr 1), '--size', 'force', '--linear') | Out-Null
+        Write-Outputs "interior_$($spec.Layer)" @(, @($l0)) @(, @($l1)) $spec.Block @('-cs') $spec.Astc $spec.EtcFd $spec.Etc $spec.EtcBytes '-ds'
+    }
+}
+
 foreach ($d in 'astc', 'etc2', 'preview') { New-Item -ItemType Directory -Force (Join-Path $Out $d) | Out-Null }
 New-Item -ItemType Directory -Force $Work | Out-Null
-$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; lights = 'Build-Lights'; normal = 'Build-Normal'; stars = 'Build-Stars' }
+$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; lights = 'Build-Lights'; normal = 'Build-Normal'; water = 'Build-Water'; stars = 'Build-Stars'; interior = 'Build-Interior' }
 foreach ($asset in $Assets) {
     $t = [Diagnostics.Stopwatch]::StartNew()
     & $builders[$asset]

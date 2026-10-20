@@ -15,6 +15,7 @@ import com.baer.cupola.core.render.scene.FrameScheduler
  */
 class NativeRenderer(
     inputsProvider: (surfaceId: Int, frameTimeNanos: Long) -> FloatArray? = { _, _ -> null },
+    assets: AssetManager? = null,
 ) : AutoCloseable {
     private val thread: RenderThread = RenderThread { targets.onFrame(it) }
     private val targets: RenderTargets<Surface> =
@@ -22,7 +23,10 @@ class NativeRenderer(
 
     init {
         thread.start()
-        thread.postAndWait { NativeBridge.bindThread() }
+        thread.postAndWait {
+            NativeBridge.bindThread()
+            if (assets != null) NativeBridge.setAssetManager(assets)
+        }
     }
 
     fun deviceInfo(): DeviceInfo = thread.postAndWait {
@@ -70,6 +74,19 @@ class NativeRenderer(
     /** GPU time of the last completed frame in nanoseconds, -1 if unknown. */
     fun lastGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastGpuTimeNanos() }
 
+    /** GPU time of the last frame's scaled Earth pass in nanoseconds (0 without one), -1 if unknown. */
+    fun lastEarthPassGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastEarthPassGpuTimeNanos() }
+
+    /**
+     * Keeps the Vulkan device (and its texture set) alive until the returned handle is closed; without a surface
+     * every [renderOffscreen] otherwise creates and destroys the instance and device.
+     */
+    fun holdDevice(): AutoCloseable {
+        val result = thread.postAndWait { NativeBridge.holdDevice(true) }
+        check(result == VK_SUCCESS) { "device failed: VkResult $result" }
+        return AutoCloseable { thread.postAndWait { NativeBridge.holdDevice(false) } }
+    }
+
     /** Tightly packed RGBA8, row-major, top row first. */
     fun renderOffscreen(width: Int, height: Int, inputs: FloatArray): ByteArray {
         require(width > 0 && height > 0) { "size must be positive: ${width}x$height" }
@@ -79,6 +96,16 @@ class NativeRenderer(
             check(result >= 0) { "offscreen failed: VkResult $result" }
         }
         return out
+    }
+
+    /**
+     * Loads the Earth texture set if it is not loaded yet (it lives as long as the device) and returns the mask of
+     * slots loaded from `textures/<name>.ktx2`; [TEXTURE_SET_COMPLETE] when nothing fell back.
+     */
+    fun textureSetMask(): Int = thread.postAndWait {
+        val mask = NativeBridge.textureSetMask()
+        check(mask >= 0) { "texture set failed: VkResult $mask" }
+        mask
     }
 
     /** Loads the KTX2 asset [path] into a Vulkan image, records its properties and destroys it again. */
@@ -93,8 +120,14 @@ class NativeRenderer(
         thread.quit()
     }
 
-    private companion object {
-        const val VK_SUCCESS = 0
-        const val LOG_TAG = "Cupola"
+    companion object {
+        /**
+         * All eleven slots: day_detail, monthly_colour, clouds, city_lights, terrain_normal, stars, water_mask and the
+         * interior atlases earth, cabin, emissive, ambient.
+         */
+        const val TEXTURE_SET_COMPLETE = (1 shl 11) - 1
+
+        private const val VK_SUCCESS = 0
+        private const val LOG_TAG = "Cupola"
     }
 }

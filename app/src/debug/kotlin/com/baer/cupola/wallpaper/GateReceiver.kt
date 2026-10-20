@@ -4,10 +4,19 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.baer.cupola.core.render.scene.SceneGeometry
+import com.baer.cupola.core.render.scene.SceneOverride
+import com.baer.cupola.orbit.frames.Frames
+import com.baer.cupola.orbit.frames.Geodetic
+import java.time.Instant
+import java.time.format.DateTimeParseException
 
 /**
  * `am broadcast -n com.baer.cupola.debug/com.baer.cupola.wallpaper.GateReceiver --es cmd load --ei iterations N`
- * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump).
+ * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump),
+ * scene (--es arg clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
+ * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
+ * the ISS, needs the position; --ef fov field of view on the long screen axis in deg).
  */
 class GateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -19,6 +28,11 @@ class GateReceiver : BroadcastReceiver() {
                 "stop" -> Gate.stopTrace()
                 else -> Log.w("CupolaGate", "gate bad trace arg=$arg")
             }
+            "scene" -> try {
+                Gate.setSceneOverride(if (arg == "clear") null else sceneOverride(intent))
+            } catch (e: DateTimeParseException) {
+                Log.w("CupolaGate", "gate bad scene time: ${e.message}")
+            }
             "stats" -> when (arg) {
                 "reset" -> Gate.resetStats()
                 "dump" -> Gate.dumpStats()
@@ -26,5 +40,29 @@ class GateReceiver : BroadcastReceiver() {
             }
             else -> Log.w("CupolaGate", "gate bad cmd=$cmd")
         }
+    }
+
+    private fun sceneOverride(intent: Intent): SceneOverride {
+        fun float(name: String) = if (intent.hasExtra(name)) intent.getFloatExtra(name, 0f).toDouble() else null
+        val lat = float("lat")
+        val lon = float("lon")
+        val position = if (lat != null && lon != null) {
+            Frames.geodeticToEcef(Geodetic(Math.toRadians(lat), Math.toRadians(lon), float("alt_km") ?: DEFAULT_ALT_KM))
+        } else {
+            null
+        }
+        val az = float("az")
+        val el = float("el")
+        val forward = if (position != null && az != null && el != null) SceneGeometry.directionFromAzEl(position, az, el) else null
+        return SceneOverride(
+            instant = intent.getStringExtra("time")?.let(Instant::parse),
+            positionEcefKm = position,
+            cameraForwardEcef = forward,
+            fovLongDeg = float("fov"),
+        )
+    }
+
+    private companion object {
+        const val DEFAULT_ALT_KM = 420.0
     }
 }

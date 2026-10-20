@@ -10,4 +10,7 @@ inline constexpr uint32_t kFullscreenVert[] =
 inline constexpr uint32_t kPatternFrag[] =
 #include "pattern.frag.inc"
     ;
+inline constexpr uint32_t kEarthFrag[] =
+#include "earth.frag.inc"
+    ;
 }  // namespace cupola::shaders

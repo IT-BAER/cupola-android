@@ -104,6 +104,11 @@ ambient grid, same directions) at 4x the bake samples and stores the mean absolu
 LDR-normalised values in the manifest (limit 0.01 per layer); `--noise-sweep 16,32,...` compares tiles
 at N against 4N without touching the bake.
 
+Azimuth of the interior frame (one constant, `SceneGeometry.LVLH_FROM_BLENDER` in `core/render`): the ISS
+velocity lies at azimuth +30 deg about +Z in the Blender frame (the window facets sit at 30 + 60k deg from the
+velocity, see below), so LVLH = Rz(-30 deg) x Blender: Blender (cos 30, sin 30, 0) maps to LVLH +X (velocity),
++Z = nadir (geocentric), and LVLH +Y (minus the orbit normal) is Blender azimuth +120 deg. The camera is LVLH x this constant x rest view (`rest_views`, Blender camera convention) x look-around yaw/pitch.
+
 Runtime contract (the P3 shader samples exactly this):
 - World-aligned cube centred at EYE, faces +X, -X, +Y, -Y, +Z (never -Z), crop rects from
   `visible_region.json` `all.world_cube` `px` = [x0, y0, x1, y1], end-exclusive, on a 2048 grid.

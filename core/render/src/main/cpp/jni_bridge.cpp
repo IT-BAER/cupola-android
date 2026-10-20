@@ -11,6 +11,7 @@
 #include "offscreen.h"
 #include "surface_target.h"
 #include "texture_loader.h"
+#include "texture_set.h"
 
 // JNI entry points of com.baer.cupola.core.render.NativeBridge; all run on the CupolaRender thread.
 namespace {
@@ -19,6 +20,8 @@ using cupola::Device;
 using cupola::SurfaceTarget;
 
 std::map<jint, std::unique_ptr<SurfaceTarget>> gTargets;
+// Keeps the Java AssetManager (and so its AAssetManager) alive for the process.
+jobject gAssetManagerRef = nullptr;
 
 SurfaceTarget* findTarget(jint id) {
     auto it = gTargets.find(id);
@@ -59,6 +62,27 @@ JNIEXPORT jlongArray JNICALL Java_com_baer_cupola_core_render_NativeBridge_devic
     jlongArray result = env->NewLongArray(sizeof(values) / sizeof(values[0]));
     if (result != nullptr) env->SetLongArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
     return result;
+}
+
+JNIEXPORT void JNICALL Java_com_baer_cupola_core_render_NativeBridge_setAssetManager(JNIEnv* env, jclass,
+                                                                                   jobject assetManager) {
+    cupola::assertRenderThread("setAssetManager");
+    if (gAssetManagerRef != nullptr) return;
+    gAssetManagerRef = env->NewGlobalRef(assetManager);
+    if (gAssetManagerRef != nullptr) Device::setAssetManager(AAssetManager_fromJava(env, gAssetManagerRef));
+}
+
+// Loads the texture set if needed; returns its loaded-slot mask, or a negative VkResult.
+JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_textureSetMask(JNIEnv*, jclass) {
+    cupola::assertRenderThread("textureSetMask");
+    VkResult error;
+    Device* device = Device::acquire(&error);
+    if (device == nullptr) return error;
+    const cupola::TextureSet* set = nullptr;
+    VkResult result = device->textures(&set);
+    jint mask = result == VK_SUCCESS ? static_cast<jint>(set->loadedMask) : result;
+    Device::release();
+    return mask;
 }
 
 JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_attach(JNIEnv* env, jclass, jint id,
@@ -109,6 +133,22 @@ JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_renderFrame
 JNIEXPORT jlong JNICALL Java_com_baer_cupola_core_render_NativeBridge_lastGpuTimeNanos(JNIEnv*, jclass) {
     cupola::assertRenderThread("lastGpuTimeNanos");
     return Device::lastGpuTimeNs();
+}
+
+JNIEXPORT jlong JNICALL Java_com_baer_cupola_core_render_NativeBridge_lastEarthPassGpuTimeNanos(JNIEnv*, jclass) {
+    cupola::assertRenderThread("lastEarthPassGpuTimeNanos");
+    return Device::lastEarthPassGpuTimeNs();
+}
+
+// hold = true acquires one device reference (VkResult on failure), false releases it.
+JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_holdDevice(JNIEnv*, jclass, jboolean hold) {
+    cupola::assertRenderThread("holdDevice");
+    if (!hold) {
+        Device::release();
+        return VK_SUCCESS;
+    }
+    VkResult error;
+    return Device::acquire(&error) == nullptr ? error : VK_SUCCESS;
 }
 
 JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_renderOffscreen(JNIEnv* env, jclass,

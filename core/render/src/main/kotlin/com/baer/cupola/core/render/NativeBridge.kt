@@ -26,7 +26,18 @@ internal object NativeBridge {
 
     @JvmStatic external fun lastGpuTimeNanos(): Long
 
+    @JvmStatic external fun lastEarthPassGpuTimeNanos(): Long
+
+    /** true acquires a device reference (returns a VkResult), false releases one. */
+    @JvmStatic external fun holdDevice(hold: Boolean): Int
+
     @JvmStatic external fun renderOffscreen(width: Int, height: Int, inputs: FloatArray, out: ByteArray): Int
+
+    /** Asset manager for the Earth texture set; the first call wins (kept as a global reference). */
+    @JvmStatic external fun setAssetManager(assets: AssetManager)
+
+    /** Loads the texture set if needed; bit per slot loaded from its asset, or a negative VkResult. */
+    @JvmStatic external fun textureSetMask(): Int
 
     /** Loads a KTX2 asset into a Vulkan image and destroys it; layout in [NativeRenderer.loadTextureInfo]. */
     @JvmStatic external fun loadTextureInfo(assets: AssetManager, path: String): IntArray
