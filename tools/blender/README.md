@@ -34,9 +34,12 @@ planned; the best rotation found saves 0.10 face-equivalents. `-Z` (towards the 
 iss035e010551, iss038e013587 (10.5 mm equisolid fisheye) and iss073e0025760 with Cycles (GPU when
 present) into `local/blender/preview/` (or DIR), plus `compare_<pose>.png` with the render left and the dev photo
 right (`compare_rest_clip.png` uses the ESA clip frame, for internal comparison only). Earth is a
-procedural cloud field inside the Earth cone with a thin limb; the sun grazes in through side window 0
-from the zenith side; the cabin light is scaled to 5 % (daylight exposure: Earthlight dominates). The
-.blend is not modified.
+1:1000 sphere (km -> m) with the BMNG 2004 monthly map and the 2002 cloud layer from `local/sources/`
+(`tools/textures/sources.lock`), Black Marble city lights on the night side and a thin blue limb. Each
+pose has an `EARTH` entry: iss035e010551 uses its EOL record (nadir 51.8 N 120.1 W, 394 km, sun
+elevation -20 deg: night look, cabin light at 30 %); the other poses have no EOL record, so month comes
+from EXIF and nadir and sun angles are assumed (day look: cabin light 5 %, +0.5 EV). Space is black.
+The .blend is not modified.
 
 Interior realism (P4.7 round 1, dev references only): `principled()` builds every material from noise
 nodes: colour and roughness variation, fine bump, a Cycles Bevel normal for rounded specular edges and,
@@ -51,6 +54,33 @@ end fittings; laptop pads and vents; lens grips. The scatter uses `random.Random
 fixed order, so the build stays deterministic. `L_Cabin` is a 1 m disk at the hatch plane (Node 3
 light shining in), 60 W, warm white. Bevel nodes slow the bake: measured 20 October 2026, 8 min 39 s
 wall time for the 5-face bake at 128 spp (P4.4 measured 137 s render time).
+
+Round 2 (P4.7): large clutter (laptop on an articulated wall arm, three DSLR-like cameras with grips,
+prisms, hoods and handrail brackets, cables floating across the windows with connectors, seeded stowed
+items in the window corners); cloth bags via `Part.bag` (subdivided box on a rounded superellipsoid with
+seeded crease valleys, sag and a piped seam); irregular patches via `Part.patch` (Velcro, blank label-like
+patches in white, yellow and grey, no text); fasteners via a seeded `bolt()` (hex rotation and height,
+socket caps, black-oxide heads, empty holes); wear patches modulated by a second low-frequency noise. The
+skirt walls are racks (`build_walls`): dark backing, perforated rails, stacked avionics boxes of seeded
+size and depth with connectors, backshells, jumper cables to the lower harness, handles, blank patches,
+corrugated hoses, bags and the LEDs.
+
+Round 3 (P4.7): albedos raised to measured-material levels (black anodize 3 %, shell 10 %, panels 20 %;
+lower values read as unlit holes); rack boxes in off-white, beige, blue-grey and dark grey; tan bags with
+straps; brighter blue anodized handrails and orange-red gaskets; white cable ties on the seam bundles and
+floating cables; red and orange dust caps, pouches, tool handles and tags (own `random.Random` streams,
+so the round-2 layout is unchanged); molded camera bodies (`Part.rounded`, a superellipsoid) with rear
+LCD, dials, mount ring and a floating strap; a rounded laptop with keyboard, touchpad and hinge barrels;
+a procedural screen (`screen_material`: brick-grid UI panels under a glossy coat, no text) and more
+status LEDs (green, amber, red, blue) and small lit displays on the racks for the night interior.
+Emissive strengths are set relative to `L_Cabin` (screen 8, LEDs 60).
+
+Preview exposure chain (round 3): `render_preview.py` uses the Standard view transform (display sRGB, like
+a camera JPEG and the bake's LDR step) instead of the factory AgX, scales screens and LEDs with the cabin
+light (station power: 5 % day, 15 % night), puts the assumed nadirs on cloudy ocean (the Earth is the
+interior's main light), and writes `mask_<pose>.png` (1-sample render with the Earth as holdout, white =
+interior) and `hist.json`: mean and 5/50/95th percentiles of sRGB-encoded luminance for render and photo,
+whole frame and inside the render's interior mask (the photo is only approximately aligned).
 
 `bake_panorama.py [BLEND] [--samples N] [--seed N] [--out DIR] [--faces +X,-Y] [--crop X0 Y0 X1 Y1]`
 (plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, 0.70) with
@@ -95,3 +125,37 @@ Runtime contract (the P3 shader samples exactly this):
   1 over the full sphere, the low-frequency fill term. All are linear radiance.
 - Decode: linear = sRGB-decode(texel) * scale[layer] (manifest `scale`, the 99.9th percentile of
   max(R, G, B) over the layer, alpha > 0.5 texels only for earth); earth alpha is stored linearly.
+
+## Station exterior (P4.6): export_station.py, station.mesh
+
+`export_station.py [--out DIR] [--budget N] [--atlas PX] [--reuse-vis] [--no-bake]` imports the NASA IGOAL ISS glTF
+(`local/sources/igoal`, pinned in `tools/textures/sources.lock`) and writes `local/blender/exterior/`: `station.mesh`,
+`station_albedo.png`, `station_orm.png` (G roughness, B metallic, R 1), `visible_parts.json`, `station_report.json`.
+`--reuse-vis` skips the ray sweep (about 3 min) and reuses `visible_parts.json`. Deterministic (two runs, equal SHA-256).
+Then `tools/textures/build_station.ps1` encodes the atlases (ASTC 6x6 sRGB albedo, ASTC 8x8 linear ORM, ETC2 one level
+lower, `ktx validate`); copy `station.mesh` to `earthpack/src/main/assets/meshes/` and the KTX2 files to the two texture
+folders. `render_exterior_preview.py` reads the exported files back and renders three views (CPU).
+
+Frame (one transform, ISS import frame -> Cupola frame): the glTF root carries scale -0.002581683 (uniform, point
+inversion) and the mesh data is SSREF inches, so metres = import units x 0.0254 / 0.002581683 = 9.83854 per unit.
+Cupola frame c = Rz(+30 deg) . (-9.83854) . (w - w0), w0 = centre of the IGOAL Cupola base ring (the hatch plane).
+Without the yaw, c is SSREF: +X velocity, +Y starboard, +Z nadir (right-handed). The IGOAL window facets sit at
+30 + 60k deg from the velocity, `build_cupola.py` windows at 60k deg, so the yaw makes them coincide (measured max
+deviation 0.11 deg). Consequence: ISS velocity points at azimuth +30 deg in the Cupola frame, not +X; a renderer that
+assumes +X = velocity must rotate its LVLH frame by +30 deg about Z (nadir rest view up = forward). The eye (0, 0, 0.70)
+is 0.70 m above the hatch plane on the Cupola axis. Only nadir-side parts are visible: the eye is above the lower window
+edge, so nothing at -Z shows.
+
+Visibility: rays from the eye over the P4.3 envelope (both rest views, five aspects, yaw +-26, pitch +-22) through the
+seven glass meshes, first hit on the IGOAL meshes (Cupola and `*Logo*` meshes excluded). Rotating assemblies (SARJ alpha,
+BGA beta, radiator gamma) are swept (alpha 30 deg, beta 45 deg steps) by rotating the rays into the rest pose.
+
+`station.mesh` (little-endian): `"CPST"`, u32 version = 1, u32 node count; per node: u16 name length + UTF-8 name,
+3 x f32 pivot, 3 x f32 unit axis, u8 kind, u32 vertex count, u32 index count, vertices (22 bytes each: 3 x f32 position in
+metres in the Cupola frame, 3 x i16 snorm normal, 2 x u16 unorm uv, top-left origin like the KTX2 files), indices (u16 when
+the node has at most 65535 vertices, else u32; triangles, counter-clockwise). Kinds: 0 static, 1 SARJ alpha (carries the
+joint pivot and the truss axis, may have 0 vertices), 2 array wing beta (pivot and axis of the BGA, axis points to the
+tip), 3 radiator gamma. A beta node turns first about its own pivot/axis, then (if it hangs on a SARJ) by the alpha
+angle about the alpha node of the same side (`PORT_` / `STBD_` prefix). Angles are right-handed about the axis. The
+station is one atlas for all nodes. `station_mesh.py FILE` validates, `station_mesh.py --self-test FILE` needs corrupted
+copies to fail and FILE to pass (stdlib only).
