@@ -261,7 +261,11 @@ def principled(name, color, metal=0.0, rough=0.5, noise=None, emit=None, strengt
         mul.operation = "MULTIPLY"
         L(edge, mul.inputs[0])
         L(remap(noise_fac(30.0, 8.0), 0.45, 0.62, 0.0, 1.0), mul.inputs[1])
-        mask = mul.outputs["Value"]
+        mul2 = N("ShaderNodeMath")
+        mul2.operation = "MULTIPLY"
+        L(mul.outputs["Value"], mul2.inputs[0])
+        L(remap(noise_fac(2.5, 2.0), 0.35, 0.65, 0.15, 1.0), mul2.inputs[1])
+        mask = mul2.outputs["Value"]
         mix = N("ShaderNodeMix")
         mix.data_type = "RGBA"
         sa = next(s for s in mix.inputs if s.name == "A" and s.type == "RGBA")
@@ -350,10 +354,11 @@ class Part:
                                   affect="EDGES", clamp_overlap=True)
             self._tag(res["faces"], mat)
 
-    def cyl(self, p0, p1, r, mat=0, seg=16, r2=None):
+    def cyl(self, p0, p1, r, mat=0, seg=16, r2=None, rot=0.0):
         p0, p1 = Vector(p0), Vector(p1)
         axis = p1 - p0
-        m = Matrix.Translation((p0 + p1) / 2) @ axis.to_track_quat("Z", "Y").to_matrix().to_4x4()
+        m = Matrix.Translation((p0 + p1) / 2) @ axis.to_track_quat("Z", "Y").to_matrix().to_4x4() \
+            @ Matrix.Rotation(rot, 4, "Z")
         res = bmesh.ops.create_cone(self.bm, cap_ends=True, cap_tris=False, segments=seg,
                                     radius1=r, radius2=r if r2 is None else r2,
                                     depth=axis.length, matrix=m)
@@ -399,6 +404,51 @@ class Part:
                 p = v.co
                 d = math.sin(37.0 * p.x + 1.1) * math.sin(41.0 * p.y + 0.5) * math.sin(29.0 * p.z + 0.3)
                 v.co = p + (p - c).normalized() * (lump * d)
+
+    def bag(self, size, matrix, rng, mat=0, seam=None, cuts=7):
+        """Cloth bag: subdivided box pushed onto a rounded superellipsoid, then seeded creases
+        (sharp sine valleys in random directions) and a sag; optional piped seam round the top."""
+        before = set(self.bm.verts)
+        r = bmesh.ops.create_cube(self.bm, size=1.0, matrix=Matrix.Diagonal((*size, 1.0)))
+        edges = list({e for v in r["verts"] for e in v.link_edges})
+        bmesh.ops.subdivide_edges(self.bm, edges=edges, cuts=cuts, use_grid_fill=True)
+        new = [v for v in self.bm.verts if v not in before]
+        hx, hy, hz = size[0] / 2, size[1] / 2, size[2] / 2
+        folds = [(Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))).normalized(),
+                  rng.uniform(25.0, 60.0), rng.uniform(0, 6.28), rng.uniform(0.002, 0.005)) for _ in range(4)]
+        sag = rng.uniform(-0.25, 0.25)
+        for v in new:
+            u = Vector((v.co.x / hx, v.co.y / hy, v.co.z / hz))
+            ln = (abs(u.x) ** 4 + abs(u.y) ** 4 + abs(u.z) ** 4) ** 0.25
+            p = Vector((u.x / ln * hx, u.y / ln * hy, u.z / ln * hz))
+            nrm = Vector((p.x / hx ** 2, p.y / hy ** 2, p.z / hz ** 2)).normalized()
+            d = sum(a * (0.6 - abs(math.sin(f * dv.dot(p) + ph))) for dv, f, ph, a in folds)
+            p.z += sag * hz * (1.0 - (p.x / hx) ** 2) * (p.z / hz)
+            v.co = p + nrm * d
+        bmesh.ops.transform(self.bm, matrix=matrix, verts=new)
+        for f in {f for v in new for f in v.link_faces}:
+            f.material_index = mat
+            f.smooth = True
+        if seam is not None:
+            k = 0.86
+            pts = [matrix @ Vector((x * hx * k, y * hy * k, hz * 0.97)) for x, y in
+                   ((-1, -1), (0, -1.08), (1, -1), (1.08, 0), (1, 1), (0, 1.08), (-1, 1), (-1.08, 0))]
+            self.tube(pts, 0.0022, mat=seam, seg=6, closed=True, sub=6)
+
+    def patch(self, w, h, matrix, mat, rng, thick=0.0015):
+        """Irregular rounded patch (Velcro, label-like blank): jittered superellipse, extruded."""
+        n = 20
+        out = []
+        for i in range(n):
+            a = 2 * math.pi * i / n
+            c, s_ = math.cos(a), math.sin(a)
+            f = 1.0 + rng.uniform(-0.07, 0.07)
+            out.append((math.copysign(abs(c) ** 0.35, c) * w / 2 * f, math.copysign(abs(s_) ** 0.35, s_) * h / 2 * f))
+        top = [matrix @ Vector((x, y, -thick / 2)) for x, y in out]
+        bot = [matrix @ Vector((x, y, thick / 2)) for x, y in out]
+        self.face(top, mat)
+        self.face(list(reversed(bot)), mat)
+        self.strip(bot, top, mat)
 
     def build(self, props=None):
         me = bpy.data.meshes.new(self.name)
@@ -490,7 +540,10 @@ def build(top_d):
     principled("M_Tag", (0.75, 0.22, 0.02), rough=0.3, cvar=0.1)
     principled("M_Plastic", (0.025, 0.025, 0.027), rough=0.45, noise=(80.0, 0.35, 0.55), bevel=0.0015)
     principled("M_Connector", (0.36, 0.34, 0.3), metal=1.0, rough=0.38, bevel=0.0008)
-    principled("M_Hose", (0.55, 0.55, 0.52), rough=0.6, cvar=0.1)
+    principled("M_Hose", (0.55, 0.55, 0.52), rough=0.6, cvar=0.1, bump=(300.0, 0.1, 3.0))
+    principled("M_BoltBlack", (0.04, 0.04, 0.042), metal=1.0, rough=0.42, bevel=0.0008)
+    principled("M_PatchYellow", (0.7, 0.64, 0.4), rough=0.85, cvar=0.1, bevel=0.0008)
+    principled("M_PatchGrey", (0.32, 0.32, 0.31), rough=0.8, cvar=0.1, bevel=0.0008)
     principled("M_ScreenEmit", (0.0, 0.0, 0.0), rough=0.2, emit=(0.55, 0.62, 0.7), strength=1.5)
     principled("M_LedGreen", (0.0, 0.0, 0.0), emit=(0.1, 1.0, 0.2), strength=8.0)
     principled("M_LedAmber", (0.0, 0.0, 0.0), emit=(1.0, 0.55, 0.05), strength=8.0)
@@ -573,19 +626,33 @@ def build(top_d):
     shu.strip(lo, hi)
     shu.build()
 
-    # Bolts: top ring and around each side window.
-    bo = Part("Bolts", "Bolts", ["M_Bolt"])
+    # Bolts: top ring and around each side window. Seeded variation: hex rotation and height, socket
+    # caps, black-oxide heads, empty holes (iss050e033912 shows mixed fasteners).
+    bo = Part("Bolts", "Bolts", ["M_Bolt", "M_BoltBlack"])
+    rb = random.Random(DETAIL_SEED + 1)
+
+    def bolt(p, out, r, h):
+        out = Vector(out).normalized()
+        x = rb.random()
+        if x < 0.04:
+            bo.cyl(p, p + out * 0.0006, r * 0.55, mat=1, seg=10)
+            return
+        bo.cyl(p, p + out * 0.0015, r * 1.45, seg=12)
+        if x < 0.16:
+            bo.cyl(p, p + out * h * 1.25, r * 0.8, mat=1, seg=14)
+        else:
+            bo.cyl(p, p + out * h * rb.uniform(0.8, 1.2), r, mat=1 if x < 0.28 else 0, seg=6,
+                   rot=rb.uniform(0.0, math.pi / 3))
+
+    down = Vector((0, 0, -1))
     for x, y in circle(TOP_BOLT_R, TOP_BOLTS):
-        bo.cyl((x, y, rz), (x, y, rz - 0.008), 0.007, seg=8)
-        bo.cyl((x, y, rz), (x, y, rz - 0.0015), 0.0105, seg=12)
-    # Inner cap-screw row on the raised ring and a row along the hex plate edges.
+        bolt(Vector((x, y, rz)), down, 0.007, 0.008)
     for x, y in circle(0.39, 60, phase=0.03):
-        bo.cyl((x, y, rz), (x, y, rz - 0.004), 0.0045, seg=8)
+        bolt(Vector((x, y, rz)), down, 0.0045, 0.004)
     hx = hex_corners(HEX_APOTHEM - 0.025, Z_TOP)
     for i in range(6):
         for j in range(1, 6):
-            p = hx[i].lerp(hx[(i + 1) % 6], j / 6.0)
-            bo.cyl(p, p - Vector((0, 0, 0.005)), 0.005, seg=8)
+            bolt(hx[i].lerp(hx[(i + 1) % 6], j / 6.0), down, 0.005, 0.005)
     sc = ccw(offset_corners(corners, SIDE_BOLT_OFFSET))
     pts2 = []
     for i in range(4):
@@ -595,8 +662,7 @@ def build(top_d):
     for k in range(6):
         f = facet_frame(k)
         for q in pts2:
-            bo.cyl(fmap(f, q, 0.0), fmap(f, q, -0.008), 0.006, seg=8)
-            bo.cyl(fmap(f, q, 0.0), fmap(f, q, -0.0015), 0.009, seg=12)
+            bolt(fmap(f, q, 0.0), -f[3], 0.006, 0.008)
     bo.build()
 
     # Handrails: one per mullion and one per skirt corner, with standoffs.
@@ -625,8 +691,8 @@ def build(top_d):
     build_laptop()
     build_cameras()
     build_cables()
-    build_clutter()
     rng = random.Random(DETAIL_SEED)
+    build_clutter(rng)
     build_mullion_detail(rng)
     build_walls(rng)
     build_harness()
@@ -650,7 +716,8 @@ def build_laptop():
     tang = Vector((-math.sin(az), math.cos(az), 0.0))
     pos = radial * 0.50 + Vector((0, 0, 1.02))
     m = place(pos, (-radial * 0.6 + Vector((0, 0, -0.8))), tang)
-    lp = Part("Laptop", "Laptop", ["M_LaptopBody", "M_PanelGrey", "M_VelcroBlack", "M_PatchWhite", "M_Plastic"])
+    lp = Part("Laptop", "Laptop", ["M_LaptopBody", "M_PanelGrey", "M_VelcroBlack", "M_PatchWhite", "M_Plastic",
+                                   "M_Bolt"])
     lp.box((0.34, 0.24, 0.025), m, bevel=0.004)
     # Underside: Velcro pads, a plain label patch, rubber feet; lid back: Velcro and a vent grille.
     for x, y, sz, mt in ((-0.12, -0.08, (0.05, 0.03), 2), (0.12, -0.08, (0.05, 0.03), 2), (0.0, 0.06, (0.07, 0.035), 3)):
@@ -660,8 +727,26 @@ def build_laptop():
             lp.cyl(m @ Vector((x, y, -0.0125)), m @ Vector((x, y, -0.016)), 0.006, mat=4, seg=12)
     hinge = Matrix.Translation((0, 0.12, 0.0125)) @ Matrix.Rotation(math.radians(-105), 4, "X")
     lp.box((0.34, 0.23, 0.008), m @ hinge @ Matrix.Translation((0, -0.115, 0.004)), bevel=0.002)
-    wall = radial * (A2 - 0.01) + Vector((0, 0, 1.0))
-    lp.cyl(m @ Vector((0, 0, -0.0125)), wall, 0.015, mat=1)
+    # Articulated arm: wall plate on skirt wall 3, three links, friction knuckles with lock knobs.
+    mount = wall_point(3, A2 * math.tan(math.radians(20.0)), 0.78, 0.0)
+    inward = Vector((1.0, 0.0, 0.0))
+    lp.box((0.08, 0.13, 0.012), place(mount + inward * 0.006, inward, (0, 0, 1)), mat=1, bevel=0.003)
+    j0 = mount + inward * 0.06
+    j3 = m @ Vector((0, 0, -0.0125))
+    j2 = m @ Vector((0, -0.02, -0.09))
+    j1 = j0.lerp(j2, 0.5) + Vector((0.0, 0.0, 0.14))
+    lp.cyl(mount, j0, 0.016, mat=5, seg=16)
+    chain = [j0, j1, j2, j3]
+    for a, b in zip(chain, chain[1:]):
+        lp.cyl(a, b, 0.013, mat=1, seg=16)
+    for i in (0, 1, 2):
+        d1 = (chain[i + 1] - chain[i]).normalized()
+        d0 = (chain[i] - chain[i - 1]).normalized() if i else inward
+        ax = d0.cross(d1)
+        ax = ax.normalized() if ax.length > 1e-6 else d1.orthogonal().normalized()
+        lp.cyl(chain[i] - ax * 0.026, chain[i] + ax * 0.026, 0.021, mat=4, seg=20)
+        lp.cyl(chain[i] + ax * 0.026, chain[i] + ax * 0.042, 0.011, mat=5, seg=12)
+    lp.box((0.12, 0.08, 0.01), m @ Matrix.Translation((0, -0.02, -0.0175)), mat=1, bevel=0.002)
     for x, y in ((-0.1, -0.05), (0.1, -0.05)):
         lp.box((0.045, 0.03, 0.0015), m @ hinge @ Matrix.Translation((x, y - 0.115, 0.0085)), mat=2)
     for j in range(8):
@@ -674,28 +759,44 @@ def build_laptop():
 
 
 def build_cameras():
-    cam = Part("PhotoCameras", "PhotoCameras", ["M_CameraBody", "M_LensMetal"])
-    for k, back, lens_len, lens_r in ((1, 0.42, 0.30, 0.05), (4, 0.30, 0.10, 0.035)):
+    """DSLR-like bodies (grip, prism, hood, ribbed grips) on brackets clamped to the seam handrails."""
+    cam = Part("PhotoCameras", "PhotoCameras", ["M_CameraBody", "M_LensMetal", "M_Bolt", "M_Plastic"])
+    tops, bots = hex_corners(HEX_APOTHEM, Z_TOP), hex_corners(A2, Z_FB)
+    for k, back, lens_len, lens_r, y in ((1, 0.42, 0.30, 0.05, 0.55), (4, 0.30, 0.10, 0.035, 0.55),
+                                         (3, 0.36, 0.22, 0.045, 0.35)):
         f = facet_frame(k)
         n = f[3]
-        p = fmap(f, (0.05, SIDE_MARGIN_TOP + 0.55 * SIDE_H), -back)
+        p = fmap(f, (0.05, SIDE_MARGIN_TOP + y * SIDE_H), -back)
         m = place(p, n, f[1])
-        cam.box((0.15, 0.11, 0.09), m, bevel=0.01)
-        cam.box((0.06, 0.05, 0.05), m @ Matrix.Translation((0.0, 0.07, -0.01)), bevel=0.008)
-        cam.cyl(m @ Vector((0, 0, 0.04)), m @ Vector((0, 0, 0.04 + lens_len)), lens_r, mat=1, seg=24)
-        cam.cyl(m @ Vector((0, 0, 0.04 + lens_len)), m @ Vector((0, 0, 0.06 + lens_len)),
-                lens_r * 1.15, mat=1, seg=24)
-        # Rubber zoom/focus grips with ribs, a mount ring.
+        cam.box((0.15, 0.11, 0.09), m, bevel=0.012)
+        cam.box((0.045, 0.115, 0.1), m @ Matrix.Translation((0.085, 0.0, -0.005)), bevel=0.015)
+        cam.box((0.06, 0.05, 0.05), m @ Matrix.Translation((0.0, 0.07, -0.01)), bevel=0.012)
+        cam.box((0.11, 0.004, 0.06), m @ Matrix.Translation((0.0, -0.057, -0.015)), mat=3, bevel=0.001)
+        for sx in (-1, 1):
+            cam.cyl(m @ Vector((sx * 0.078, 0.04, 0.0)), m @ Vector((sx * 0.086, 0.04, 0.0)), 0.006, mat=2, seg=8)
+        cam.cyl(m @ Vector((0, 0, 0.04)), m @ Vector((0, 0, 0.04 + lens_len)), lens_r, mat=1, seg=32)
+        cam.cyl(m @ Vector((0, 0, 0.045)), m @ Vector((0, 0, 0.052)), lens_r * 1.08, mat=2, seg=32)
         for z0, z1 in ((0.3, 0.45), (0.6, 0.78)):
             for j in range(6):
                 za = 0.04 + lens_len * (z0 + (z1 - z0) * j / 6)
-                zb = za + lens_len * (z1 - z0) / 12
-                cam.cyl(m @ Vector((0, 0, za)), m @ Vector((0, 0, zb)), lens_r * 1.06, mat=0, seg=24)
-        cam.cyl(m @ Vector((0, 0, 0.045)), m @ Vector((0, 0, 0.052)), lens_r * 1.08, mat=1, seg=24)
-        if k == 1:
-            # Long-lens camera on a bracket to the mullion, as in iss035e010551.
-            corner = hex_corners(HEX_APOTHEM, Z_TOP)[1].lerp(hex_corners(A2, Z_FB)[1], 0.6)
-            cam.cyl(m @ Vector((0, -0.05, 0.0)), corner, 0.012, mat=1)
+                cam.cyl(m @ Vector((0, 0, za)), m @ Vector((0, 0, za + lens_len * (z1 - z0) / 12)),
+                        lens_r * 1.06, mat=3, seg=32)
+        e = 0.04 + lens_len
+        cam.cyl(m @ Vector((0, 0, e)), m @ Vector((0, 0, e + 0.04 + lens_len * 0.12)), lens_r * 1.12, mat=0, seg=32,
+                r2=lens_r * 1.45)
+        # Bracket: tripod plate, two links, clamp on the seam handrail.
+        seam = tops[k].lerp(bots[k], 0.5)
+        n_in = -(facet_frame(k)[3] + facet_frame((k + 1) % 6)[3]).normalized()
+        rail = seam + n_in * 0.05
+        base = m @ Vector((0, -0.06, 0.0))
+        cam.box((0.06, 0.012, 0.05), m @ Matrix.Translation((0, -0.061, 0.0)), mat=3, bevel=0.002)
+        mid = base.lerp(rail, 0.5) + n_in * 0.06
+        cam.cyl(base, mid, 0.01, mat=2, seg=12)
+        cam.cyl(mid, rail, 0.01, mat=2, seg=12)
+        cam.cyl(mid - n * 0.02, mid + n * 0.02, 0.017, mat=3, seg=16)
+        d = (bots[k] - tops[k]).normalized()
+        cam.cyl(rail - d * 0.025, rail + d * 0.025, 0.02, mat=3, seg=16)
+        cam.cyl(rail + n_in * 0.02, rail + n_in * 0.045, 0.008, mat=2, seg=10)
     cam.build()
 
 
@@ -739,71 +840,73 @@ def build_cables():
         col("Cables").objects.link(ob)
 
 
-def build_clutter():
+def build_clutter(rng):
     cl = Part("Clutter", "Clutter", ["M_Fabric", "M_PanelGrey", "M_LaptopBody", "M_PatchWhite", "M_Webbing",
-                                     "M_Velcro", "M_Connector", "M_Plastic"])
-    # Canvas pouches clipped to the top ring, as in iss035e010551, iss038e013587 and iss050e033912:
-    # lumpy body, darker webbing strap, Velcro flap and a seam lip.
-    for az, rr, sz, roll in ((75.0, 0.47, (0.2, 0.13, 0.09), 10.0), (100.0, 0.50, (0.17, 0.13, 0.09), -15.0),
-                             (55.0, 0.52, (0.12, 0.1, 0.07), 30.0)):
+                                     "M_Velcro", "M_Connector", "M_Plastic", "M_FabricBeige", "M_CableBlack",
+                                     "M_CableGrey", "M_CableWhite", "M_CableBlue", "M_Bolt"])
+    # Canvas pouches clipped to the top ring (iss035e010551, iss038e013587, iss050e033912): creased cloth,
+    # piped seam, webbing strap, Velcro tab.
+    for az, rr, sz, roll in ((75.0, 0.47, (0.22, 0.14, 0.09), 10.0), (100.0, 0.50, (0.19, 0.14, 0.09), -15.0),
+                             (55.0, 0.52, (0.13, 0.11, 0.07), 30.0)):
         a = math.radians(az)
         p = Vector((rr * math.cos(a), rr * math.sin(a), Z_TOP - TOP_RING_H - 0.05))
         m = place(p, (0, 0, 1), (math.cos(a + math.radians(roll)), math.sin(a + math.radians(roll)), 0))
-        cl.soft_box(sz, m, mat=0, lump=0.007)
-        cl.box((0.018, sz[1] + 0.008, sz[2] + 0.008), m @ Matrix.Translation((sz[0] * 0.2, 0, 0)), mat=4)
-        cl.box((sz[0] * 0.5, sz[1] * 0.3, 0.003), m @ Matrix.Translation((0, 0, -sz[2] / 2 - 0.002)), mat=5)
-        cl.box((sz[0] + 0.006, 0.006, 0.01), m @ Matrix.Translation((0, sz[1] / 2, sz[2] / 2 - 0.01)), mat=0,
-               bevel=0.002)
-    # Equipment boxes on the skirt walls (fixed list, no randomness).
-    boxes = [(0, -0.25, 0.45, (0.30, 0.18, 0.08), 1), (0, 0.22, 0.62, (0.18, 0.12, 0.06), 2),
-             (1, 0.0, 0.50, (0.40, 0.25, 0.10), 2), (2, -0.2, 0.70, (0.22, 0.16, 0.07), 1),
-             (2, 0.25, 0.42, (0.16, 0.30, 0.09), 2), (3, 0.0, 0.55, (0.50, 0.30, 0.16), 2),
-             (4, 0.1, 0.65, (0.25, 0.20, 0.08), 1), (5, -0.2, 0.48, (0.28, 0.14, 0.07), 2),
-             (5, 0.25, 0.70, (0.14, 0.14, 0.05), 1)]
-    for k, t, z, sz, mat in boxes:
-        a = math.radians(60.0 * k)
-        radial = Vector((math.cos(a), math.sin(a), 0.0))
-        tang = Vector((-math.sin(a), math.cos(a), 0.0))
-        p = radial * (A2 - sz[2] / 2) + tang * t + Vector((0, 0, z))
-        m = place(p, -radial, tang)
-        cl.box(sz, m, mat=mat, bevel=0.006)
-        # Connectors with backshells on the front face, a handle, corner screws.
-        front = sz[2] / 2
-        for j in range(3 if sz[0] > 0.2 else 2):
-            x = (j - 1) * 0.06 if sz[0] > 0.2 else (j - 0.5) * 0.05
-            y = sz[1] * 0.3
-            cl.cyl(m @ Vector((x, y, front)), m @ Vector((x, y, front + 0.012)), 0.011, mat=6, seg=16)
-            cl.cyl(m @ Vector((x, y, front + 0.012)), m @ Vector((x, y, front + 0.035)), 0.008, mat=7, seg=12)
-        for sx in (-1, 1):
-            cl.cyl(m @ Vector((sx * sz[0] * 0.38, -sz[1] * 0.3, front)),
-                   m @ Vector((sx * sz[0] * 0.38, -sz[1] * 0.3, front + 0.025)), 0.004, mat=6, seg=8)
-            for sy in (-1, 1):
-                q = Vector((sx * (sz[0] / 2 - 0.012), sy * (sz[1] / 2 - 0.012), front))
-                cl.cyl(m @ q, m @ (q + Vector((0, 0, 0.002))), 0.004, mat=6, seg=8)
-        cl.cyl(m @ Vector((-sz[0] * 0.38, -sz[1] * 0.3, front + 0.025)),
-               m @ Vector((sz[0] * 0.38, -sz[1] * 0.3, front + 0.025)), 0.004, mat=6, seg=8)
-    # Plain white Velcro patches on the mullion bands (no text).
+        cl.bag(sz, m, rng, mat=0, seam=4)
+        cl.box((0.018, sz[1] + 0.006, sz[2] + 0.006), m @ Matrix.Translation((sz[0] * 0.22, 0, 0)), mat=4)
+        cl.patch(sz[0] * 0.35, sz[1] * 0.25, m @ Matrix.Translation((-sz[0] * 0.1, 0, -sz[2] / 2 - 0.002)), 5, rng)
+    # Cables floating across the windows between the mullions, with connectors at both ends.
+    mats = (9, 9, 10, 11, 12)
+    for k in range(6):
+        if rng.random() < 0.35:
+            continue
+        f = facet_frame(k)
+        for _ in range(rng.randint(1, 2)):
+            sx = rng.choice((-1, 1))
+            ya, yb = rng.uniform(0.12, 0.45), rng.uniform(0.12, 0.45)
+            pts = [fmap(f, (-sx * 0.34, ya), -0.012),
+                   fmap(f, (-sx * rng.uniform(0.05, 0.15), rng.uniform(0.1, 0.45)), -rng.uniform(0.05, 0.11)),
+                   fmap(f, (sx * rng.uniform(0.05, 0.18), rng.uniform(0.1, 0.45)), -rng.uniform(0.06, 0.13)),
+                   fmap(f, (sx * 0.34, yb), -0.012)]
+            q, tg = cl.tube(pts, rng.uniform(0.0028, 0.0045), mat=rng.choice(mats), seg=8, sub=10)
+            for i, s_ in ((0, 1), (len(q) - 1, -1)):
+                cl.cyl(q[i] - tg[i] * s_ * 0.004, q[i] + tg[i] * s_ * 0.022, 0.0075, mat=6, seg=12)
+                cl.cyl(q[i] + tg[i] * s_ * 0.022, q[i] + tg[i] * s_ * 0.04, 0.0055, mat=7, seg=12)
+    # Stowed items tucked into window corners (iss038e013587, iss073e0025760).
     for k in range(6):
         f = facet_frame(k)
-        for q in ((-0.28, 0.035), (0.30, 0.52)):
-            m = place(fmap(f, q, -0.002), f[3], f[1])
-            cl.box((0.04, 0.025, 0.002), m, mat=3)
+        o, u, v, n = f
+        sx = rng.choice((-1, 1))
+        q = (sx * rng.uniform(0.24, 0.3), SIDE_MARGIN_TOP + SIDE_H + 0.05)
+        kind = rng.randrange(5)
+        if kind == 0:
+            sz = (rng.uniform(0.07, 0.1), rng.uniform(0.05, 0.07), 0.03)
+            cl.bag(sz, place(fmap(f, q, -0.018), n, u), rng, mat=rng.choice((0, 8)), seam=4, cuts=5)
+        elif kind == 1:
+            a, b = fmap(f, (q[0] - 0.06, q[1]), -0.018), fmap(f, (q[0] + 0.06, q[1] - 0.01), -0.018)
+            cl.cyl(a, b, 0.014, mat=7, seg=16)
+            cl.cyl(b, b + (b - a).normalized() * 0.012, 0.017, mat=13, seg=16)
+        elif kind == 2:
+            cl.box((0.12, 0.09, 0.008), place(fmap(f, q, -0.006), n, u * math.cos(0.3) + v * math.sin(0.3)), mat=3,
+                   bevel=0.001)
+            cl.box((0.12, 0.012, 0.0085), place(fmap(f, (q[0], q[1] - 0.04), -0.006), n, u), mat=7)
+        elif kind == 3:
+            c = fmap(f, q, -0.02)
+            ring = [c + (u * math.cos(t) + v * math.sin(t)) * 0.035 + n * (0.006 * math.sin(3 * t))
+                    for t in (2 * math.pi * i / 8 for i in range(8))]
+            cl.tube(ring, 0.003, mat=rng.choice(mats), seg=6, closed=True, sub=4)
+            cl.box((0.01, 0.012, 0.012), place(c + u * 0.035, n, v), mat=7)
+        else:
+            cl.box((0.05, 0.03, 0.02), place(fmap(f, q, -0.012), n, u), mat=7, bevel=0.003)
+            cl.cyl(fmap(f, (q[0] + 0.025, q[1]), -0.012), fmap(f, (q[0] + 0.055, q[1] + 0.02), -0.03), 0.004,
+                   mat=9, seg=8)
     cl.build()
-    led = Part("LEDs", "Emissive", ["M_LedGreen", "M_LedAmber"])
-    for k, t, z, mat in ((0, -0.3, 0.45, 0), (3, 0.1, 0.6, 1), (3, 0.15, 0.6, 0), (5, -0.25, 0.5, 1)):
-        a = math.radians(60.0 * k)
-        radial = Vector((math.cos(a), math.sin(a), 0.0))
-        tang = Vector((-math.sin(a), math.cos(a), 0.0))
-        p = radial * (A2 - 0.17) + tang * t + Vector((0, 0, z))
-        led.box((0.006, 0.006, 0.004), place(p, -radial, tang), mat=mat)
-    led.build()
 
 
 def build_mullion_detail(rng):
     """Mullion rails with cap screws, orange window tags, Velcro and label-like plain patches,
     shutter crank knobs, small brackets, top-plate fittings (iss050e033912, iss038e013587)."""
     hw = Part("Hardware", "Hardware", ["M_FrameBlack", "M_Bolt", "M_Tag", "M_Velcro", "M_VelcroBlack",
-                                       "M_PatchWhite", "M_Plastic", "M_Connector"])
+                                       "M_PatchWhite", "M_Plastic", "M_Connector", "M_PatchYellow", "M_PatchGrey"])
     corners = ccw(side_corners())
     m, h = SIDE_MARGIN_TOP, SIDE_H
     w0, w1 = HEX_APOTHEM / SQ3, A2 / SQ3
@@ -835,8 +938,8 @@ def build_mullion_detail(rng):
                 y = rng.uniform(m + h + 0.02, FACET_LEN - 0.02)
             wf = w0 + (w1 - w0) * y / FACET_LEN - 0.05
             q = (rng.uniform(-wf, wf), y)
-            size = (rng.uniform(0.03, 0.07), rng.uniform(0.016, 0.028), 0.0015)
-            hw.box(size, place(fmap(f, q, -0.001), n, u), mat=rng.choice((3, 3, 4, 5, 5)))
+            hw.patch(rng.uniform(0.02, 0.08), rng.uniform(0.012, 0.035), place(fmap(f, q, -0.001), n, u),
+                     rng.choice((3, 3, 4, 5, 5, 8, 9)), rng)
         # Shutter crank knob on the lower band: base, dial, centre boss, index mark.
         q = (rng.choice((-1, 1)) * rng.uniform(0.12, 0.22), m + h + 0.068)
         hw.cyl(fmap(f, q, 0.0), fmap(f, q, -0.006), 0.03, mat=6, seg=24)
@@ -858,8 +961,8 @@ def build_mullion_detail(rng):
         hw.cyl(p - Vector((0, 0, 0.006)), p - Vector((0, 0, 0.022)), 0.01, mat=7, seg=16)
         a = math.radians(60.0 * i + rng.uniform(-18.0, 18.0))
         p = Vector((0.495 * math.cos(a), 0.495 * math.sin(a), Z_TOP - 0.001))
-        hw.box((0.018, rng.uniform(0.03, 0.05), 0.0015), place(p, (0, 0, -1), (math.cos(a), math.sin(a), 0)),
-               mat=rng.choice((3, 5)))
+        hw.patch(0.018, rng.uniform(0.02, 0.05), place(p, (0, 0, -1), (math.cos(a), math.sin(a), 0)),
+                 rng.choice((3, 5, 8)), rng)
     for i in range(4):
         a = math.radians(rng.uniform(0.0, 360.0))
         p = Vector((0.455 * math.cos(a), 0.455 * math.sin(a), rz - 0.001))
@@ -875,42 +978,101 @@ def wall_point(k, t, z, d):
 
 
 def build_walls(rng):
-    """Dark closeout panels with fasteners, Velcro and plain patches, wall bags, a flex hose."""
-    wp = Part("WallPanels", "Shell", ["M_PanelGrey", "M_ShellGrey", "M_Bolt", "M_Velcro", "M_VelcroBlack",
-                                      "M_PatchWhite", "M_Plastic", "M_Fabric", "M_FabricBeige", "M_Webbing"])
+    """Skirt walls as equipment racks (iss035e010551): dark backing, perforated rails, stacked avionics
+    boxes of mixed depth with connectors, jumper cables, handles and blank patches; hoses; bags; LEDs."""
+    wp = Part("WallRacks", "Shell", ["M_PanelGrey", "M_ShellGrey", "M_Bolt", "M_Velcro", "M_VelcroBlack",
+                                     "M_PatchWhite", "M_Plastic", "M_Fabric", "M_FabricBeige", "M_Webbing",
+                                     "M_Connector", "M_CableBlack", "M_CableGrey", "M_LaptopBody", "M_PatchYellow",
+                                     "M_Hose"])
+    led = Part("LEDs", "Emissive", ["M_LedGreen", "M_LedAmber"])
     hwid = A2 / SQ3
+    leds = 0
     for k in range(6):
         a = math.radians(60.0 * k)
         R, T = Vector((math.cos(a), math.sin(a), 0.0)), Vector((-math.sin(a), math.cos(a), 0.0))
-        s, zs = rng.uniform(-0.1, 0.1), rng.uniform(Z_BASE + 0.2, Z_FB - 0.2)
-        for ta, tb in ((-hwid + 0.035, s - 0.004), (s + 0.004, hwid - 0.035)):
-            for za, zb in ((Z_BASE + 0.02, zs - 0.004), (zs + 0.004, Z_FB - 0.02)):
-                tc, zc = (ta + tb) / 2, (za + zb) / 2
-                wp.box((tb - ta, zb - za, 0.008), place(wall_point(k, tc, zc, 0.004), -R, T),
-                       mat=rng.choice((0, 0, 1)))
-                for t in (ta + 0.015, tb - 0.015):
-                    for z in (za + 0.015, zb - 0.015):
-                        wp.cyl(wall_point(k, t, z, 0.008), wall_point(k, t, z, 0.011), 0.0045, mat=2, seg=8)
-        for _ in range(rng.randint(3, 6)):
-            p = wall_point(k, rng.uniform(-hwid + 0.08, hwid - 0.08), rng.uniform(Z_BASE + 0.06, Z_FB - 0.06),
-                           0.0088)
-            size = (rng.uniform(0.03, 0.09), rng.uniform(0.018, 0.035), 0.0015)
-            wp.box(size, place(p, -R, T), mat=rng.choice((3, 3, 4, 5, 5)))
+        wp.box((2 * hwid - 0.02, Z_FB - Z_BASE - 0.01, 0.004), place(wall_point(k, 0.0, (Z_BASE + Z_FB) / 2, 0.002),
+                                                                     -R, T), mat=1)
+        for t in (-hwid + 0.05, hwid - 0.05):
+            wp.box((0.022, Z_FB - Z_BASE - 0.03, 0.03), place(wall_point(k, t, (Z_BASE + Z_FB) / 2, 0.019), -R, T),
+                   mat=0)
+            for j in range(int((Z_FB - Z_BASE - 0.06) / 0.04)):
+                z = Z_BASE + 0.04 + 0.04 * j
+                wp.cyl(wall_point(k, t, z, 0.034), wall_point(k, t, z, 0.0365), 0.004, mat=2, seg=6,
+                       rot=rng.uniform(0, 1.0))
+        z = Z_BASE + 0.1
+        while z < Z_FB - 0.1:
+            h = rng.uniform(0.06, 0.16)
+            if z + h > Z_FB - 0.07:
+                break
+            t0 = -hwid + 0.07
+            while t0 < hwid - 0.12:
+                w = min(rng.uniform(0.12, 0.38), hwid - 0.07 - t0)
+                dep = rng.uniform(0.03, 0.13)
+                if rng.random() < 0.15:
+                    t0 += w + 0.01
+                    continue
+                tc, zc = t0 + w / 2, z + h / 2
+                mb = place(wall_point(k, tc, zc, 0.004 + dep / 2), -R, T)
+                wp.box((w - 0.006, h - 0.006, dep), mb, mat=rng.choice((0, 0, 13, 1)), bevel=0.003)
+                front = dep / 2
+                for j in range(rng.randint(0, 4)):
+                    x = rng.uniform(-w / 2 + 0.03, w / 2 - 0.03)
+                    y = rng.uniform(-h / 2 + 0.025, h / 2 - 0.025)
+                    r = rng.choice((0.008, 0.011, 0.014))
+                    wp.cyl(mb @ Vector((x, y, front)), mb @ Vector((x, y, front + 0.012)), r, mat=10, seg=16)
+                    if rng.random() < 0.7:
+                        p0 = mb @ Vector((x, y, front + 0.012))
+                        p1 = mb @ Vector((x, y, front + 0.04))
+                        wp.cyl(p0, p1, r * 0.75, mat=6, seg=12)
+                        end = wall_point(k, tc + rng.uniform(-0.15, 0.15), Z_BASE + 0.06, 0.03)
+                        mid = p1.lerp(end, 0.5) - R * rng.uniform(0.03, 0.08)
+                        wp.tube([p1, mid, end], rng.uniform(0.003, 0.0055), mat=rng.choice((11, 11, 12)), seg=8,
+                                sub=8)
+                if rng.random() < 0.6:
+                    for sx in (-1, 1):
+                        wp.cyl(mb @ Vector((sx * (w / 2 - 0.02), -h / 2 + 0.02, front)),
+                               mb @ Vector((sx * (w / 2 - 0.02), -h / 2 + 0.02, front + 0.022)), 0.004, mat=2, seg=8)
+                    wp.cyl(mb @ Vector((-(w / 2 - 0.02), -h / 2 + 0.02, front + 0.022)),
+                           mb @ Vector((w / 2 - 0.02, -h / 2 + 0.02, front + 0.022)), 0.004, mat=2, seg=8)
+                for sx in (-1, 1):
+                    for sy in (-1, 1):
+                        q = Vector((sx * (w / 2 - 0.012), sy * (h / 2 - 0.012), front))
+                        wp.cyl(mb @ q, mb @ (q + Vector((0, 0, 0.002))), 0.0035, mat=2, seg=6, rot=rng.uniform(0, 1))
+                if rng.random() < 0.7:
+                    pw, ph = rng.uniform(0.02, 0.08), rng.uniform(0.01, 0.03)
+                    wp.patch(pw, ph, mb @ Matrix.Translation((rng.uniform(-w / 4, w / 4), h / 2 - 0.02, front + 0.001)),
+                             rng.choice((5, 5, 14, 3, 4)), rng)
+                if leds < 4 and k in (0, 3, 5):
+                    for j in range(2 if k == 3 else 1):
+                        led.box((0.006, 0.006, 0.004), mb @ Matrix.Translation((w / 2 - 0.03 - 0.012 * j, 0.0,
+                                                                                front + 0.002)),
+                                mat=(leds + j) % 2)
+                    leds += 2 if k == 3 else 1
+                t0 += w + 0.01
+            z += h + rng.uniform(0.01, 0.04)
+        if k % 2 == 0:
+            t = rng.uniform(-hwid + 0.1, hwid - 0.1)
+            pts = [wall_point(k, t, Z_BASE + 0.02, 0.05), wall_point(k, t + 0.04, (Z_BASE + Z_FB) / 2, 0.16),
+                   wall_point(k, t - 0.02, Z_FB - 0.05, 0.08), wall_point(k, t + 0.1, Z_FB + 0.05, 0.03)]
+            q, tg = wp.tube(pts, 0.018, mat=15, seg=12, sub=24, rib=0.07)
+            for i in (0, len(q) - 1):
+                wp.cyl(q[i] - tg[i] * 0.015, q[i] + tg[i] * 0.015, 0.022, mat=6, seg=16)
     for k, t, z, size, mat in ((1, 0.0, 0.75, (0.26, 0.11, 0.07), 8), (0, 0.15, 0.42, (0.2, 0.15, 0.08), 7),
                                (2, -0.2, 0.47, (0.22, 0.15, 0.09), 8), (4, -0.2, 0.45, (0.24, 0.17, 0.08), 7)):
         a = math.radians(60.0 * k)
         R, T = Vector((math.cos(a), math.sin(a), 0.0)), Vector((-math.sin(a), math.cos(a), 0.0))
-        mb = place(wall_point(k, t, z, size[2] / 2 + 0.008), -R, T)
-        wp.soft_box(size, mb, mat=mat, lump=0.006)
-        wp.box((0.022, size[1] + 0.01, size[2] + 0.01), mb @ Matrix.Translation((-size[0] * 0.25, 0, 0)), mat=9)
-        wp.box((0.022, size[1] + 0.01, size[2] + 0.01), mb @ Matrix.Translation((size[0] * 0.25, 0, 0)), mat=9)
+        mb = place(wall_point(k, t, z, size[2] / 2 + 0.1), -R, T)
+        wp.bag(size, mb, rng, mat=mat, seam=9)
+        wp.box((0.02, size[1] + 0.006, size[2] + 0.006), mb @ Matrix.Translation((-size[0] * 0.25, 0, 0)), mat=9)
+        wp.patch(size[0] * 0.3, size[1] * 0.3, mb @ Matrix.Translation((0.03, 0, size[2] / 2 + 0.002)), 3, rng)
     wp.build()
-    # Corrugated flex hose from the hatch tunnel up to the large box on wall 3, as in iss035e010551.
+    led.build()
+    # Corrugated flex hose from the hatch tunnel up to wall 3, as in iss035e010551.
     ho = Part("Hose", "Shell", ["M_Hose", "M_Plastic"])
     a = math.radians(205.0)
     pts = [Vector((0.58 * math.cos(a), 0.58 * math.sin(a), 0.0)),
            Vector((0.6 * math.cos(a), 0.6 * math.sin(a), 0.22)),
-           wall_point(3, 0.3, 0.38, 0.06), wall_point(3, 0.28, 0.5, 0.05)]
+           wall_point(3, 0.3, 0.38, 0.12), wall_point(3, 0.28, 0.5, 0.1)]
     q, tg = ho.tube(pts, 0.022, seg=12, sub=24, rib=0.08)
     for i in (0, len(q) - 1):
         ho.cyl(q[i] - tg[i] * 0.02, q[i] + tg[i] * 0.02, 0.026, mat=1, seg=16)

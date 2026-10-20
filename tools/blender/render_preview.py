@@ -2,13 +2,15 @@
 
 Run: blender -b --factory-startup -P tools/blender/render_preview.py -- [BLEND] [--samples N] [--out DIR]
 Writes <DIR>/<pose>.png and compare_<pose>.png (render left, dev photo right), default
-local/blender/preview. Earth outside is a procedural cloud field inside the Earth cone (+Z = Earth) with
-a sun through a side window; GPU (OptiX/CUDA) when present. The .blend itself is not modified.
+local/blender/preview. Earth outside is a 1:1000 sphere with the BMNG 2004 monthly map and the 2002
+cloud layer from local/sources/ (tools/textures/sources.lock), placed by the pose's nadir and sun angles
+(EARTH below); GPU (OptiX/CUDA) when present. The .blend itself is not modified.
 """
 import math
 import os
 import sys
 
+import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
@@ -68,60 +70,128 @@ def look(eye, target, right_hint, roll_deg, up=None):
     return m
 
 
-def setup_world_and_sun(scene):
-    w = bpy.data.worlds.new("W_PreviewEarth")
+# Preview Earth per pose (1:1000 scale sphere, metres). iss035e010551 uses its EOL record
+# (reference/dev-set.json: nadir, time, sun angles, altitude). The others have no EOL record
+# ("not found"): month from EXIF, nadir and sun ASSUMED (cloudy ocean, sun high, as in the photos).
+EARTH = {
+    "rest": {"month": 7, "lat": 10.0, "lon": 60.0, "alt_km": 410.0, "sun_el": 50.0, "sun_az": 120.0},
+    "iss035e010551": {"month": 3, "lat": 51.8, "lon": -120.1, "alt_km": 394.0, "sun_el": -20.0, "sun_az": 56.0},
+    "iss038e013587": {"month": 12, "lat": -20.0, "lon": -30.0, "alt_km": 410.0, "sun_el": 65.0, "sun_az": 180.0},
+    "iss073e0025760": {"month": 5, "lat": 35.0, "lon": -40.0, "alt_km": 415.0, "sun_el": 45.0, "sun_az": 220.0},
+}
+R_EARTH = 6371.0  # km; 1 km -> 1 m in the preview scene
+SRC = os.path.join(ROOT, "local", "sources")
+
+
+def load_image(path):
+    for im in bpy.data.images:
+        if bpy.path.abspath(im.filepath) == path:
+            return im
+    return bpy.data.images.load(path)
+
+
+def setup_world(scene):
+    w = bpy.data.worlds.new("W_PreviewSpace")
+    w.color = (0.0, 0.0, 0.0)
     try:
         w.use_nodes = True
     except AttributeError:
         pass
-    nt = w.node_tree
-    bg = next(n for n in nt.nodes if n.type == "BACKGROUND")
-    N, L = nt.nodes.new, nt.links.new
-    tc = N("ShaderNodeTexCoord")
-    sep = N("ShaderNodeSeparateXYZ")
-    L(tc.outputs["Generated"], sep.inputs["Vector"])
-    # Clouds over ocean inside the Earth cone (cos 69.74 deg = 0.3466), black space outside, thin limb.
-    cloud = N("ShaderNodeTexNoise")
-    cloud.inputs["Scale"].default_value = 16.0
-    cloud.inputs["Detail"].default_value = 15.0
-    cloud.inputs["Roughness"].default_value = 0.7
-    cloud.inputs["Distortion"].default_value = 0.15
-    L(tc.outputs["Generated"], cloud.inputs["Vector"])
-    cn = N("ShaderNodeValToRGB")
-    L(cloud.outputs["Fac"], cn.inputs["Fac"])
-    cr = cn.color_ramp
-    cr.elements[0].position, cr.elements[0].color = 0.4, (0.02, 0.06, 0.14, 1.0)
-    cr.elements[1].position, cr.elements[1].color = 0.6, (0.82, 0.84, 0.87, 1.0)
-    ramp_out = cn.outputs["Color"]
-    ramp = N("ShaderNodeValToRGB")
-    ramp.color_ramp.elements[0].position, ramp.color_ramp.elements[0].color = 0.335, (0.0, 0.0, 0.0, 1.0)
-    ramp.color_ramp.elements[1].position, ramp.color_ramp.elements[1].color = 0.37, (1.0, 1.0, 1.0, 1.0)
-    e = ramp.color_ramp.elements.new(0.347)
-    e.color = (0.5, 0.8, 1.6, 1.0)
-    L(sep.outputs["Z"], ramp.inputs["Fac"])
-    mul = N("ShaderNodeMix")
-    mul.data_type, mul.blend_type = "RGBA", "MULTIPLY"
-    mul.inputs["Factor"].default_value = 1.0
-    L(ramp_out, next(s for s in mul.inputs if s.name == "A" and s.type == "RGBA"))
-    L(ramp.outputs["Color"], next(s for s in mul.inputs if s.name == "B" and s.type == "RGBA"))
-    L(next(s for s in mul.outputs if s.type == "RGBA"), bg.inputs["Color"])
-    bg.inputs["Strength"].default_value = 1.0
+    bg = next(n for n in w.node_tree.nodes if n.type == "BACKGROUND")
+    bg.inputs["Strength"].default_value = 0.0
     scene.world = w
+    for ob in bpy.data.collections["Lights_Cabin"].all_objects:
+        ob["base_energy"] = ob.data.energy
+
+
+def setup_earth(scene, cfg):
+    """BMNG month + 2002 cloud layer on a sphere; city lights on the night side; thin blue limb."""
+    for ob in [o for o in scene.objects if o.name.startswith("PreviewEarth") or o.name == "L_PreviewSun"]:
+        bpy.data.objects.remove(ob)
+    lat, lon = math.radians(cfg["lat"]), math.radians(cfg["lon"])
+    up = Vector((math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat)))
+    east = Vector((-math.sin(lon), math.cos(lon), 0.0))
+    north = up.cross(east)
+    # +Z of the Cupola frame points at the nadir; map east -> -X, north -> +Y, up -> -Z.
+    rot = Matrix.Diagonal((-1.0, 1.0, -1.0)) @ Matrix((east, north, up))
+    me = bpy.data.meshes.new("PreviewEarth")
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=512, v_segments=256, radius=R_EARTH)
+    bm.to_mesh(me)
+    bm.free()
+    for poly in me.polygons:
+        poly.use_smooth = True
+    ob = bpy.data.objects.new("PreviewEarth", me)
+    ob.matrix_world = Matrix.Translation((0.0, 0.0, R_EARTH + cfg["alt_km"])) @ rot.to_4x4()
+    scene.collection.objects.link(ob)
+    m = bpy.data.materials.new("M_PreviewEarth")
+    try:
+        m.use_nodes = True
+    except AttributeError:
+        pass
+    nt = m.node_tree
+    N, L = nt.nodes.new, nt.links.new
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+    flip = N("ShaderNodeVectorMath")
+    flip.operation = "MULTIPLY"
+    flip.inputs[1].default_value = (1.0, -1.0, 1.0)  # outside view: east toward +u
+    L(N("ShaderNodeTexCoord").outputs["Object"], flip.inputs[0])
+
+    def env(path):
+        t = N("ShaderNodeTexEnvironment")
+        t.image = load_image(path)
+        L(flip.outputs["Vector"], t.inputs["Vector"])
+        return t
+
+    day = env(os.path.join(SRC, "bmng2004-monthly", "world.topo.bathy.2004%02d.3x21600x10800.jpg" % cfg["month"]))
+    cloud = env(os.path.join(SRC, "bm2002-clouds", "cloud_combined_8192.tif"))
+    cloud.image.colorspace_settings.name = "Non-Color"
+    mix = N("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    L(cloud.outputs["Color"], mix.inputs["Factor"])
+    L(day.outputs["Color"], next(s for s in mix.inputs if s.name == "A" and s.type == "RGBA"))
+    next(s for s in mix.inputs if s.name == "B" and s.type == "RGBA").default_value = (0.85, 0.86, 0.88, 1.0)
+    L(next(s for s in mix.outputs if s.type == "RGBA"), bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.85
+    night = cfg["sun_el"] < 0.0
+    lights = env(os.path.join(SRC, "blackmarble2016", "BlackMarble_2016_3km.jpg"))
+    L(lights.outputs["Color"], bsdf.inputs["Emission Color"])
+    bsdf.inputs["Emission Strength"].default_value = 0.02 if night else 0.0
+    lw = N("ShaderNodeLayerWeight")
+    lw.inputs["Blend"].default_value = 0.08
+    em = N("ShaderNodeEmission")
+    em.inputs["Color"].default_value = (0.25, 0.5, 1.0, 1.0)
+    pw = N("ShaderNodeMath")
+    pw.operation = "MULTIPLY"
+    pw.inputs[1].default_value = 0.02 if night else 0.6
+    L(lw.outputs["Facing"], pw.inputs[0])
+    L(pw.outputs["Value"], em.inputs["Strength"])
+    add = N("ShaderNodeAddShader")
+    L(bsdf.outputs["BSDF"], add.inputs[0])
+    L(em.outputs["Emission"], add.inputs[1])
+    L(add.outputs["Shader"], out.inputs["Surface"])
+    me.materials.append(m)
+    # Sun from the pose's elevation/azimuth at the nadir point; Earth itself shadows it at night.
     sun = bpy.data.objects.new("L_PreviewSun", bpy.data.lights.new("L_PreviewSun", "SUN"))
     sun.data.energy = 3.0
-    # Sun from the zenith side, grazing in through side window 0 (light on Earth below, as in the
-    # day photos); Node 3 light at 5 %: next to daylit Earth the cabin light is a faint fill.
-    travel = Vector((-0.8, -0.2, 0.15)).normalized()
-    for ob in bpy.data.collections["Lights_Cabin"].all_objects:
-        ob.data.energy *= 0.05
-    sun.rotation_euler = travel.to_track_quat("-Z", "Y").to_euler()
+    sun.data.angle = math.radians(0.53)
+    e, a = math.radians(cfg["sun_el"]), math.radians(cfg["sun_az"])
+    to_sun = Vector((-math.sin(a) * math.cos(e), math.cos(a) * math.cos(e), -math.sin(e)))
+    sun.rotation_euler = (-to_sun).to_track_quat("-Z", "Y").to_euler()
     scene.collection.objects.link(sun)
+    # Daylit Earth dwarfs the Node 3 light (5 %); on the night side it is the main light, dimmed to
+    # the photos' level (30 %). Day exposure +0.5 EV: the photos expose for the bright Earth.
+    for ob in bpy.data.collections["Lights_Cabin"].all_objects:
+        ob.data.energy = ob["base_energy"] * (0.3 if night else 0.05)
+    scene.view_settings.exposure = 0.0 if night else 0.5
 
 
 def make_camera(name, pose):
     eye, target, right, roll, cfg, _ = pose
     cd = bpy.data.cameras.new(name)
     cd.clip_start = 0.01
+    cd.clip_end = 30000.0
     cd.sensor_fit = "HORIZONTAL"
     cd.sensor_width = cfg["sensor"]
     if "fisheye_mm" in cfg:
@@ -160,7 +230,7 @@ def main():
     blend, samples, out_dir = args()
     bpy.ops.wm.open_mainfile(filepath=blend)
     scene = bpy.context.scene
-    setup_world_and_sun(scene)
+    setup_world(scene)
     scene.render.engine = "CYCLES"
     print("DEVICE", pick_device(scene))
     scene.cycles.samples = samples
@@ -171,7 +241,9 @@ def main():
     scene.render.image_settings.file_format = "PNG"
     os.makedirs(out_dir, exist_ok=True)
     rest = bpy.data.objects["Cam_Rest"]
+    rest.data.clip_end = 30000.0
     for name, pose in POSES.items():
+        setup_earth(scene, EARTH[name])
         scene.camera = rest if pose is None else make_camera("Cam_" + name, pose)
         path = os.path.join(out_dir, name + ".png")
         scene.render.filepath = path
