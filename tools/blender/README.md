@@ -34,9 +34,12 @@ planned; the best rotation found saves 0.10 face-equivalents. `-Z` (towards the 
 iss035e010551, iss038e013587 (10.5 mm equisolid fisheye) and iss073e0025760 with Cycles (GPU when
 present) into `local/blender/preview/` (or DIR), plus `compare_<pose>.png` with the render left and the dev photo
 right (`compare_rest_clip.png` uses the ESA clip frame, for internal comparison only). Earth is a
-procedural cloud field inside the Earth cone with a thin limb; the sun grazes in through side window 0
-from the zenith side; the cabin light is scaled to 5 % (daylight exposure: Earthlight dominates). The
-.blend is not modified.
+1:1000 sphere (km -> m) with the BMNG 2004 monthly map and the 2002 cloud layer from `local/sources/`
+(`tools/textures/sources.lock`), Black Marble city lights on the night side and a thin blue limb. Each
+pose has an `EARTH` entry: iss035e010551 uses its EOL record (nadir 51.8 N 120.1 W, 394 km, sun
+elevation -20 deg: night look, cabin light at 30 %); the other poses have no EOL record, so month comes
+from EXIF and nadir and sun angles are assumed (day look: cabin light 5 %, +0.5 EV). Space is black.
+The .blend is not modified.
 
 Interior realism (P4.7 round 1, dev references only): `principled()` builds every material from noise
 nodes: colour and roughness variation, fine bump, a Cycles Bevel normal for rounded specular edges and,
@@ -51,6 +54,16 @@ end fittings; laptop pads and vents; lens grips. The scatter uses `random.Random
 fixed order, so the build stays deterministic. `L_Cabin` is a 1 m disk at the hatch plane (Node 3
 light shining in), 60 W, warm white. Bevel nodes slow the bake: measured 20 October 2026, 8 min 39 s
 wall time for the 5-face bake at 128 spp (P4.4 measured 137 s render time).
+
+Round 2 (P4.7): large clutter (laptop on an articulated wall arm, three DSLR-like cameras with grips,
+prisms, hoods and handrail brackets, cables floating across the windows with connectors, seeded stowed
+items in the window corners); cloth bags via `Part.bag` (subdivided box on a rounded superellipsoid with
+seeded crease valleys, sag and a piped seam); irregular patches via `Part.patch` (Velcro, blank label-like
+patches in white, yellow and grey, no text); fasteners via a seeded `bolt()` (hex rotation and height,
+socket caps, black-oxide heads, empty holes); wear patches modulated by a second low-frequency noise. The
+skirt walls are racks (`build_walls`): dark backing, perforated rails, stacked avionics boxes of seeded
+size and depth with connectors, backshells, jumper cables to the lower harness, handles, blank patches,
+corrugated hoses, bags and the LEDs.
 
 `bake_panorama.py [BLEND] [--samples N] [--seed N] [--out DIR] [--faces +X,-Y] [--crop X0 Y0 X1 Y1]`
 (plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, 0.70) with
