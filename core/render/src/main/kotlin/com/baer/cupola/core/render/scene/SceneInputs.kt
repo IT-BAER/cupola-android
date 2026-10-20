@@ -2,6 +2,8 @@ package com.baer.cupola.core.render.scene
 
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.orbit.OrbitState
+import com.baer.cupola.orbit.astro.Moon
+import com.baer.cupola.orbit.astro.Sun
 import com.baer.cupola.orbit.frames.Frames
 import com.baer.cupola.orbit.frames.cross
 import com.baer.cupola.orbit.frames.minus
@@ -12,6 +14,8 @@ import com.baer.cupola.orbit.frames.rotatedFrameZ
 import com.baer.cupola.orbit.frames.times
 import com.baer.cupola.orbit.frames.unaryMinus
 import com.baer.cupola.orbit.sgp4.Vector3
+import com.baer.cupola.orbit.time.Sidereal
+import com.baer.cupola.orbit.time.TimeScales
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.math.abs
@@ -208,6 +212,24 @@ data class Scene(
 object SceneInputs {
     /** Cam_Rest lens: 14 mm on a 36 mm sensor (fit AUTO), applied to the long screen axis. */
     val DEFAULT_FOV_LONG_DEG = Math.toDegrees(2 * atan(18.0 / 14.0))
+
+    /**
+     * Explicit pose (override with instant and position): Sun and Moon straight from the ephemerides at that instant,
+     * no SGP4, so dates far from the TLE epoch work. Without a camera forward the view looks at nadir (no orbit
+     * velocity, so no LVLH). Null when the override lacks the instant or the position.
+     */
+    fun buildPose(override: SceneOverride): Scene? {
+        val instant = override.instant ?: return null
+        val position = override.positionEcefKm ?: return null
+        val jdTt = TimeScales.julianDateTt(instant)
+        val gmst = Sidereal.gmstRad(TimeScales.julianDateUt1(instant))
+        val sunEcef = Sun.apparent(jdTt).positionTemeKm(jdTt).rotatedFrameZ(gmst)
+        val moonEcef = Moon.apparent(jdTt).positionTemeKm(jdTt).rotatedFrameZ(gmst)
+        val forward = override.cameraForwardEcef ?: -SceneGeometry.enu(position).up
+        // Velocity is unused: build() takes the camera from the forward direction.
+        val state = SceneState(instant, position, Vector3(0.0, 0.0, 0.0), SceneGeometry.unit(sunEcef), SceneGeometry.unit(moonEcef - position))
+        return build(state, RestView.NADIR, 0.0, 0.0, override.copy(cameraForwardEcef = forward))
+    }
 
     /**
      * Camera = LVLH(ISS) x [SceneGeometry.LVLH_FROM_BLENDER] x rest view x look-around. Positive [yawDeg] turns the

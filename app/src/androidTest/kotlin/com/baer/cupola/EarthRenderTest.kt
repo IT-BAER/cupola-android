@@ -135,6 +135,29 @@ class EarthRenderTest {
         save("terminator", render(scene(GLINT, lat, lon + 88.0, 0.0, -90.0)))
     }
 
+    /**
+     * P3a probe poses from the EOL metadata in reference/dev-set.json (nadir view, no SGP4: the dates lie far from
+     * the bundled TLE). FOV = lens focal length on the camera's long sensor axis, mapped to the long screen axis.
+     * Atmosphere and clouds are not rendered yet.
+     */
+    @Test
+    fun p3aProbePoses() {
+        data class Probe(val id: String, val time: String, val lat: Double, val lon: Double, val altKm: Double, val focalMm: Double, val sensorLongMm: Double)
+        for (p in listOf(
+            Probe("iss073e0764640", "2025-09-22T05:16:55Z", 19.0, 121.3, 411.0, 24.0, 35.9), // Nikon Z 9
+            Probe("iss022e066972", "2010-02-17T08:01:15Z", 14.3, 26.9, 348.0, 12.0, 23.7), // Nikon D2Xs
+        )) {
+            val pos = Frames.geodeticToEcef(Geodetic(Math.toRadians(p.lat), Math.toRadians(p.lon), p.altKm))
+            val fov = Math.toDegrees(2 * atan2(p.sensorLongMm / 2, p.focalMm))
+            val scene = SceneInputs.buildPose(SceneOverride(Instant.parse(p.time), pos, fovLongDeg = fov))!!
+            val img = render(scene)
+            save("p3a_${p.id}", img)
+            val lum = (0 until H step 8).flatMap { y -> (0 until W step 8).map { x -> luma(img, x, y) } }
+            Log.i(TAG, "p3a ${p.id} fov %.1f deg mean luma %.1f".format(fov, lum.average()))
+            assertTrue("${p.id} is dark: ${lum.average()}", lum.average() > 20.0)
+        }
+    }
+
     @Test
     fun gpuTimeEarthOnlyFullResolution() {
         val scene = scene(DAY, 25.0, 32.0, 0.0, -20.0)

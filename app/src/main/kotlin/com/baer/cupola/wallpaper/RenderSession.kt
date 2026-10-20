@@ -90,9 +90,13 @@ internal class RenderSession(private val orbit: OrbitModel) {
         return inputs
     }
 
-    /** Real UTC (preview: time-lapse) or the debug override; an SGP4 failure leaves the test pattern. */
+    /**
+     * Real UTC (preview: time-lapse) or the debug override; an override with instant and position skips SGP4.
+     * An SGP4 failure leaves the test pattern.
+     */
     private fun writeScene(inputs: FloatArray, yawDeg: Double, pitchDeg: Double) {
         val override = Gate.sceneOverride()
+        override?.let(SceneInputs::buildPose)?.let { return it.write(inputs) }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
         when (val state = orbit.stateAt(instant)) {
             is OrbitState -> SceneInputs.build(state.toSceneState(), REST_VIEW, yawDeg, pitchDeg, override).write(inputs)

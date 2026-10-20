@@ -170,6 +170,30 @@ class SceneInputsTest {
         assertEquals(0.0, (forward cross up) dot scene.ecefFromCamera.c1, 1e-12)
     }
 
+    /** EOL metadata of the P3a dev photos (reference/dev-set.json): Sun at the nadir point, rounded to 1 deg. */
+    @Test
+    fun poseOverrideComputesSunWithoutSgp4AtAnyDate() {
+        data class Eol(val time: String, val lat: Double, val lon: Double, val altKm: Double, val sunEl: Double, val sunAz: Double)
+        for (e in listOf(
+            Eol("2010-02-17T08:01:15Z", 14.3, 26.9, 348.0, 45.0, 124.0),
+            Eol("2025-09-22T05:16:55Z", 19.0, 121.3, 411.0, 61.0, 232.0),
+        )) {
+            val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(e.lat), Math.toRadians(e.lon), e.altKm))
+            val scene = SceneInputs.buildPose(SceneOverride(instant = Instant.parse(e.time), positionEcefKm = p))!!
+            val enu = SceneGeometry.enu(p)
+            val s = scene.sunDirEcef
+            assertEquals(e.time, e.sunEl, Math.toDegrees(asin(s dot enu.up)), 1.0)
+            val az = Math.toDegrees(kotlin.math.atan2(s dot enu.east, s dot enu.north)).let { if (it < 0) it + 360 else it }
+            assertEquals(e.time, e.sunAz, az, 2.0)
+            assertEquals(Instant.parse(e.time), scene.instant)
+            assertVec(p, scene.cameraEcefKm, 0.0)
+            // No forward given: the camera looks at nadir.
+            assertVec(-enu.up, -scene.ecefFromCamera.c2, 1e-12)
+            assertEquals(1.0, scene.moonDirEcef.norm(), 1e-12)
+        }
+        assertNull(SceneInputs.buildPose(SceneOverride(instant = Instant.parse("2010-02-17T08:01:15Z"))))
+    }
+
     @Test
     fun writeFillsTheFrameInputsLayout() {
         val scene = SceneInputs.build(state(10.0, 20.0), RestView.NADIR, 0.0, 0.0)
