@@ -117,7 +117,7 @@ level's size (not by filtering normals), so each level is a unit-length normal m
 
 ### interior_*
 
-`-Assets interior [-BakeDir DIR]` (default `locallender2ake`) packs the panorama bake of
+`-Assets interior [-BakeDir DIR]` (default `local\blender\r3\bake`) packs the panorama bake of
 tools/blender/bake_panorama.py (contract: tools/blender/README.md "Runtime contract"). Every `ldr/<layer>_<face>.png`
 must match its SHA-256 in the bake's `manifest.json`. Per layer, the cropped faces are stacked top to bottom in
 the order +X, -X, +Y, -Y, +Z; each face is padded with repeated edge rows to a multiple of 96 rows on the 2048
@@ -125,7 +125,7 @@ grid (24 on the 512 grid), so no 6x6 or 8x8 block spans two faces. Atlas rows on
 rects): +X 0..1737 (slot 1824), -X 1824..2947 (slot 1152), +Y 2976..4723 (slot 1824), -Y 4800..5926 (slot
 1152), +Z 5952..8000 (slot 2112); the first atlas row of a face is its crop row y0 (lowest v). 512 grid: slots
 456, 288, 456, 288, 528 from row 0. The shader clamps to half a texel inside a face. One mip level (viewed near
-1:1). Texels decode as linear = sRGB-decode(texel) x manifest `scale[layer]`. Measured 20 October 2026 (r2):
+1:1). Texels decode as linear = sRGB-decode(texel) x manifest `scale[layer]`. Measured 20 October 2026 (r2; r3 has the same sizes):
 ASTC 15,870,848 B (15.14 MiB, budget 18.0), total ASTC 88.570 MiB; two runs gave identical SHA-256.
 
 ### water_mask

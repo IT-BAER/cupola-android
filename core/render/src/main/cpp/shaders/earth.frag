@@ -64,11 +64,11 @@ const float SLOT_2048[5] = float[](0.0, 1824.0, 2976.0, 4800.0, 5952.0);
 const float Y0_2048[5] = float[](311.0, 925.0, 301.0, 922.0, 0.0);
 const float SLOT_512[5] = float[](0.0, 456.0, 744.0, 1200.0, 1488.0);
 const float Y0_512[5] = float[](77.0, 231.0, 75.0, 230.0, 0.0);
-// Bake manifest `scale` per layer (r2): linear radiance = decoded texel x scale.
-const float SCALE_EARTH = 0.262674480676651;
-const float SCALE_CABIN = 5.48309850692749;
-const float SCALE_EMISSIVE = 1.0479097366333008;
-const float SCALE_AMBIENT = 0.26426202058792114;
+// Bake manifest `scale` per layer (r3): linear radiance = decoded texel x scale.
+const float SCALE_EARTH = 0.37785929441452026;
+const float SCALE_CABIN = 5.627439498901367;
+const float SCALE_EMISSIVE = 4.801466941833496;
+const float SCALE_AMBIENT = 0.3945154845714569;
 // Light mix, first values for the P4.7 review: cabin light at 5 % of its built strength (as the previews),
 // laptop and LEDs at built strength (decision 26), a dim uniform fill.
 const float CABIN_GAIN = 0.05;

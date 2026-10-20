@@ -15,7 +15,7 @@ $Inv = [Globalization.CultureInfo]::InvariantCulture
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Local = Join-Path $Root 'local'
-if (-not $BakeDir) { $BakeDir = Join-Path $Local 'blender\r2\bake' }
+if (-not $BakeDir) { $BakeDir = Join-Path $Local 'blender\r3\bake' }
 $Work = Join-Path $Local 'textures\work'
 $Out = Join-Path $Local 'textures\out'
 $VipsBin = Join-Path $Local 'tools\vips\vips-dev-8.18\bin'
