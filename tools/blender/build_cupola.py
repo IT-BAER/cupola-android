@@ -394,13 +394,21 @@ class Part:
             self.bm.faces.new(rings[-1]).material_index = mat
         return q, tg
 
+    def _mark_old(self):
+        # BMesh ops reallocate vertex storage, so identity sets of BMVert go stale, and ops may use
+        # the TAG flag as scratch; an int layer survives (new verts start at 0, removed in build()).
+        lay = self.bm.verts.layers.int.get("old") or self.bm.verts.layers.int.new("old")
+        for v in self.bm.verts:
+            v[lay] = 1
+        return lay
+
     def soft_box(self, size, matrix, mat=0, lump=0.006):
         """Bevelled box with a smooth deterministic lumpy displacement (soft fabric bag)."""
-        before = set(self.bm.verts)
+        lay = self._mark_old()
         self.box(size, matrix, mat=mat, bevel=min(size) * 0.3)
         c = matrix.translation
         for v in self.bm.verts:
-            if v not in before:
+            if not v[lay]:
                 p = v.co
                 d = math.sin(37.0 * p.x + 1.1) * math.sin(41.0 * p.y + 0.5) * math.sin(29.0 * p.z + 0.3)
                 v.co = p + (p - c).normalized() * (lump * d)
@@ -408,11 +416,11 @@ class Part:
     def bag(self, size, matrix, rng, mat=0, seam=None, cuts=7):
         """Cloth bag: subdivided box pushed onto a rounded superellipsoid, then seeded creases
         (sharp sine valleys in random directions) and a sag; optional piped seam round the top."""
-        before = set(self.bm.verts)
+        lay = self._mark_old()
         r = bmesh.ops.create_cube(self.bm, size=1.0, matrix=Matrix.Diagonal((*size, 1.0)))
         edges = list({e for v in r["verts"] for e in v.link_edges})
         bmesh.ops.subdivide_edges(self.bm, edges=edges, cuts=cuts, use_grid_fill=True)
-        new = [v for v in self.bm.verts if v not in before]
+        new = [v for v in self.bm.verts if not v[lay]]
         hx, hy, hz = size[0] / 2, size[1] / 2, size[2] / 2
         folds = [(Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))).normalized(),
                   rng.uniform(25.0, 60.0), rng.uniform(0, 6.28), rng.uniform(0.002, 0.005)) for _ in range(4)]
@@ -452,6 +460,9 @@ class Part:
 
     def build(self, props=None):
         me = bpy.data.meshes.new(self.name)
+        lay = self.bm.verts.layers.int.get("old")
+        if lay is not None:
+            self.bm.verts.layers.int.remove(lay)
         self.bm.to_mesh(me)
         self.bm.free()
         for m in self.mats:
@@ -1042,7 +1053,7 @@ def build_walls(rng):
                     pw, ph = rng.uniform(0.02, 0.08), rng.uniform(0.01, 0.03)
                     wp.patch(pw, ph, mb @ Matrix.Translation((rng.uniform(-w / 4, w / 4), h / 2 - 0.02, front + 0.001)),
                              rng.choice((5, 5, 14, 3, 4)), rng)
-                if leds < 4 and k in (0, 3, 5):
+                if leds < (1, 0, 0, 3, 0, 4)[k]:  # one LED on wall 0, two on 3, one on 5
                     for j in range(2 if k == 3 else 1):
                         led.box((0.006, 0.006, 0.004), mb @ Matrix.Translation((w / 2 - 0.03 - 0.012 * j, 0.0,
                                                                                 front + 0.002)),
