@@ -2,7 +2,8 @@
 
 Run: blender -b --factory-startup -P tools/blender/visible_region.py -- [BLEND] [--json PATH] [--self-test]
 
-The view envelope is the rest camera (Cam_Rest: eye, direction, lens, sensor fit AUTO) at every screen
+The view envelope is each rest view of the settings (Cam_Rest's diagonal view and NADIR_REST, both with
+Cam_Rest's eye, lens and sensor fit AUTO) at every screen
 aspect in ASPECTS, turned by yaw about the camera's up axis and pitch about its right axis within the
 look-around limits of LookAroundController (soft clamp 20 deg x strength 1, launcher pan +-4 deg yaw,
 idle float +-2 deg). The runtime camera of P3 must use the same yaw/pitch convention.
@@ -25,6 +26,11 @@ PAD_PX = 16  # filtering and mip margin around each cropped region
 # Allocation table: 3 full faces (Earthlight+alpha, cabin, emissive, 512 px ambient) = 15.4 MiB.
 MIB_PER_FACE = 15.4 / 3.0
 FACES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
+# Second rest direction of the settings (owner, 18 October 2026): straight down through the round window.
+# Camera-to-world columns: right, up, back (camera looks along -back = +Z); image up toward azimuth 30 deg,
+# the azimuth Cam_Rest aims at.
+_C30, _S30 = math.cos(math.radians(30.0)), math.sin(math.radians(30.0))
+NADIR_REST = np.array([[-_S30, _C30, 0.0], [_C30, _S30, 0.0], [0.0, 0.0, -1.0]]).T
 
 
 def rot_y(deg):
@@ -152,6 +158,9 @@ def self_test():
     assert abs((r["-Z"]["u1"] - r["-Z"]["u0"]) - 1.0) < 1e-3, r
     # A rotated cube sees the same directions on other faces; cost is rotation-dependent but finite.
     assert cost(face_rects(d, rot_y(45.0))) > cost(face_rects(d, ident))
+    # Nadir rest view: orthonormal, right-handed, looking along +Z (out through the round window).
+    assert np.allclose(NADIR_REST @ NADIR_REST.T, ident) and abs(np.linalg.det(NADIR_REST) - 1.0) < 1e-9
+    assert np.allclose(-NADIR_REST[:, 2], [0.0, 0.0, 1.0]), NADIR_REST
     print("SELF_TEST=PASS")
 
 
@@ -178,9 +187,11 @@ def main(argv):
     print("REST lens_mm=%.1f sensor_mm=%.1f long_axis_fov_deg=%.1f yaw=+-%.0f pitch=+-%.0f"
           % (lens, sensor, math.degrees(2 * math.atan(sensor / 2 / lens)), YAW_DEG, PITCH_DEG))
     result = {"lens_mm": lens, "sensor_mm": sensor, "yaw_deg": YAW_DEG, "pitch_deg": PITCH_DEG,
-              "face_px": FACE_PX, "pad_px": PAD_PX, "mib_per_face": MIB_PER_FACE}
+              "face_px": FACE_PX, "pad_px": PAD_PX, "mib_per_face": MIB_PER_FACE,
+              "rest_views": {"diagonal": m.tolist(), "nadir": NADIR_REST.tolist()}}
     for label, aspects in (("phone", PHONE_ASPECTS), ("all", ASPECTS)):
-        dirs = view_directions(m, lens, sensor, aspects, YAW_DEG, PITCH_DEG)
+        dirs = np.concatenate([view_directions(rest, lens, sensor, aspects, YAW_DEG, PITCH_DEG)
+                               for rest in (m, NADIR_REST)])
         world = report(label + "_world_cube", dirs, np.eye(3))
         rot, q = best_rotation(dirs)
         best = report(label + "_best_cube", dirs, rot)
