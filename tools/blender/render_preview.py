@@ -13,6 +13,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
+sys.dont_write_bytecode = True  # no __pycache__ in tools/blender
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bake_panorama import pick_device  # noqa: E402
 
