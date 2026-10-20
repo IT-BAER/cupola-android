@@ -3,6 +3,7 @@ package com.baer.cupola.wallpaper
 import android.os.Bundle
 import android.util.Log
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.core.render.scene.SceneOverride
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -12,6 +13,7 @@ internal object Gate {
     private const val OFF = -1L
 
     @Volatile private var loadIterations = 0
+    @Volatile private var override: SceneOverride? = null
     private val traceStartNs = AtomicLong(OFF)
     private val sessions = ConcurrentHashMap<Int, RenderSession>()
     private val stats = ConcurrentHashMap<Int, GateStats>()
@@ -36,6 +38,14 @@ internal object Gate {
         inputs[FrameInputs.LOAD] = 1f
         inputs[FrameInputs.LOAD_ITERATIONS] = n.toFloat()
     }
+
+    /** P3a / G-PR scene override for every engine; null restores the live scene. */
+    fun setSceneOverride(value: SceneOverride?) {
+        override = value
+        Log.i(TAG, "gate scene override=$value")
+    }
+
+    fun sceneOverride(): SceneOverride? = override
 
     fun startTrace() {
         traceStartNs.set(System.nanoTime())

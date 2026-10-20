@@ -14,7 +14,7 @@ list(GET GLSLC_CANDIDATES 0 GLSLC)
 set(SHADER_OUT "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${SHADER_OUT}")
 set(SHADER_INCS)
-foreach(SHADER fullscreen.vert pattern.frag)
+foreach(SHADER fullscreen.vert pattern.frag earth.frag)
     set(SRC "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${SHADER}")
     set(INC "${SHADER_OUT}/${SHADER}.inc")
     add_custom_command(
@@ -31,8 +31,10 @@ add_library(cupola_render SHARED
     device.cpp
     jni_bridge.cpp
     offscreen.cpp
+    scene_binding.cpp
     surface_target.cpp
     texture_loader.cpp
+    texture_set.cpp
     ktx2_reader.cpp)
 add_dependencies(cupola_render cupola_shaders)
 target_include_directories(cupola_render PRIVATE "${SHADER_OUT}")

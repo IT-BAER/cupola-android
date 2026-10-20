@@ -15,6 +15,7 @@ import com.baer.cupola.core.render.scene.FrameScheduler
  */
 class NativeRenderer(
     inputsProvider: (surfaceId: Int, frameTimeNanos: Long) -> FloatArray? = { _, _ -> null },
+    assets: AssetManager? = null,
 ) : AutoCloseable {
     private val thread: RenderThread = RenderThread { targets.onFrame(it) }
     private val targets: RenderTargets<Surface> =
@@ -22,7 +23,10 @@ class NativeRenderer(
 
     init {
         thread.start()
-        thread.postAndWait { NativeBridge.bindThread() }
+        thread.postAndWait {
+            NativeBridge.bindThread()
+            if (assets != null) NativeBridge.setAssetManager(assets)
+        }
     }
 
     fun deviceInfo(): DeviceInfo = thread.postAndWait {
@@ -81,6 +85,16 @@ class NativeRenderer(
         return out
     }
 
+    /**
+     * Loads the Earth texture set if it is not loaded yet (it lives as long as the device) and returns the mask of
+     * slots loaded from `textures/<name>.ktx2`; [TEXTURE_SET_COMPLETE] when nothing fell back.
+     */
+    fun textureSetMask(): Int = thread.postAndWait {
+        val mask = NativeBridge.textureSetMask()
+        check(mask >= 0) { "texture set failed: VkResult $mask" }
+        mask
+    }
+
     /** Loads the KTX2 asset [path] into a Vulkan image, records its properties and destroys it again. */
     fun loadTextureInfo(assets: AssetManager, path: String): TextureInfo = thread.postAndWait {
         val v = NativeBridge.loadTextureInfo(assets, path)
@@ -93,8 +107,11 @@ class NativeRenderer(
         thread.quit()
     }
 
-    private companion object {
-        const val VK_SUCCESS = 0
-        const val LOG_TAG = "Cupola"
+    companion object {
+        /** All seven slots: day_detail, monthly_colour, clouds, city_lights, terrain_normal, stars, water_mask. */
+        const val TEXTURE_SET_COMPLETE = (1 shl 7) - 1
+
+        private const val VK_SUCCESS = 0
+        private const val LOG_TAG = "Cupola"
     }
 }

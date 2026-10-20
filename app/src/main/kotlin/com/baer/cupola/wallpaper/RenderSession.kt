@@ -1,10 +1,18 @@
 package com.baer.cupola.wallpaper
 
+import android.util.Log
 import android.view.Surface
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.scene.FrameScheduler
 import com.baer.cupola.core.render.scene.LookAroundController
 import com.baer.cupola.core.render.scene.PreviewClock
+import com.baer.cupola.core.render.scene.RestView
+import com.baer.cupola.core.render.scene.SceneInputs
+import com.baer.cupola.core.render.scene.toSceneState
+import com.baer.cupola.orbit.OrbitModel
+import com.baer.cupola.orbit.OrbitState
+import com.baer.cupola.orbit.OrbitStateResult
+import java.time.Instant
 
 /** Engine-side facts the render thread needs; an immutable snapshot is posted on every change. */
 internal data class EngineState(
@@ -16,9 +24,10 @@ internal data class EngineState(
 )
 
 /** Per-engine scene state. Everything except [surface] is touched on the render thread only. */
-internal class RenderSession {
+internal class RenderSession(private val orbit: OrbitModel) {
     private val look = LookAroundController(System::nanoTime)
-    private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, ISS_MEAN_MOTION_REV_PER_DAY)
+    private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, orbit.meanMotionRevPerDay)
+    private var orbitFailureLogged = false
     private var wasVisible = false
     private val rateVote = FrameRateVote<Surface> { surface, fps ->
         if (surface.isValid) surface.setFrameRate(fps.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
@@ -76,8 +85,22 @@ internal class RenderSession {
         inputs[FrameInputs.TIME_SECONDS] = (clock.nowUtcMillis() % MILLIS_PER_DAY / 1000.0).toFloat()
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
+        writeScene(inputs, view.yawDeg, view.pitchDeg)
         Gate.applyLoad(inputs)
         return inputs
+    }
+
+    /** Real UTC (preview: time-lapse) or the debug override; an SGP4 failure leaves the test pattern. */
+    private fun writeScene(inputs: FloatArray, yawDeg: Double, pitchDeg: Double) {
+        val override = Gate.sceneOverride()
+        val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
+        when (val state = orbit.stateAt(instant)) {
+            is OrbitState -> SceneInputs.build(state.toSceneState(), REST_VIEW, yawDeg, pitchDeg, override).write(inputs)
+            is OrbitStateResult.Failure -> if (!orbitFailureLogged) {
+                orbitFailureLogged = true
+                Log.w("Cupola", "orbit failed at $instant: ${state.error}")
+            }
+        }
     }
 
     fun applyMoving(scheduler: FrameScheduler) {
@@ -89,8 +112,8 @@ internal class RenderSession {
     private fun syncRate(scheduler: FrameScheduler) = rateVote.sync(scheduler.voteFps)
 
     private companion object {
-        // Until P3 loads the bundled TLE.
-        const val ISS_MEAN_MOTION_REV_PER_DAY = 15.5
+        // The rest-view setting arrives with P6; Cam_Rest until then.
+        val REST_VIEW = RestView.DIAGONAL
         const val MILLIS_PER_DAY = 86_400_000L
     }
 }

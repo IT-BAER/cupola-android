@@ -3,8 +3,8 @@
 # The runtime contract for every output is in README.md next to this script.
 # Intermediates live in local\textures\work\<asset> and are wiped at the start of each asset.
 param(
-    [ValidateSet('day', 'monthly', 'clouds', 'lights', 'normal', 'stars')]
-    [string[]]$Assets = @('day', 'monthly', 'clouds', 'lights', 'normal', 'stars'),
+    [ValidateSet('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars')]
+    [string[]]$Assets = @('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars'),
     # Exaggeration of the physical terrain slope in the normal map (1 = true slope).
     [double]$NormalStrength = 10
 )
@@ -342,6 +342,27 @@ function Build-Normal {
     Write-Outputs 'terrain_normal' @(, $rgb) @(, $xy) '6x6' @('-cl', '-normal') 'ASTC_6x6_UNORM_BLOCK' 'ETC2_RGBA' 'ETC2_R8G8B8A8_UNORM_BLOCK' 16 '-dl'
 }
 
+function Build-Water {
+    $dir = New-AssetDir 'water'
+    $src = Get-Source 'etopo2022/ETOPO_2022_v1_60s_N90W180_surface.tif'
+    $crop = Join-Path $dir 'crop.v'; $mask = Join-Path $dir 'mask.v'; $small = Join-Path $dir 'small.v'
+    $master = Join-Path $dir 'water.v'
+    V crop $src "$crop[keep=none]" 0 1080 21600 8640
+    # Water = surface elevation below 0 m: 255, land 0. Box-filtered (linear kernel) so coasts become
+    # fractional coverage without Lanczos overshoot.
+    V relational_const $crop $mask less 0
+    Remove-Item $crop
+    V resize $mask $small (4096 / 21600.0) --vscale (1638 / 8640.0) --kernel linear
+    # R = G = B = coverage; tagged sRGB so pngsave and compressonator see a plain RGB image.
+    V bandjoin (ImageList $small $small $small) "$master[keep=none]"
+    Remove-Item $mask, $small
+    $rgbMaster = Join-Path $dir 'water_rgb.v'
+    V copy $master $rgbMaster --interpretation srgb
+    Assert-Dims $rgbMaster 4096 1638
+    $layer = Write-Levels $rgbMaster $dir 'water' $false
+    Write-Outputs 'water_mask' @(, $layer) @(, $layer[1..($layer.Count - 1)]) '8x8' @('-cl', '-esw', 'rrr1') 'ASTC_8x8_UNORM_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_UNORM_BLOCK' 8 '-dl'
+}
+
 function Build-Stars {
     $dir = New-AssetDir 'stars'
     $src = Get-Source 'stars/eso0932a.tif'
@@ -354,7 +375,7 @@ function Build-Stars {
 
 foreach ($d in 'astc', 'etc2', 'preview') { New-Item -ItemType Directory -Force (Join-Path $Out $d) | Out-Null }
 New-Item -ItemType Directory -Force $Work | Out-Null
-$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; lights = 'Build-Lights'; normal = 'Build-Normal'; stars = 'Build-Stars' }
+$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; lights = 'Build-Lights'; normal = 'Build-Normal'; water = 'Build-Water'; stars = 'Build-Stars' }
 foreach ($asset in $Assets) {
     $t = [Diagnostics.Stopwatch]::StartNew()
     & $builders[$asset]
