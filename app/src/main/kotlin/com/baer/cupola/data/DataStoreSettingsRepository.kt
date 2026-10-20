@@ -1,0 +1,55 @@
+package com.baer.cupola.data
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.baer.cupola.feature.settings.RestDirection
+import com.baer.cupola.feature.settings.Settings
+import com.baer.cupola.feature.settings.SettingsRepository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+/** Preferences DataStore backing; the store must be a process-wide singleton (see the Hilt module). */
+class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : SettingsRepository {
+    override val settings: Flow<Settings> = store.data.map { p ->
+        val defaults = Settings()
+        Settings(
+            restDirection = p[REST_DIRECTION]?.let { name -> RestDirection.entries.firstOrNull { it.name == name } }
+                ?: defaults.restDirection,
+            lookAroundStrength = (p[LOOK_AROUND] ?: defaults.lookAroundStrength).coerceIn(0f, 1f),
+            idleFloat = p[IDLE_FLOAT] ?: defaults.idleFloat,
+            bloom = p[BLOOM] ?: defaults.bloom,
+            windowGlare = p[GLARE] ?: defaults.windowGlare,
+            reflections = p[REFLECTIONS] ?: defaults.reflections,
+            dust = p[DUST] ?: defaults.dust,
+            homeCityId = p[HOME_CITY],
+        )
+    }
+
+    override suspend fun setRestDirection(value: RestDirection) = put { it[REST_DIRECTION] = value.name }
+    override suspend fun setLookAroundStrength(value: Float) = put { it[LOOK_AROUND] = value.coerceIn(0f, 1f) }
+    override suspend fun setIdleFloat(value: Boolean) = put { it[IDLE_FLOAT] = value }
+    override suspend fun setBloom(value: Boolean) = put { it[BLOOM] = value }
+    override suspend fun setWindowGlare(value: Boolean) = put { it[GLARE] = value }
+    override suspend fun setReflections(value: Boolean) = put { it[REFLECTIONS] = value }
+    override suspend fun setDust(value: Boolean) = put { it[DUST] = value }
+    override suspend fun setHomeCity(id: String?) = put { if (id == null) it.remove(HOME_CITY) else it[HOME_CITY] = id }
+
+    private suspend fun put(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
+        store.edit { block(it) }
+    }
+
+    private companion object {
+        val REST_DIRECTION = stringPreferencesKey("rest_direction")
+        val LOOK_AROUND = floatPreferencesKey("look_around_strength")
+        val IDLE_FLOAT = booleanPreferencesKey("idle_float")
+        val BLOOM = booleanPreferencesKey("effect_bloom")
+        val GLARE = booleanPreferencesKey("effect_window_glare")
+        val REFLECTIONS = booleanPreferencesKey("effect_reflections")
+        val DUST = booleanPreferencesKey("effect_dust")
+        val HOME_CITY = stringPreferencesKey("home_city_id")
+    }
+}

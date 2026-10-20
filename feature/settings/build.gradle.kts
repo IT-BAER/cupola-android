@@ -1,5 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -18,5 +20,15 @@ android {
 
 dependencies {
     implementation(project(":core:render"))
-    implementation(project(":core:orbit"))
+    // Orbit types (City, Pass, GroundLabel, Tle) appear in the repository ports.
+    api(project(":core:orbit"))
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.lifecycle.viewmodel)
+    api(libs.coroutines.core)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.turbine)
 }
