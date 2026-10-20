@@ -16,7 +16,22 @@
     "url": "https://images-assets.nasa.gov/image/iss035e010551/iss035e010551~orig.jpg",
     "bytes": 3400600,
     "sha256": "704d1c23917559f9967e45ec51b658d0ed9edb3c74028955430b5812a10b632d",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2013-03-28",
+      "time_gmt": "11:29:36",
+      "nadir_lat": 51.8,
+      "nadir_lon": -120.1,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 394.0,
+      "sun_elevation_deg": -20.0,
+      "sun_azimuth_deg": 56.0,
+      "camera": "NIKON D2Xs",
+      "focal_length_mm": 35.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS035&roll=E&frame=010551"
+    }
   },
   {
     "nasa_id": "iss038e013587",
@@ -35,7 +50,22 @@
     "url": "https://images-assets.nasa.gov/image/iss038e013587/iss038e013587~orig.jpg",
     "bytes": 2181083,
     "sha256": "adef871f604337c08323bd60dbf08ed05f30f96d37f33ab40504d7a07518d388",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS038&roll=E&frame=013587"
+    }
   },
   {
     "nasa_id": "iss073e0025760",
@@ -54,7 +84,22 @@
     "url": "https://images-assets.nasa.gov/image/iss073e0025760/iss073e0025760~orig.jpg",
     "bytes": 4424789,
     "sha256": "04300045c36571feb08597c8077c637ada85faa605c953a891a8c2a25fdc1e1e",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS073&roll=E&frame=0025760"
+    }
   },
   {
     "nasa_id": "iss040e006510",
@@ -73,7 +118,22 @@
     "url": "https://images-assets.nasa.gov/image/iss040e006510/iss040e006510~orig.jpg",
     "bytes": 568088,
     "sha256": "fc3d4bd402627e15aa22400667010f381840076ed94ca6d6237965797884b791",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2014-06-01",
+      "time_gmt": "20:00:10",
+      "nadir_lat": 49.5,
+      "nadir_lon": 98.3,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 406.0,
+      "sun_elevation_deg": -11.0,
+      "sun_azimuth_deg": 36.0,
+      "camera": "NIKON D3S",
+      "focal_length_mm": 10.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS040&roll=E&frame=006510"
+    }
   },
   {
     "nasa_id": "iss038e042112",
@@ -92,7 +152,22 @@
     "url": "https://images-assets.nasa.gov/image/iss038e042112/iss038e042112~orig.jpg",
     "bytes": 1571459,
     "sha256": "56bbc3c1573c9478a0c38cd2ef5bf25a8d996e3f4dd04e4ab8015aeb924d697c",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS038&roll=E&frame=042112"
+    }
   },
   {
     "nasa_id": "iss072e940709",
@@ -111,7 +186,22 @@
     "url": "https://images-assets.nasa.gov/image/iss072e940709/iss072e940709~orig.jpg",
     "bytes": 13151989,
     "sha256": "83f557f52bca6105ad389789c93a05b5b9a2856cc431a8c1b8d7355a39fe5851",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2025-04-02",
+      "time_gmt": "06:15:33",
+      "nadir_lat": 11.5,
+      "nadir_lon": -150.9,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 415.0,
+      "sun_elevation_deg": -30.0,
+      "sun_azimuth_deg": 283.0,
+      "camera": "NIKON Z 9",
+      "focal_length_mm": 16.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS072&roll=E&frame=940709"
+    }
   },
   {
     "nasa_id": "iss074e0521578",
@@ -130,7 +220,22 @@
     "url": "https://images-assets.nasa.gov/image/iss074e0521578/iss074e0521578~orig.jpg",
     "bytes": 3087312,
     "sha256": "e03127fdad2451d38c4cce9d1c75b4dbc0b9a3e2b4bb62a519d9311138bbf2ac",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2026-04-13",
+      "time_gmt": "20:29:53",
+      "nadir_lat": -39.8,
+      "nadir_lon": -30.1,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 422.0,
+      "sun_elevation_deg": -12.0,
+      "sun_azimuth_deg": 273.0,
+      "camera": "NIKON Z 9",
+      "focal_length_mm": 15.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS074&roll=E&frame=0521578"
+    }
   },
   {
     "nasa_id": "iss036e005795",
@@ -149,7 +254,22 @@
     "url": "https://images-assets.nasa.gov/image/iss036e005795/iss036e005795~orig.jpg",
     "bytes": 899155,
     "sha256": "52bdabf173db704338040867302430e54e027ca7d397d14967c7ec459d9b1faa",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS036&roll=E&frame=005795"
+    }
   },
   {
     "nasa_id": "iss061e027858",
@@ -168,7 +288,22 @@
     "url": "https://images-assets.nasa.gov/image/iss061e027858/iss061e027858~orig.jpg",
     "bytes": 1553059,
     "sha256": "8436788af8b75fabedb7c6f022503ad578a2ac7e6ecf43eb93cfecaeea750ccd",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS061&roll=E&frame=027858"
+    }
   },
   {
     "nasa_id": "iss062e102390",
@@ -187,7 +322,22 @@
     "url": "https://images-assets.nasa.gov/image/iss062e102390/iss062e102390~orig.jpg",
     "bytes": 2821054,
     "sha256": "c15a25e703e1df44eb3f7e061112704c6c81a763180015661a2d7d014fc51e9e",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2020-03-17",
+      "time_gmt": "19:45:55",
+      "nadir_lat": 51.2,
+      "nadir_lon": 70.1,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 409.0,
+      "sun_elevation_deg": -40.0,
+      "sun_azimuth_deg": 6.0,
+      "camera": "NIKON D5",
+      "focal_length_mm": 28.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS062&roll=E&frame=102390"
+    }
   },
   {
     "nasa_id": "iss050e033912",
@@ -206,7 +356,22 @@
     "url": "https://images-assets.nasa.gov/image/iss050e033912/iss050e033912~orig.jpg",
     "bytes": 1517590,
     "sha256": "e3ee04d6da7a86ec674695c659802457d9b251512019a7c3c37ca135948a9b63",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS050&roll=E&frame=033912"
+    }
   },
   {
     "nasa_id": "iss043e198683",
@@ -225,7 +390,22 @@
     "url": "https://images-assets.nasa.gov/image/iss043e198683/iss043e198683~orig.jpg",
     "bytes": 1278355,
     "sha256": "1d272d3680074db4052ea97fdb3675f6c7367350503b82ba0c6ccb6f18a0734c",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2015-05-16",
+      "time_gmt": "13:34:05",
+      "nadir_lat": -34.8,
+      "nadir_lon": 17.6,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 404.0,
+      "sun_elevation_deg": 23.0,
+      "sun_azimuth_deg": 317.0,
+      "camera": "NIKON D4",
+      "focal_length_mm": 22.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS043&roll=E&frame=198683"
+    }
   },
   {
     "nasa_id": "iss022e066972",
@@ -244,7 +424,22 @@
     "url": "https://images-assets.nasa.gov/image/iss022e066972/iss022e066972~orig.jpg",
     "bytes": 1137510,
     "sha256": "13709895071cb695ce82364c1480776eb6b7cea8f3a5f3e9277752605312b2a5",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2010-02-17",
+      "time_gmt": "08:01:15",
+      "nadir_lat": 14.3,
+      "nadir_lon": 26.9,
+      "center_lat": 14.7,
+      "center_lon": 26.8,
+      "altitude_km": 348.0,
+      "sun_elevation_deg": 45.0,
+      "sun_azimuth_deg": 124.0,
+      "camera": "Nikon D2Xs Electronic Still Camera",
+      "focal_length_mm": 12.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS022&roll=E&frame=066972"
+    }
   },
   {
     "nasa_id": "iss073e0764640",
@@ -263,7 +458,22 @@
     "url": "https://images-assets.nasa.gov/image/iss073e0764640/iss073e0764640~orig.jpg",
     "bytes": 3569971,
     "sha256": "3258d69971f1e038d71344e73d1d8a4cfebda906794a0dff32a8c6fd155ec212",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2025-09-22",
+      "time_gmt": "05:16:55",
+      "nadir_lat": 19.0,
+      "nadir_lon": 121.3,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 411.0,
+      "sun_elevation_deg": 61.0,
+      "sun_azimuth_deg": 232.0,
+      "camera": "NIKON Z 9",
+      "focal_length_mm": 24.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS073&roll=E&frame=0764640"
+    }
   },
   {
     "nasa_id": "iss031e071522",
@@ -282,7 +492,22 @@
     "url": "https://images-assets.nasa.gov/image/iss031e071522/iss031e071522~orig.jpg",
     "bytes": 1172281,
     "sha256": "8a388c48cbec1cf6b96b508cb868dd3c6b195307c38f3ccb338b565fafdc3411",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS031&roll=E&frame=071522"
+    }
   },
   {
     "nasa_id": "iss040e006093",
@@ -301,7 +526,22 @@
     "url": "https://images-assets.nasa.gov/image/iss040e006093/iss040e006093~orig.jpg",
     "bytes": 2010533,
     "sha256": "987cccd481aa3e7232b6386d3f52d28343b8d16f6ff025391c31275f771b4077",
-    "eol": null
+    "eol": {
+      "status": "not found",
+      "date": null,
+      "time_gmt": null,
+      "nadir_lat": null,
+      "nadir_lon": null,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": null,
+      "sun_elevation_deg": null,
+      "sun_azimuth_deg": null,
+      "camera": null,
+      "focal_length_mm": null,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS040&roll=E&frame=006093"
+    }
   },
   {
     "nasa_id": "iss029e043374",
@@ -320,6 +560,21 @@
     "url": "https://images-assets.nasa.gov/image/iss029e043374/iss029e043374~orig.jpg",
     "bytes": 1534553,
     "sha256": "23bb2bbe6cf11b5859be597dc599e6abfc756837cf0f9302b0ae979b1466a37e",
-    "eol": null
+    "eol": {
+      "status": "ok",
+      "date": "2011-11-19",
+      "time_gmt": "09:34:39",
+      "nadir_lat": 51.4,
+      "nadir_lon": -2.1,
+      "center_lat": null,
+      "center_lon": null,
+      "altitude_km": 367.0,
+      "sun_elevation_deg": 13.0,
+      "sun_azimuth_deg": 146.0,
+      "camera": "NIKON D2Xs",
+      "focal_length_mm": 12.0,
+      "queried": "2026-10-20",
+      "url": "https://eol.jsc.nasa.gov/SearchPhotos/photo.pl?mission=ISS029&roll=E&frame=043374"
+    }
   }
 ]
