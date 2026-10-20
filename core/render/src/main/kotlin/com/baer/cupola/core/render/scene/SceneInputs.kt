@@ -105,10 +105,15 @@ object SceneGeometry {
     val B_KM = Frames.WGS84_A_KM * (1 - Frames.WGS84_F)
 
     /**
-     * Azimuth of the Blender interior frame (one constant): Blender +X = LVLH +X (along the velocity),
-     * +Y = LVLH +Y (minus the orbit normal), +Z = LVLH +Z (nadir). See tools/blender/README.md.
+     * Azimuth of the Blender interior frame (one constant): +Z = LVLH +Z (nadir); the ISS velocity (LVLH +X) lies at
+     * azimuth +30 deg about +Z (P4.6: the real window facets sit at 30 + 60k deg from the velocity, build_cupola.py
+     * places them at 60k deg), so LVLH = Rz(-30 deg) x Blender. See tools/blender/README.md.
      */
-    val LVLH_FROM_BLENDER = Mat3.IDENTITY
+    val LVLH_FROM_BLENDER = Mat3(
+        Vector3(cos(Math.toRadians(30.0)), -sin(Math.toRadians(30.0)), 0.0),
+        Vector3(sin(Math.toRadians(30.0)), cos(Math.toRadians(30.0)), 0.0),
+        Vector3(0.0, 0.0, 1.0),
+    )
 
     fun unit(v: Vector3) = v * (1.0 / v.norm())
 
@@ -165,6 +170,8 @@ data class Scene(
     val sunDirEcef: Vector3,
     val moonDirEcef: Vector3,
     val month: MonthBlend,
+    /** Blender interior frame from camera; null (debug camera override) renders the Earth without the interior. */
+    val blenderFromCamera: Mat3? = null,
 ) {
     private val tanHalfLong = tan(Math.toRadians(fovLongDeg / 2))
 
@@ -200,6 +207,28 @@ data class Scene(
         put(inputs, FrameInputs.SUN_DIR, sunDirEcef)
         inputs[FrameInputs.TAN_HALF_FOV_LONG] = tanHalfLong.toFloat()
         put(inputs, FrameInputs.MOON_DIR, moonDirEcef)
+        val interior = blenderFromCamera
+        inputs[FrameInputs.INTERIOR] = if (interior != null) 1f else 0f
+        if (interior != null) {
+            put(inputs, FrameInputs.INTERIOR_RIGHT, interior.c0)
+            put(inputs, FrameInputs.INTERIOR_UP, interior.c1)
+            put(inputs, FrameInputs.INTERIOR_BACK, interior.c2)
+        }
+        inputs[FrameInputs.EARTH_LIGHT] = earthLight().toFloat()
+    }
+
+    /**
+     * Approximate radiance of the visible Earth for the Earthlight layer: mean albedo times the lit share of the disc,
+     * ((1 + cos z) / 2)^2 with z the Sun's zenith angle at the sub-ISS point (full at noon, zero at local midnight).
+     */
+    fun earthLight(): Double {
+        val cosZ = SceneGeometry.unit(cameraEcefKm) dot sunDirEcef
+        val lit = (1 + cosZ) / 2
+        return EARTH_ALBEDO * lit * lit
+    }
+
+    private companion object {
+        const val EARTH_ALBEDO = 0.3
     }
 
     private fun put(inputs: FloatArray, at: Int, v: Vector3) {
@@ -238,11 +267,11 @@ object SceneInputs {
     fun build(state: SceneState, rest: RestView, yawDeg: Double, pitchDeg: Double, override: SceneOverride? = null): Scene {
         val position = override?.positionEcefKm ?: state.positionEcefKm
         val forward = override?.cameraForwardEcef
-        val ecefFromCamera = if (forward != null) {
-            lookAlong(position, SceneGeometry.unit(forward))
+        val blenderFromCamera = if (forward != null) null else rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
+        val ecefFromCamera = if (blenderFromCamera == null) {
+            lookAlong(position, SceneGeometry.unit(forward!!))
         } else {
-            SceneGeometry.lvlh(position, state.velocityEcefKmPerSec) * SceneGeometry.LVLH_FROM_BLENDER *
-                rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
+            SceneGeometry.lvlh(position, state.velocityEcefKmPerSec) * SceneGeometry.LVLH_FROM_BLENDER * blenderFromCamera
         }
         return Scene(
             instant = state.instant,
@@ -252,6 +281,7 @@ object SceneInputs {
             sunDirEcef = state.sunDirEcef,
             moonDirEcef = state.moonDirEcef,
             month = monthBlend(state.instant),
+            blenderFromCamera = blenderFromCamera,
         )
     }
 

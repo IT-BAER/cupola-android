@@ -79,32 +79,37 @@ class SceneInputsTest {
         assertNull(SceneGeometry.intersectEllipsoid(p, nadir * cos(hi + 1e-4) + east * sin(hi + 1e-4)))
     }
 
+    /**
+     * P4.6 measurement (tools/blender/README.md "Station exterior"): the real window facets sit at 30 + 60k deg from
+     * the ISS velocity, so the velocity points at azimuth +30 deg about +Z (nadir) in the Cupola/Blender frame.
+     */
     @Test
-    fun blenderFrameMapsXToVelocityAndZToNadir() {
+    fun blenderFrameHasTheVelocityAtAzimuth30AndZAtNadir() {
         val s = state(20.0, 10.0)
         val lvlh = SceneGeometry.lvlh(s.positionEcefKm, s.velocityEcefKmPerSec)
         val m = lvlh * SceneGeometry.LVLH_FROM_BLENDER
         val r = s.positionEcefKm
         val nadir = -r * (1.0 / r.norm())
         assertVec(nadir, m * Vector3(0.0, 0.0, 1.0), 1e-12)
-        // +X is the velocity with its radial part removed; +Y = Z x X (minus the orbit normal).
+        // Velocity with its radial part removed; LVLH +Y = Z x X (minus the orbit normal).
         val v = s.velocityEcefKmPerSec
         val vh = v - nadir * (v dot nadir)
-        assertVec(vh * (1.0 / vh.norm()), m * Vector3(1.0, 0.0, 0.0), 1e-12)
+        val a = Math.toRadians(30.0)
+        assertVec(vh * (1.0 / vh.norm()), m * Vector3(cos(a), sin(a), 0.0), 1e-12)
         val h = r cross v
-        assertVec(-h * (1.0 / h.norm()), m * Vector3(0.0, 1.0, 0.0), 1e-12)
+        assertVec(-h * (1.0 / h.norm()), m * Vector3(-sin(a), cos(a), 0.0), 1e-12)
     }
 
     @Test
     fun restViewsFollowTheBlenderMatrices() {
         val s = state(0.0, 0.0)
         val nadir = SceneInputs.build(s, RestView.NADIR, 0.0, 0.0)
-        val lvlh = SceneGeometry.lvlh(s.positionEcefKm, s.velocityEcefKmPerSec)
-        // NADIR_REST looks along +Z with image up toward azimuth 30 deg (visible_region.json).
-        assertVec(lvlh * Vector3(0.0, 0.0, 1.0), -nadir.ecefFromCamera.c2, 1e-9)
-        assertVec(lvlh * Vector3(cos(Math.PI / 6), sin(Math.PI / 6), 0.0), nadir.ecefFromCamera.c1, 1e-9)
+        val ecefFromBlender = SceneGeometry.lvlh(s.positionEcefKm, s.velocityEcefKmPerSec) * SceneGeometry.LVLH_FROM_BLENDER
+        // NADIR_REST looks along Blender +Z with image up toward Blender azimuth 30 deg (visible_region.json): the velocity.
+        assertVec(ecefFromBlender * Vector3(0.0, 0.0, 1.0), -nadir.ecefFromCamera.c2, 1e-9)
+        assertVec(ecefFromBlender * Vector3(cos(Math.PI / 6), sin(Math.PI / 6), 0.0), nadir.ecefFromCamera.c1, 1e-9)
         val diag = SceneInputs.build(s, RestView.DIAGONAL, 0.0, 0.0)
-        assertVec(lvlh * Vector3(0.5163663029670715, 0.298124223947525, 0.8027999997138977), -diag.ecefFromCamera.c2, 1e-6)
+        assertVec(ecefFromBlender * Vector3(0.5163663029670715, 0.298124223947525, 0.8027999997138977), -diag.ecefFromCamera.c2, 1e-6)
     }
 
     @Test

@@ -19,19 +19,26 @@ enum TextureSlot : uint32_t {
     kTerrainNormal,
     kStars,
     kWaterMask,
+    kInteriorEarth,
+    kInteriorCabin,
+    kInteriorEmissive,
+    kInteriorAmbient,
     kTextureSlots,
 };
+
+// Binding of the scaled Earth image (EarthPass), after the texture slots.
+constexpr uint32_t kEarthImageBinding = kTextureSlots + 1;
 
 // The Earth and sky textures of the process (decision 33): loaded once per device, shared by every
 // surface target and offscreen render, destroyed with the device.
 struct TextureSet {
     Texture textures[kTextureSlots];
     VkSampler wrapU = VK_NULL_HANDLE;  // REPEAT on u, CLAMP_TO_EDGE on v (equirectangular maps)
-    VkSampler clamp = VK_NULL_HANDLE;  // CLAMP_TO_EDGE on u and v (day_detail tiles)
+    VkSampler clamp = VK_NULL_HANDLE;  // CLAMP_TO_EDGE on u and v (day_detail tiles, interior atlases)
     // Bit per slot loaded from its asset; the others hold a neutral 1 x 1 fallback.
     uint32_t loadedMask = 0;
 
-    VkSampler sampler(uint32_t slot) const { return slot == kDayDetail ? clamp : wrapU; }
+    VkSampler sampler(uint32_t slot) const { return slot == kDayDetail || slot >= kInteriorEarth ? clamp : wrapU; }
 };
 
 // Loads textures/<name>.ktx2 for every slot. A missing or failing asset (or no asset manager) gets a 1 x 1

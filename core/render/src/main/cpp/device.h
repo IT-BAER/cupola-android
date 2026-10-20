@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "frame_inputs.h"
 #include "vk_util.h"
 
 namespace cupola {
@@ -19,12 +20,21 @@ struct PushConstants {
     float timeSeconds;
     float lookYawDeg;
     float lookPitchDeg;
+    float earthScaleX;  // scaled Earth target / full extent (EarthPass only)
+    float earthScaleY;
 };
+
+// earth.frag specialization constant MODE.
+constexpr int32_t kEarthModeSingle = 0;
+constexpr int32_t kEarthModeScaled = 1;
+constexpr int32_t kEarthModeComposite = 2;
+
+class EarthPass;
 
 struct TextureSet;
 
 // Scene uniform block of earth.frag: the FrameInputs floats from kSceneBlock, padded to whole vec4s.
-constexpr VkDeviceSize kSceneUniformBytes = 24 * sizeof(float);
+constexpr VkDeviceSize kSceneUniformBytes = (inputs::kCount - inputs::kSceneBlock + 3) / 4 * 4 * sizeof(float);
 
 // Earth pipeline when the inputs ask for the scene and no synthetic load; else the test-pattern pipeline.
 bool wantsEarth(const float* inputs);
@@ -53,7 +63,8 @@ public:
     VkShaderModule vertexShader = VK_NULL_HANDLE;
     VkShaderModule patternShader = VK_NULL_HANDLE;
     VkShaderModule earthShader = VK_NULL_HANDLE;
-    // Set 0: binding 0 scene uniform block, bindings 1.. the TextureSet slots (fragment stage).
+    // Set 0: binding 0 scene uniform block, bindings 1.. the TextureSet slots, then the scaled Earth image
+    // (fragment stage).
     VkDescriptorSetLayout sceneSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 
@@ -66,16 +77,19 @@ public:
     static int64_t lastGpuTimeNs();
 
     VkResult createRenderPass(VkFormat format, VkImageLayout finalLayout, VkRenderPass* out) const;
-    VkResult createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out) const;
+    // `earthMode` (kEarthMode*) applies to the Earth pipeline.
+    VkResult createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out,
+                            int32_t earthMode = kEarthModeSingle) const;
     // Returns UINT32_MAX when no memory type matches.
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) const;
     // Memory of type `preferred`, else `required`; VK_ERROR_OUT_OF_DEVICE_MEMORY when neither exists.
     VkResult allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
                       VkDeviceMemory* out) const;
-    // Two timestamps per frame: [begin, end] at query index `first`.
+    // Two timestamps per frame: [begin, end] at query index `first`. A non-null `earthPass` is recorded before
+    // the main pass, which then uses the composite pipeline.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
-                     VkQueryPool queries, uint32_t first) const;
+                     VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr) const;
     VkResult createTimestampPool(uint32_t count, VkQueryPool* out) const;
     void collectGpuTime(VkQueryPool queries, uint32_t first);
 

@@ -1,6 +1,7 @@
 package com.baer.cupola.wallpaper
 
 import android.content.Context
+import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.platform.ThermalHeadroomSource
 import com.baer.cupola.core.render.scene.QualityGovernor
@@ -75,6 +76,7 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
         }
         Gate.onFrame(surfaceId, lastGpuNanos)
         val inputs = session.nextFrameInputs()
+        inputs[FrameInputs.RENDER_SCALE] = RENDER_SCALES[governor.step]
         if (session.moving != session.scheduledMoving) {
             renderer?.updateScheduler(surfaceId) { session.applyMoving(this) }
         }
@@ -88,7 +90,8 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
             return OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
         }
 
-        // The governor's step is not consumed until P3 maps steps to render quality.
-        const val QUALITY_STEPS = 3
+        /** Earth render scale per governor step; the default (highest) step is 0.6. */
+        val RENDER_SCALES = floatArrayOf(0.4f, 0.5f, 0.6f)
+        val QUALITY_STEPS = RENDER_SCALES.size
     }
 }

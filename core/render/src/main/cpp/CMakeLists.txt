@@ -29,6 +29,7 @@ add_custom_target(cupola_shaders DEPENDS ${SHADER_INCS})
 
 add_library(cupola_render SHARED
     device.cpp
+    earth_pass.cpp
     jni_bridge.cpp
     offscreen.cpp
     scene_binding.cpp

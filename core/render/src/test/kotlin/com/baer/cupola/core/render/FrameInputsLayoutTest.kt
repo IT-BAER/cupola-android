@@ -18,6 +18,7 @@ class FrameInputsLayoutTest {
             "LookYawDeg" to FrameInputs.LOOK_YAW_DEG,
             "LookPitchDeg" to FrameInputs.LOOK_PITCH_DEG,
             "Scene" to FrameInputs.SCENE,
+            "RenderScale" to FrameInputs.RENDER_SCALE,
             "SceneBlock" to FrameInputs.SCENE_BLOCK,
             "CameraPosKm" to FrameInputs.CAMERA_POS_KM,
             "CameraEllipsoidC" to FrameInputs.CAMERA_ELLIPSOID_C,
@@ -30,6 +31,11 @@ class FrameInputsLayoutTest {
             "SunDir" to FrameInputs.SUN_DIR,
             "TanHalfFovLong" to FrameInputs.TAN_HALF_FOV_LONG,
             "MoonDir" to FrameInputs.MOON_DIR,
+            "InteriorRight" to FrameInputs.INTERIOR_RIGHT,
+            "Interior" to FrameInputs.INTERIOR,
+            "InteriorUp" to FrameInputs.INTERIOR_UP,
+            "EarthLight" to FrameInputs.EARTH_LIGHT,
+            "InteriorBack" to FrameInputs.INTERIOR_BACK,
             "Count" to FrameInputs.COUNT,
         )
         assertEquals(kotlin, cpp)

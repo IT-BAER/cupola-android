@@ -11,7 +11,7 @@ VkResult SceneBinding::init(Device& device) {
     VkDevice dev = device.device;
     VkDescriptorPoolSize sizes[] = {
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kTextureSlots},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kTextureSlots + 1},
     };
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.maxSets = 1;
@@ -56,10 +56,22 @@ void SceneBinding::destroy(VkDevice dev) {
     *this = SceneBinding{};
 }
 
-VkResult SceneBinding::update(Device& device, const float* inputs) {
+VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage) {
+    const TextureSet* textures = nullptr;
+    VK_TRY(device.textures(&textures));
+    if (earthImage == VK_NULL_HANDLE) earthImage = textures->textures[kInteriorEarth].view;
+    if (earthImage != earthImage_) {
+        VkDescriptorImageInfo image{textures->clamp, earthImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = set;
+        write.dstBinding = kEarthImageBinding;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image;
+        vkUpdateDescriptorSets(device.device, 1, &write, 0, nullptr);
+        earthImage_ = earthImage;
+    }
     if (!texturesBound_) {
-        const TextureSet* textures = nullptr;
-        VK_TRY(device.textures(&textures));
         VkDescriptorImageInfo images[kTextureSlots];
         for (uint32_t s = 0; s < kTextureSlots; ++s) {
             images[s] = {textures->sampler(s), textures->textures[s].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};

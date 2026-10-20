@@ -18,6 +18,12 @@ object FrameInputs {
     const val SCENE = 5
 
     /**
+     * Earth render scale (0, 1): the Earth goes into an offscreen target of this size, composited at full resolution.
+     * 0 or >= 1 renders everything in one full-resolution pass.
+     */
+    const val RENDER_SCALE = 6
+
+    /**
      * Start of the scene block, copied into the per-frame uniform buffer (std140, vec4-aligned; see
      * `earth.frag`). Written by `scene.Scene.write`. Directions are ECEF unit vectors, positions ECEF km.
      */
@@ -42,7 +48,19 @@ object FrameInputs {
     /** Topocentric Moon direction (ISS to Moon). */
     const val MOON_DIR = 28
 
-    const val COUNT = 31
+    /**
+     * Blender interior frame from camera (columns right, up, back) for the panorama lookup; [INTERIOR] = 1 composites
+     * the interior, 0 shows the Earth alone (debug overrides).
+     */
+    const val INTERIOR_RIGHT = 32
+    const val INTERIOR = 35
+    const val INTERIOR_UP = 36
+
+    /** Earth brightness that scales the baked Earthlight layer (radiance of the visible Earth, shader units). */
+    const val EARTH_LIGHT = 39
+    const val INTERIOR_BACK = 40
+
+    const val COUNT = 44
 
     fun empty() = FloatArray(COUNT)
 }

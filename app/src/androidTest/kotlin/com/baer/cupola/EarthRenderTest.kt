@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
+import com.baer.cupola.core.render.scene.Mat3
 import com.baer.cupola.core.render.scene.RestView
 import com.baer.cupola.core.render.scene.Scene
 import com.baer.cupola.core.render.scene.SceneGeometry
@@ -18,6 +19,7 @@ import com.baer.cupola.orbit.OrbitState
 import com.baer.cupola.orbit.frames.Frames
 import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.frames.angleTo
+import com.baer.cupola.orbit.frames.cross
 import com.baer.cupola.orbit.frames.dot
 import com.baer.cupola.orbit.frames.plus
 import com.baer.cupola.orbit.frames.times
@@ -30,6 +32,9 @@ import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.tan
 import kotlin.math.sqrt
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
@@ -53,10 +58,136 @@ class EarthRenderTest {
         return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, override)
     }
 
-    private fun render(scene: Scene): ByteArray {
+    private fun render(scene: Scene, renderScale: Float = 1f): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
+        inputs[FrameInputs.RENDER_SCALE] = renderScale
         return renderer.renderOffscreen(W, H, inputs)
+    }
+
+    private fun restScene(instant: Instant, rest: RestView) =
+        SceneInputs.build((orbit.stateAt(instant) as OrbitState).toSceneState(), rest, 0.0, 0.0)
+
+    /** First instant after [DAY] (1 min steps) with the ISS deep in the Earth's shadow. */
+    private fun nightInstant(): Instant = (0L until 180L).map { DAY.plusSeconds(60 * it) }.first {
+        val s = (orbit.stateAt(it) as OrbitState).toSceneState()
+        (SceneGeometry.unit(s.positionEcefKm) dot s.sunDirEcef) < -0.5
+    }
+
+    /** Logical pixel (x, y) where the Blender-frame direction [d] lands, or null behind the camera. */
+    private fun project(scene: Scene, d: Vector3): Pair<Double, Double>? {
+        val m = scene.blenderFromCamera!!
+        val z = -(d dot m.c2)
+        if (z <= 0) return null
+        val (fx, fy) = scene.fovDeg(W, H)
+        val tx = tan(Math.toRadians(fx / 2))
+        val ty = tan(Math.toRadians(fy / 2))
+        return ((d dot m.c0) / z / tx + 1) / 2 * W to (1 - (d dot m.c1) / z / ty) / 2 * H
+    }
+
+    /**
+     * Interior panorama at a fixed pose: the camera looks 12 deg beside the laptop screen on the -X face (its bright
+     * emissive centre at texel (604, 1274), P4.4 controller check); the screen's bright centroid lands within 25 px of
+     * the pixel the contract predicts. ISS in shadow so the screen is the brightest feature.
+     */
+    @Test
+    fun interiorLaptopScreenLandsOnItsPredictedPixel() {
+        val laptop = SceneGeometry.unit(Vector3(-1.0, 2 * 604.5 / 2048 - 1, 2 * 1274.5 / 2048 - 1))
+        val down = Vector3(0.0, 0.0, 1.0) // Blender +Z = nadir
+        val side = SceneGeometry.unit(laptop cross down)
+        val forward = SceneGeometry.unit(laptop * cos(Math.toRadians(12.0)) + side * sin(Math.toRadians(12.0)))
+        val right = SceneGeometry.unit(forward cross (-down))
+        val camera = Mat3(right, right cross forward, -forward)
+        val night = nightInstant()
+        val state = (orbit.stateAt(night) as OrbitState).toSceneState()
+        val scene = restScene(night, RestView.DIAGONAL).copy(
+            blenderFromCamera = camera,
+            ecefFromCamera = SceneGeometry.lvlh(state.positionEcefKm, state.velocityEcefKmPerSec) *
+                SceneGeometry.LVLH_FROM_BLENDER * camera,
+        )
+        val (px, py) = project(scene, laptop)!!
+        val img = render(scene)
+        save("interior_laptop", img)
+        val x0 = (px - 150).toInt().coerceIn(0, W - 1)
+        val x1 = (px + 150).toInt().coerceIn(0, W - 1)
+        val y0 = (py - 150).toInt().coerceIn(0, H - 1)
+        val y1 = (py + 150).toInt().coerceIn(0, H - 1)
+        var max = 0.0
+        for (y in y0..y1) for (x in x0..x1) max = maxOf(max, luma(img, x, y))
+        var sx = 0.0
+        var sy = 0.0
+        var n = 0
+        for (y in y0..y1) for (x in x0..x1) if (luma(img, x, y) >= 0.9 * max) {
+            sx += x + 0.5; sy += y + 0.5; n++
+        }
+        val dist = sqrt((sx / n - px) * (sx / n - px) + (sy / n - py) * (sy / n - py))
+        Log.i(TAG, "laptop predicted ($px, $py) bright centroid (${sx / n}, ${sy / n}) n $n max luma $max dist $dist")
+        assertTrue("laptop screen too dark: max luma $max", max > 100.0)
+        assertTrue("laptop centroid $dist px from the prediction", dist <= 25.0)
+    }
+
+    /**
+     * Nadir rest view by day: the nadir window centre (Blender +Z, frame centre) shows the Earth as the Earth-only render,
+     * and the interior covers part of the frame.
+     */
+    @Test
+    fun windowShowsTheEarthAndTheInteriorCoversTheRest() {
+        val scene = restScene(DAY, RestView.NADIR)
+        val composite = render(scene)
+        val earth = render(scene.copy(blenderFromCamera = null))
+        save("rest_nadir_day", composite)
+        save("rest_diagonal_day", render(restScene(DAY, RestView.DIAGONAL)))
+        val (px, py) = project(scene, Vector3(0.0, 0.0, 1.0))!!
+        var diff = 0.0
+        var lum = 0.0
+        for (y in py.toInt() - 2..py.toInt() + 2) for (x in px.toInt() - 2..px.toInt() + 2) {
+            diff += abs(luma(composite, x, y) - luma(earth, x, y)); lum += luma(earth, x, y)
+        }
+        var covered = 0
+        var total = 0
+        for (y in 0 until H step 8) for (x in 0 until W step 8) {
+            total++
+            if (abs(luma(composite, x, y) - luma(earth, x, y)) > 2.0) covered++
+        }
+        val share = covered.toDouble() / total
+        Log.i(TAG, "window pixel ($px, $py) mean |diff| ${diff / 25} earth luma ${lum / 25} interior share $share")
+        assertTrue("window shows no Earth: luma ${lum / 25}", lum / 25 > 20.0)
+        assertTrue("window differs from the Earth: ${diff / 25}", diff / 25 <= 2.0)
+        assertTrue("interior share $share", share in 0.2..0.95)
+    }
+
+    /** The scaled Earth pass composites to nearly the full-resolution frame (mean |luma difference| < 3 levels). */
+    @Test
+    fun renderScaleMatchesFullResolution() {
+        val scene = restScene(DAY, RestView.DIAGONAL)
+        val full = render(scene)
+        val scaled = render(scene, 0.6f)
+        save("rest_diagonal_day_s060", scaled)
+        save("rest_nadir_day_s060", render(restScene(DAY, RestView.NADIR), 0.6f))
+        save("rest_diagonal_night", render(restScene(nightInstant(), RestView.DIAGONAL), 0.6f))
+        var sum = 0.0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            sum += abs(luma(full, x, y) - luma(scaled, x, y)); n++
+        }
+        Log.i(TAG, "render scale 0.6 vs 1.0 mean |luma diff| ${sum / n}")
+        assertTrue("scaled differs by ${sum / n}", sum / n < 3.0)
+    }
+
+    /** Full frame GPU time (interior + Earth) per rest view and render scale; logged, the budget is checked by hand. */
+    @Test
+    fun gpuTimeFullFrame() {
+        for (rest in RestView.entries) for (scale in floatArrayOf(1f, 0.6f, 0.5f)) {
+            val scene = restScene(DAY, rest)
+            val times = (0 until GPU_SAMPLES).map {
+                render(scene, scale)
+                renderer.lastGpuTimeNanos() / 1e6
+            }.filter { it >= 0 }.sorted()
+            assertTrue("no GPU timestamps", times.isNotEmpty())
+            val p50 = times[(times.size - 1) / 2]
+            val p95 = times[((times.size - 1) * 95 + 99) / 100]
+            Log.i(TAG, "frame gpu $rest scale $scale ${W}x$H n=${times.size} p50=%.3f ms p95=%.3f ms".format(p50, p95))
+        }
     }
 
     /** Geocentric lat/lon in degrees of the subsolar point at [instant]. */

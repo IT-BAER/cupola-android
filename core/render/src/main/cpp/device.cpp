@@ -7,6 +7,7 @@
 #include <cstring>
 #include <vector>
 
+#include "earth_pass.h"
 #include "frame_inputs.h"
 #include "shaders.h"
 #include "texture_set.h"
@@ -106,6 +107,8 @@ PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t 
         inputs[inputs::kTimeSeconds],
         inputs[inputs::kLookYawDeg],
         inputs[inputs::kLookPitchDeg],
+        1.0f,
+        1.0f,
     };
 }
 
@@ -251,8 +254,8 @@ VkResult Device::init() {
     shaderInfo.pCode = shaders::kEarthFrag;
     VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &earthShader));
 
-    VkDescriptorSetLayoutBinding bindings[1 + kTextureSlots]{};
-    for (uint32_t i = 0; i <= kTextureSlots; ++i) {
+    VkDescriptorSetLayoutBinding bindings[kEarthImageBinding + 1]{};
+    for (uint32_t i = 0; i <= kEarthImageBinding; ++i) {
         bindings[i].binding = i;
         bindings[i].descriptorType =
             i == 0 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -260,7 +263,7 @@ VkResult Device::init() {
         bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
     VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    setInfo.bindingCount = 1 + kTextureSlots;
+    setInfo.bindingCount = kEarthImageBinding + 1;
     setInfo.pBindings = bindings;
     VK_TRY(vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &sceneSetLayout));
 
@@ -338,7 +341,7 @@ VkResult Device::createRenderPass(VkFormat format, VkImageLayout finalLayout, Vk
     return vkCreateRenderPass(device, &info, nullptr, out);
 }
 
-VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out) const {
+VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out, int32_t earthMode) const {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -348,6 +351,9 @@ VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline*
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = earth ? earthShader : patternShader;
     stages[1].pName = "main";
+    VkSpecializationMapEntry modeEntry{0, 0, sizeof(int32_t)};
+    VkSpecializationInfo specialization{1, &modeEntry, sizeof(int32_t), &earthMode};
+    if (earth) stages[1].pSpecializationInfo = &specialization;
     VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -417,11 +423,12 @@ VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
 
 void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                          VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
-                         VkQueryPool queries, uint32_t first) const {
+                         VkQueryPool queries, uint32_t first, const EarthPass* earthPass) const {
     if (queries != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(cmd, queries, first, 2);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
     }
+    if (earthPass != nullptr) earthPass->record(*this, cmd, scene, push);
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     begin.renderPass = renderPass;
     begin.framebuffer = framebuffer;

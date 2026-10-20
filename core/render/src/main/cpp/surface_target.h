@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "device.h"
+#include "earth_pass.h"
 #include "frame_inputs.h"
 #include "scene_binding.h"
 
@@ -55,6 +56,8 @@ private:
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
     VkPipeline earthPipeline_ = VK_NULL_HANDLE;
+    VkPipeline compositePipeline_ = VK_NULL_HANDLE;
+    EarthPass earthPass_;
     VkQueryPool queries_ = VK_NULL_HANDLE;
     std::vector<VkImage> images_;
     std::vector<VkImageView> views_;

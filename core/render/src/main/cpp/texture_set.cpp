@@ -14,7 +14,8 @@ struct SlotInfo {
     VkClearColorValue fallback;  // UNORM values of the 1 x 1 fallback texel
 };
 
-// Grey colour (detail ratio 1), flat normal (.ga = 0.5), no clouds, lights, stars or water.
+// Grey colour (detail ratio 1), flat normal (.ga = 0.5), no clouds, lights, stars or water; no interior
+// (window alpha 0 shows the Earth everywhere).
 constexpr SlotInfo kSlots[kTextureSlots] = {
     {"day_detail", true, {{0.5f, 0.5f, 0.5f, 1.0f}}},
     {"monthly_colour", true, {{0.5f, 0.5f, 0.5f, 1.0f}}},
@@ -23,6 +24,10 @@ constexpr SlotInfo kSlots[kTextureSlots] = {
     {"terrain_normal", false, {{0.5f, 0.5f, 1.0f, 0.5f}}},
     {"stars", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
     {"water_mask", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
+    {"interior_earth", false, {{0.0f, 0.0f, 0.0f, 0.0f}}},
+    {"interior_cabin", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
+    {"interior_emissive", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
+    {"interior_ambient", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
 };
 
 VkResult createSampler(const Device& device, VkSamplerAddressMode u, VkSampler* out) {
