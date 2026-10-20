@@ -1,7 +1,6 @@
 package com.baer.cupola.ui
 
 import com.baer.cupola.feature.settings.ShareRenderer
-import com.baer.cupola.wallpaper.RenderSession
 import com.baer.cupola.wallpaper.RendererHost
 import javax.inject.Inject
 
@@ -10,7 +9,7 @@ class RendererShareRenderer @Inject constructor(private val host: RendererHost) 
     override suspend fun renderRgba(width: Int, height: Int): ByteArray {
         val renderer = host.acquire()
         try {
-            return renderer.renderOffscreen(width, height, RenderSession().nextFrameInputs())
+            return renderer.renderOffscreen(width, height, host.detachedSession().nextFrameInputs())
         } finally {
             host.release()
         }

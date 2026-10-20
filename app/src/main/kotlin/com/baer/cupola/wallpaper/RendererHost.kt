@@ -42,6 +42,9 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
 
     internal fun release() = shared.release()
 
+    /** A session not bound to a surface (one-shot offscreen renders). */
+    internal fun detachedSession() = RenderSession(orbit)
+
     internal fun openSession(): Pair<Int, RenderSession> {
         val id = nextId.incrementAndGet()
         return id to RenderSession(orbit).also { sessions[id] = it; Gate.opened(id, it) }
