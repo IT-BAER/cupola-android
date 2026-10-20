@@ -1,0 +1,67 @@
+package com.baer.cupola.data
+
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.baer.cupola.feature.settings.RestDirection
+import com.baer.cupola.feature.settings.Settings
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class DataStoreSettingsRepositoryTest {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val dir = File.createTempFile("cupola-ds", "").apply { delete(); mkdirs() }
+
+    @After fun tearDown() {
+        scope.cancel()
+        dir.deleteRecursively()
+    }
+
+    private fun repo() = DataStoreSettingsRepository(
+        PreferenceDataStoreFactory.create(scope = scope) { File(dir, "settings.preferences_pb") },
+    )
+
+    @Test
+    fun emptyStoreYieldsDefaults() = runBlocking {
+        assertEquals(Settings(), repo().settings.first())
+    }
+
+    @Test
+    fun updatesPersistAcrossInstances() = runBlocking {
+        val r = repo()
+        r.setRestDirection(RestDirection.NADIR)
+        r.setLookAroundStrength(0.25f)
+        r.setIdleFloat(false)
+        r.setBloom(false)
+        r.setWindowGlare(false)
+        r.setReflections(false)
+        r.setDust(false)
+        r.setHomeCity("Vienna|AT|48.208|16.372")
+        val expected = Settings(RestDirection.NADIR, 0.25f, false, false, false, false, false, "Vienna|AT|48.208|16.372")
+        assertEquals(expected, r.settings.first())
+        scope.coroutineContext[Job]!!.cancelAndJoin()
+        assertEquals(expected, DataStoreSettingsRepository(
+            PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) { File(dir, "settings.preferences_pb") },
+        ).settings.first())
+    }
+
+    @Test
+    fun strengthIsClampedAndHomeCityCanBeCleared() = runBlocking {
+        val r = repo()
+        r.setLookAroundStrength(3f)
+        assertEquals(1f, r.settings.first().lookAroundStrength)
+        r.setLookAroundStrength(-1f)
+        assertEquals(0f, r.settings.first().lookAroundStrength)
+        r.setHomeCity("x")
+        r.setHomeCity(null)
+        assertEquals(null, r.settings.first().homeCityId)
+    }
+}

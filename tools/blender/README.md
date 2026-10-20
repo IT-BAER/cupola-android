@@ -30,11 +30,27 @@ and for the best cube orientation of a random search, and writes `local/blender/
 3.80 face-equivalents for the world-aligned cube (all aspects), about 19.5 MiB against 15.4 MiB
 planned; the best rotation found saves 0.10 face-equivalents. `-Z` (towards the hatch) is never visible.
 
-`render_preview.py [BLEND] [--samples N]` renders the rest view and the poses matching
-iss035e010551, iss038e013587 (10.5 mm equisolid fisheye) and iss073e0025760 with Cycles on the CPU
-into `local/blender/preview/`, plus `compare_<pose>.png` with the render left and the dev photo
-right (`compare_rest_clip.png` uses the ESA clip frame, for internal comparison only). Earth is
-a plain direction gradient; the .blend is not modified.
+`render_preview.py [BLEND] [--samples N] [--out DIR]` renders the rest view and the poses matching
+iss035e010551, iss038e013587 (10.5 mm equisolid fisheye) and iss073e0025760 with Cycles (GPU when
+present) into `local/blender/preview/` (or DIR), plus `compare_<pose>.png` with the render left and the dev photo
+right (`compare_rest_clip.png` uses the ESA clip frame, for internal comparison only). Earth is a
+procedural cloud field inside the Earth cone with a thin limb; the sun grazes in through side window 0
+from the zenith side; the cabin light is scaled to 5 % (daylight exposure: Earthlight dominates). The
+.blend is not modified.
+
+Interior realism (P4.7 round 1, dev references only): `principled()` builds every material from noise
+nodes: colour and roughness variation, fine bump, a Cycles Bevel normal for rounded specular edges and,
+on frames and handrails, bare-metal wear where the bevel normal leaves the true normal. Frames are satin
+black anodized; window tunnels are stepped bezels (`SIDE_BEZEL`, `TOP_BEZEL`: black walls, bare-metal
+ledges, gasket last) outside the clear apertures. Added geometry: washers and two more bolt rows,
+mullion rails with cap screws, orange tags, Velcro and plain label-like patches, shutter crank knobs,
+brackets, top-plate fittings (`build_mullion_detail`); dark closeout panels with fasteners, wall bags,
+a corrugated hose (`build_walls`); two clamped harness loops round the skirt and a bundle down each
+mullion seam (`build_harness`); lumpy canvas pouches with straps; box connectors and handles; handrail
+end fittings; laptop pads and vents; lens grips. The scatter uses `random.Random(DETAIL_SEED)` in a
+fixed order, so the build stays deterministic. `L_Cabin` is a 1 m disk at the hatch plane (Node 3
+light shining in), 60 W, warm white. Bevel nodes slow the bake: measured 20 October 2026, 8 min 39 s
+wall time for the 5-face bake at 128 spp (P4.4 measured 137 s render time).
 
 `bake_panorama.py [BLEND] [--samples N] [--seed N] [--out DIR] [--faces +X,-Y] [--crop X0 Y0 X1 Y1]`
 (plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, 0.70) with
