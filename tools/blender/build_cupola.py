@@ -316,6 +316,38 @@ def glass_material():
     return m
 
 
+def screen_material(name, strength):
+    """Lit display: a procedural brick grid as UI panels (dark gaps, mixed light and blue blocks, no
+    text) under a glossy cover glass. Needs the screen mesh in local coordinates (x, y on the panel)."""
+    m = bpy.data.materials.new(name)
+    try:
+        m.use_nodes = True
+    except AttributeError:
+        pass
+    nt = m.node_tree
+    N, L = nt.nodes.new, nt.links.new
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Base Color"].default_value = (0.005, 0.005, 0.006, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.3
+    bsdf.inputs["Coat Weight"].default_value = 1.0
+    bsdf.inputs["Coat Roughness"].default_value = 0.03
+    br = N("ShaderNodeTexBrick")
+    br.offset = 0.0
+    br.inputs["Scale"].default_value = 10.0
+    br.inputs["Brick Width"].default_value = 0.9
+    br.inputs["Row Height"].default_value = 0.3
+    br.inputs["Mortar Size"].default_value = 0.03
+    br.inputs["Color1"].default_value = (0.02, 0.05, 0.11, 1.0)
+    br.inputs["Color2"].default_value = (0.5, 0.62, 0.75, 1.0)
+    br.inputs["Bias"].default_value = -0.5  # mostly dark panels, a few light ones
+    br.inputs["Mortar"].default_value = (0.18, 0.22, 0.28, 1.0)
+    L(N("ShaderNodeTexCoord").outputs["Object"], br.inputs["Vector"])
+    L(br.outputs["Color"], bsdf.inputs["Emission Color"])
+    bsdf.inputs["Emission Strength"].default_value = strength
+    MATS[name] = m
+    return m
+
+
 class Part:
     """One mesh object accumulated in a bmesh, with per-face material slots."""
 
@@ -443,6 +475,25 @@ class Part:
                    ((-1, -1), (0, -1.08), (1, -1), (1.08, 0), (1, 1), (0, 1.08), (-1, 1), (-1.08, 0))]
             self.tube(pts, 0.0022, mat=seam, seg=6, closed=True, sub=6)
 
+    def rounded(self, size, matrix, mat=0, exp=5.0, cuts=6, taper=0.0):
+        """Molded body: subdivided box pushed onto a superellipsoid of exponent exp (higher = boxier);
+        taper narrows x and z toward local +y (a camera prism hump)."""
+        lay = self._mark_old()
+        r = bmesh.ops.create_cube(self.bm, size=1.0, matrix=Matrix.Diagonal((*size, 1.0)))
+        edges = list({e for v in r["verts"] for e in v.link_edges})
+        bmesh.ops.subdivide_edges(self.bm, edges=edges, cuts=cuts, use_grid_fill=True)
+        new = [v for v in self.bm.verts if not v[lay]]
+        hx, hy, hz = size[0] / 2, size[1] / 2, size[2] / 2
+        for v in new:
+            u = Vector((v.co.x / hx, v.co.y / hy, v.co.z / hz))
+            ln = (abs(u.x) ** exp + abs(u.y) ** exp + abs(u.z) ** exp) ** (1.0 / exp)
+            s = 1.0 - taper * (u.y / ln + 1.0) / 2.0
+            v.co = Vector((u.x / ln * hx * s, u.y / ln * hy, u.z / ln * hz * s))
+        bmesh.ops.transform(self.bm, matrix=matrix, verts=new)
+        for f in {f for v in new for f in v.link_faces}:
+            f.material_index = mat
+            f.smooth = True
+
     def patch(self, w, h, matrix, mat, rng, thick=0.0015):
         """Irregular rounded patch (Velcro, label-like blank): jittered superellipse, extruded."""
         n = 20
@@ -458,7 +509,8 @@ class Part:
         self.face(list(reversed(bot)), mat)
         self.strip(bot, top, mat)
 
-    def build(self, props=None):
+    def build(self, props=None, matrix=None):
+        """matrix: object transform (the mesh was built in local coordinates)."""
         me = bpy.data.meshes.new(self.name)
         lay = self.bm.verts.layers.int.get("old")
         if lay is not None:
@@ -468,6 +520,8 @@ class Part:
         for m in self.mats:
             me.materials.append(MATS[m])
         ob = bpy.data.objects.new(self.name, me)
+        if matrix is not None:
+            ob.matrix_world = matrix
         col(self.collection).objects.link(ob)
         for k, v in (props or {}).items():
             ob[k] = v
@@ -518,21 +572,24 @@ def build(top_d):
     scene.world = world
 
     # Satin black anodized aluminium with bare-metal edge wear, as in iss050e033912/iss038e013587.
-    principled("M_FrameBlack", (0.011, 0.011, 0.012), rough=0.38, noise=(60.0, 0.33, 0.45), cvar=0.15,
+    # Black anodize and black paint reflect 3-5 % diffuse; lower albedos read as unlit holes.
+    principled("M_FrameBlack", (0.03, 0.03, 0.032), rough=0.38, noise=(60.0, 0.33, 0.45), cvar=0.15,
                cscale=9.0, bump=(900.0, 0.03, 2.0), bevel=0.0025, wear=((0.45, 0.45, 0.47), 1.0, 0.32))
     principled("M_Bezel", (0.14, 0.14, 0.15), metal=1.0, rough=0.32, noise=(45.0, 0.26, 0.4), cvar=0.15,
                bevel=0.0015)
-    principled("M_Gasket", (0.32, 0.07, 0.035), rough=0.5, noise=(80.0, 0.4, 0.62), cvar=0.15)
+    principled("M_Gasket", (0.6, 0.13, 0.04), rough=0.5, noise=(80.0, 0.4, 0.62), cvar=0.15)
     principled("M_Bolt", (0.6, 0.6, 0.62), metal=1.0, rough=0.3, noise=(300.0, 0.22, 0.45), bevel=0.0008)
-    principled("M_Handrail", (0.02, 0.13, 0.45), metal=1.0, rough=0.3, noise=(30.0, 0.22, 0.42), cvar=0.15,
+    # Blue anodized handrails (dyed oxide over aluminium): saturated, partly diffuse.
+    principled("M_Handrail", (0.04, 0.3, 0.75), metal=0.6, rough=0.3, noise=(30.0, 0.22, 0.42), cvar=0.15,
                bevel=0.002, wear=((0.55, 0.56, 0.58), 1.0, 0.3))
     principled("M_Shutter", (0.55, 0.53, 0.5), metal=0.6, rough=0.45, noise=(8.0, 0.35, 0.6),
                bump=(40.0, 0.2, 4.0))
-    principled("M_ShellGrey", (0.045, 0.045, 0.05), metal=0.1, rough=0.6, noise=(25.0, 0.45, 0.7), cvar=0.3,
+    principled("M_ShellGrey", (0.1, 0.1, 0.105), metal=0.1, rough=0.6, noise=(25.0, 0.45, 0.7), cvar=0.3,
                bump=(300.0, 0.05, 3.0))
-    principled("M_PanelGrey", (0.09, 0.09, 0.095), metal=0.1, rough=0.55, noise=(20.0, 0.4, 0.65), cvar=0.2,
+    principled("M_PanelGrey", (0.2, 0.2, 0.205), metal=0.1, rough=0.55, noise=(20.0, 0.4, 0.65), cvar=0.2,
                bevel=0.002, bump=(500.0, 0.03, 2.0))
-    principled("M_Fabric", (0.2, 0.13, 0.07), rough=0.92, noise=(120.0, 0.85, 1.0), cvar=0.3, cscale=12.0,
+    # Tan Nomex-like cloth of the stowage bags (iss038e013587, iss035e010551).
+    principled("M_Fabric", (0.42, 0.31, 0.19), rough=0.92, noise=(120.0, 0.85, 1.0), cvar=0.3, cscale=12.0,
                bump=(45.0, 0.35, 8.0), sheen=0.4)
     principled("M_PatchWhite", (0.7, 0.7, 0.66), rough=0.9, cvar=0.1, bevel=0.0008)
     principled("M_LaptopBody", (0.03, 0.03, 0.03), rough=0.5, bevel=0.002)
@@ -543,7 +600,7 @@ def build(top_d):
     principled("M_CableBlue", (0.05, 0.22, 0.5), rough=0.45)
     principled("M_CableWhite", (0.62, 0.62, 0.6), rough=0.5, cvar=0.1)
     principled("M_CableGrey", (0.12, 0.12, 0.12), rough=0.5)
-    principled("M_FabricBeige", (0.5, 0.44, 0.34), rough=0.95, cvar=0.2, cscale=12.0, bump=(45.0, 0.35, 8.0),
+    principled("M_FabricBeige", (0.62, 0.55, 0.42), rough=0.95, cvar=0.2, cscale=12.0, bump=(45.0, 0.35, 8.0),
                sheen=0.5)
     principled("M_Webbing", (0.05, 0.05, 0.045), rough=0.85, bump=(600.0, 0.2, 2.0))
     principled("M_Velcro", (0.62, 0.62, 0.6), rough=1.0, bump=(2500.0, 0.4, 2.0), sheen=0.3)
@@ -555,9 +612,23 @@ def build(top_d):
     principled("M_BoltBlack", (0.04, 0.04, 0.042), metal=1.0, rough=0.42, bevel=0.0008)
     principled("M_PatchYellow", (0.7, 0.64, 0.4), rough=0.85, cvar=0.1, bevel=0.0008)
     principled("M_PatchGrey", (0.32, 0.32, 0.31), rough=0.8, cvar=0.1, bevel=0.0008)
-    principled("M_ScreenEmit", (0.0, 0.0, 0.0), rough=0.2, emit=(0.55, 0.62, 0.7), strength=1.5)
-    principled("M_LedGreen", (0.0, 0.0, 0.0), emit=(0.1, 1.0, 0.2), strength=8.0)
-    principled("M_LedAmber", (0.0, 0.0, 0.0), emit=(1.0, 0.55, 0.05), strength=8.0)
+    # Rack front panels: ISS off-white, beige and blue-grey next to the dark grey (iss038e013587).
+    principled("M_RackWhite", (0.6, 0.6, 0.57), metal=0.05, rough=0.5, noise=(20.0, 0.4, 0.6), cvar=0.08,
+               bevel=0.002, bump=(500.0, 0.03, 2.0))
+    principled("M_RackBeige", (0.5, 0.45, 0.36), metal=0.05, rough=0.55, noise=(20.0, 0.4, 0.65), cvar=0.1,
+               bevel=0.002, bump=(500.0, 0.03, 2.0))
+    principled("M_RackBlue", (0.2, 0.25, 0.32), metal=0.1, rough=0.5, noise=(20.0, 0.4, 0.6), cvar=0.1,
+               bevel=0.002)
+    principled("M_Red", (0.55, 0.03, 0.025), rough=0.45, cvar=0.1, bevel=0.001)
+    principled("M_Orange", (0.85, 0.3, 0.02), rough=0.5, cvar=0.1, bevel=0.001)
+    # Emissive strengths relative to L_Cabin at built strength: a lit white surface at the dome is
+    # about 2.5, a screen about 3x that, LEDs far brighter (tiny). The bake's emissive layer keeps the ratio.
+    screen_material("M_ScreenEmit", 8.0)
+    principled("M_ScreenSmall", (0.0, 0.0, 0.0), rough=0.1, emit=(0.35, 0.8, 0.55), strength=6.0)
+    principled("M_LedGreen", (0.0, 0.0, 0.0), emit=(0.1, 1.0, 0.2), strength=60.0)
+    principled("M_LedAmber", (0.0, 0.0, 0.0), emit=(1.0, 0.55, 0.05), strength=60.0)
+    principled("M_LedRed", (0.0, 0.0, 0.0), emit=(1.0, 0.05, 0.03), strength=60.0)
+    principled("M_LedBlue", (0.0, 0.0, 0.0), emit=(0.1, 0.35, 1.0), strength=60.0)
     glass_material()
 
     # Top window: plate ring (hexagon to aperture circle), tunnel to the pane, glass.
@@ -729,7 +800,13 @@ def build_laptop():
     m = place(pos, (-radial * 0.6 + Vector((0, 0, -0.8))), tang)
     lp = Part("Laptop", "Laptop", ["M_LaptopBody", "M_PanelGrey", "M_VelcroBlack", "M_PatchWhite", "M_Plastic",
                                    "M_Bolt"])
-    lp.box((0.34, 0.24, 0.025), m, bevel=0.004)
+    lp.rounded((0.34, 0.24, 0.025), m, exp=12.0, cuts=8)
+    # Keyboard deck (top face): 5 rows of keys, a touchpad and a trackpoint-like stub.
+    for row in range(5):
+        for j in range(14):
+            lp.box((0.017, 0.016, 0.003), m @ Matrix.Translation((-0.1365 + j * 0.021, 0.075 - row * 0.0205,
+                                                                  0.0125)), mat=4, bevel=0.0012)
+    lp.box((0.09, 0.05, 0.001), m @ Matrix.Translation((0.0, -0.06, 0.0128)), mat=4, bevel=0.0005)
     # Underside: Velcro pads, a plain label patch, rubber feet; lid back: Velcro and a vent grille.
     for x, y, sz, mt in ((-0.12, -0.08, (0.05, 0.03), 2), (0.12, -0.08, (0.05, 0.03), 2), (0.0, 0.06, (0.07, 0.035), 3)):
         lp.box((*sz, 0.0015), m @ Matrix.Translation((x, y, -0.0132)), mat=mt)
@@ -737,7 +814,9 @@ def build_laptop():
         for y in (-0.105, 0.105):
             lp.cyl(m @ Vector((x, y, -0.0125)), m @ Vector((x, y, -0.016)), 0.006, mat=4, seg=12)
     hinge = Matrix.Translation((0, 0.12, 0.0125)) @ Matrix.Rotation(math.radians(-105), 4, "X")
-    lp.box((0.34, 0.23, 0.008), m @ hinge @ Matrix.Translation((0, -0.115, 0.004)), bevel=0.002)
+    lp.rounded((0.34, 0.23, 0.008), m @ hinge @ Matrix.Translation((0, -0.115, 0.004)), exp=12.0, cuts=8)
+    for x in (-0.15, 0.15):  # hinge barrels
+        lp.cyl(m @ Vector((x - 0.025, 0.12, 0.0125)), m @ Vector((x + 0.025, 0.12, 0.0125)), 0.006, mat=4, seg=16)
     # Articulated arm: wall plate on skirt wall 3, three links, friction knuckles with lock knobs.
     mount = wall_point(3, A2 * math.tan(math.radians(20.0)), 0.78, 0.0)
     inward = Vector((1.0, 0.0, 0.0))
@@ -765,13 +844,14 @@ def build_laptop():
     lp.build()
     sc = Part("Laptop_Screen", "Emissive", ["M_ScreenEmit"])
     mm = m @ hinge @ Matrix.Translation((0, -0.115, -0.0005))
-    sc.face([mm @ Vector((x, y, 0.0)) for x, y in ((-0.155, -0.1), (-0.155, 0.1), (0.155, 0.1), (0.155, -0.1))])
-    sc.build()
+    sc.face([Vector((x, y, 0.0)) for x, y in ((-0.155, -0.1), (-0.155, 0.1), (0.155, 0.1), (0.155, -0.1))])
+    sc.build(matrix=mm)
 
 
 def build_cameras():
     """DSLR-like bodies (grip, prism, hood, ribbed grips) on brackets clamped to the seam handrails."""
-    cam = Part("PhotoCameras", "PhotoCameras", ["M_CameraBody", "M_LensMetal", "M_Bolt", "M_Plastic"])
+    cam = Part("PhotoCameras", "PhotoCameras", ["M_CameraBody", "M_LensMetal", "M_Bolt", "M_Plastic", "M_Webbing",
+                                                "M_Red", "M_Connector"])
     tops, bots = hex_corners(HEX_APOTHEM, Z_TOP), hex_corners(A2, Z_FB)
     for k, back, lens_len, lens_r, y in ((1, 0.42, 0.30, 0.05, 0.55), (4, 0.30, 0.10, 0.035, 0.55),
                                          (3, 0.36, 0.22, 0.045, 0.35)):
@@ -779,12 +859,24 @@ def build_cameras():
         n = f[3]
         p = fmap(f, (0.05, SIDE_MARGIN_TOP + y * SIDE_H), -back)
         m = place(p, n, f[1])
-        cam.box((0.15, 0.11, 0.09), m, bevel=0.012)
-        cam.box((0.045, 0.115, 0.1), m @ Matrix.Translation((0.085, 0.0, -0.005)), bevel=0.015)
-        cam.box((0.06, 0.05, 0.05), m @ Matrix.Translation((0.0, 0.07, -0.01)), bevel=0.012)
-        cam.box((0.11, 0.004, 0.06), m @ Matrix.Translation((0.0, -0.057, -0.015)), mat=3, bevel=0.001)
+        # Molded body, deep grip, tapered prism hump, rear LCD, top dials, strap lugs and a floating strap.
+        cam.rounded((0.15, 0.11, 0.085), m, exp=4.5)
+        cam.rounded((0.05, 0.118, 0.105), m @ Matrix.Translation((0.082, -0.002, -0.004)), exp=3.5)
+        cam.rounded((0.065, 0.06, 0.062), m @ Matrix.Translation((0.0, 0.062, -0.008)), exp=4.0, taper=0.45)
+        cam.box((0.11, 0.004, 0.06), m @ Matrix.Translation((0.0, -0.056, -0.015)), mat=3, bevel=0.001)
+        cam.box((0.085, 0.06, 0.004), m @ Matrix.Translation((-0.012, 0.0, -0.0435)), mat=3, bevel=0.0015)
+        for x, r, h in ((-0.05, 0.013, 0.012), (0.05, 0.011, 0.008)):
+            cam.cyl(m @ Vector((x, 0.05, 0.0)), m @ Vector((x, 0.05 + h, 0.0)), r, mat=0, seg=24)
+            cam.cyl(m @ Vector((x, 0.05 + h, 0.0)), m @ Vector((x, 0.052 + h, 0.0)), r * 0.85, mat=6, seg=24)
+        cam.cyl(m @ Vector((0.075, 0.058, 0.03)), m @ Vector((0.075, 0.062, 0.03)), 0.005, mat=5, seg=12)
+        lugs = []
         for sx in (-1, 1):
             cam.cyl(m @ Vector((sx * 0.078, 0.04, 0.0)), m @ Vector((sx * 0.086, 0.04, 0.0)), 0.006, mat=2, seg=8)
+            lugs.append(m @ Vector((sx * 0.088, 0.04, 0.0)))
+        cam.tube([lugs[0], m @ Vector((-0.12, -0.02, -0.03)), m @ Vector((-0.03, -0.12, -0.06)),
+                  m @ Vector((0.08, -0.1, -0.04)), m @ Vector((0.12, -0.01, -0.02)), lugs[1]],
+                 0.0045, mat=4, seg=6, sub=6)
+        cam.cyl(m @ Vector((0, 0, 0.038)), m @ Vector((0, 0, 0.046)), lens_r * 1.2, mat=6, seg=32)
         cam.cyl(m @ Vector((0, 0, 0.04)), m @ Vector((0, 0, 0.04 + lens_len)), lens_r, mat=1, seg=32)
         cam.cyl(m @ Vector((0, 0, 0.045)), m @ Vector((0, 0, 0.052)), lens_r * 1.08, mat=2, seg=32)
         for z0, z1 in ((0.3, 0.45), (0.6, 0.78)):
@@ -854,7 +946,8 @@ def build_cables():
 def build_clutter(rng):
     cl = Part("Clutter", "Clutter", ["M_Fabric", "M_PanelGrey", "M_LaptopBody", "M_PatchWhite", "M_Webbing",
                                      "M_Velcro", "M_Connector", "M_Plastic", "M_FabricBeige", "M_CableBlack",
-                                     "M_CableGrey", "M_CableWhite", "M_CableBlue", "M_Bolt"])
+                                     "M_CableGrey", "M_CableWhite", "M_CableBlue", "M_Bolt", "M_Red", "M_Orange"])
+    ra = random.Random(DETAIL_SEED + 2)  # colour accents; keeps the rng layout sequence unchanged
     # Canvas pouches clipped to the top ring (iss035e010551, iss038e013587, iss050e033912): creased cloth,
     # piped seam, webbing strap, Velcro tab.
     for az, rr, sz, roll in ((75.0, 0.47, (0.22, 0.14, 0.09), 10.0), (100.0, 0.50, (0.19, 0.14, 0.09), -15.0),
@@ -863,6 +956,8 @@ def build_clutter(rng):
         p = Vector((rr * math.cos(a), rr * math.sin(a), Z_TOP - TOP_RING_H - 0.05))
         m = place(p, (0, 0, 1), (math.cos(a + math.radians(roll)), math.sin(a + math.radians(roll)), 0))
         cl.bag(sz, m, rng, mat=0, seam=4)
+        for t in (-0.32, 0.3):  # straps holding the pouch to the plate
+            cl.box((0.016, sz[1] + 0.008, 0.0025), m @ Matrix.Translation((sz[0] * t, 0, -sz[2] / 2 - 0.004)), mat=4)
         cl.box((0.018, sz[1] + 0.006, sz[2] + 0.006), m @ Matrix.Translation((sz[0] * 0.22, 0, 0)), mat=4)
         cl.patch(sz[0] * 0.35, sz[1] * 0.25, m @ Matrix.Translation((-sz[0] * 0.1, 0, -sz[2] / 2 - 0.002)), 5, rng)
     # Cables floating across the windows between the mullions, with connectors at both ends.
@@ -882,6 +977,10 @@ def build_clutter(rng):
             for i, s_ in ((0, 1), (len(q) - 1, -1)):
                 cl.cyl(q[i] - tg[i] * s_ * 0.004, q[i] + tg[i] * s_ * 0.022, 0.0075, mat=6, seg=12)
                 cl.cyl(q[i] + tg[i] * s_ * 0.022, q[i] + tg[i] * s_ * 0.04, 0.0055, mat=7, seg=12)
+            for i in range(8, len(q) - 8, ra.randint(9, 14)):  # white cable ties
+                cl.cyl(q[i] - tg[i] * 0.0022, q[i] + tg[i] * 0.0022, 0.0062, mat=11, seg=8)
+            if ra.random() < 0.5:  # red or orange cap on a connector
+                cl.cyl(q[0] - tg[0] * 0.012, q[0] - tg[0] * 0.002, 0.0085, mat=ra.choice((14, 15)), seg=12)
     # Stowed items tucked into window corners (iss038e013587, iss073e0025760).
     for k in range(6):
         f = facet_frame(k)
@@ -910,6 +1009,19 @@ def build_clutter(rng):
             cl.box((0.05, 0.03, 0.02), place(fmap(f, q, -0.012), n, u), mat=7, bevel=0.003)
             cl.cyl(fmap(f, (q[0] + 0.025, q[1]), -0.012), fmap(f, (q[0] + 0.055, q[1] + 0.02), -0.03), 0.004,
                    mat=9, seg=8)
+        # Small red or orange item next to it: a pouch, a tool handle or a bright tag (no text).
+        q2 = (-q[0] * ra.uniform(0.6, 0.9), q[1] - ra.uniform(0.0, 0.03))
+        acc = ra.choice((14, 15))
+        kind2 = ra.randrange(3)
+        if kind2 == 0:
+            cl.bag((0.06, 0.04, 0.022), place(fmap(f, q2, -0.014), n, u), ra, mat=acc, cuts=4)
+        elif kind2 == 1:
+            a = fmap(f, (q2[0] - 0.04, q2[1]), -0.012)
+            b = fmap(f, (q2[0] + 0.04, q2[1] + 0.01), -0.02)
+            cl.cyl(a, b, 0.008, mat=acc, seg=12)
+            cl.cyl(b, b + (b - a).normalized() * 0.03, 0.003, mat=13, seg=8)
+        else:
+            cl.box((0.025, 0.06, 0.0015), place(fmap(f, q2, -0.004), n, u * 0.8 + v * 0.6), mat=acc)
     cl.build()
 
 
@@ -994,8 +1106,9 @@ def build_walls(rng):
     wp = Part("WallRacks", "Shell", ["M_PanelGrey", "M_ShellGrey", "M_Bolt", "M_Velcro", "M_VelcroBlack",
                                      "M_PatchWhite", "M_Plastic", "M_Fabric", "M_FabricBeige", "M_Webbing",
                                      "M_Connector", "M_CableBlack", "M_CableGrey", "M_LaptopBody", "M_PatchYellow",
-                                     "M_Hose"])
-    led = Part("LEDs", "Emissive", ["M_LedGreen", "M_LedAmber"])
+                                     "M_Hose", "M_RackWhite", "M_RackBeige", "M_RackBlue", "M_Red", "M_Orange"])
+    led = Part("LEDs", "Emissive", ["M_LedGreen", "M_LedAmber", "M_LedRed", "M_LedBlue", "M_ScreenSmall"])
+    ra = random.Random(DETAIL_SEED + 3)  # colours, caps and status lights; rng layout sequence unchanged
     hwid = A2 / SQ3
     leds = 0
     for k in range(6):
@@ -1024,7 +1137,9 @@ def build_walls(rng):
                     continue
                 tc, zc = t0 + w / 2, z + h / 2
                 mb = place(wall_point(k, tc, zc, 0.004 + dep / 2), -R, T)
-                wp.box((w - 0.006, h - 0.006, dep), mb, mat=rng.choice((0, 0, 13, 1)), bevel=0.003)
+                mat = rng.choice((0, 0, 13, 1))
+                wp.box((w - 0.006, h - 0.006, dep), mb, mat=ra.choice((0, 16, 16, 17, 18)) if mat == 0 else mat,
+                       bevel=0.003)
                 front = dep / 2
                 for j in range(rng.randint(0, 4)):
                     x = rng.uniform(-w / 2 + 0.03, w / 2 - 0.03)
@@ -1039,6 +1154,9 @@ def build_walls(rng):
                         mid = p1.lerp(end, 0.5) - R * rng.uniform(0.03, 0.08)
                         wp.tube([p1, mid, end], rng.uniform(0.003, 0.0055), mat=rng.choice((11, 11, 12)), seg=8,
                                 sub=8)
+                    elif ra.random() < 0.4:  # red or orange dust cap on an unused connector
+                        wp.cyl(mb @ Vector((x, y, front + 0.012)), mb @ Vector((x, y, front + 0.02)), r * 0.95,
+                               mat=ra.choice((19, 20)), seg=16)
                 if rng.random() < 0.6:
                     for sx in (-1, 1):
                         wp.cyl(mb @ Vector((sx * (w / 2 - 0.02), -h / 2 + 0.02, front)),
@@ -1059,6 +1177,14 @@ def build_walls(rng):
                                                                                 front + 0.002)),
                                 mat=(leds + j) % 2)
                     leds += 2 if k == 3 else 1
+                if ra.random() < 0.35:  # status LED row, top left of the front panel
+                    for j in range(ra.randint(1, 4)):
+                        led.box((0.005, 0.005, 0.004), mb @ Matrix.Translation((-w / 2 + 0.026 + 0.011 * j,
+                                                                                h / 2 - 0.012, front + 0.002)),
+                                mat=ra.choice((0, 0, 1, 2, 3)))
+                if w > 0.14 and h > 0.08 and ra.random() < 0.25:  # small lit status display
+                    led.box((0.05, 0.022, 0.002), mb @ Matrix.Translation((w / 2 - 0.045, -h / 2 + 0.035,
+                                                                           front + 0.001)), mat=4)
                 t0 += w + 0.01
             z += h + rng.uniform(0.01, 0.04)
         if k % 2 == 0:
@@ -1122,7 +1248,9 @@ def build_harness():
             pts = [tops[k].lerp(bots[k], f) + off for f in (0.03, 0.35, 0.7, 0.97)]
             pts += [bots[k] - Vector((0, 0, 0.1)) + offb, bases[k] + Vector((0, 0, Z_FB - Z_BASE - 0.3)) + offb,
                     bases[k] + Vector((0, 0, 0.09)) + offb]
-            hz.tube(pts, r, mat=mat, seg=8, sub=6)
+            q, tg = hz.tube(pts, r, mat=mat, seg=8, sub=6)
+            for j in (5, 12, 19, 26, 32):  # white cable ties at the same stations on every wire
+                hz.cyl(q[j] - tg[j] * 0.002, q[j] + tg[j] * 0.002, r + 0.0018, mat=2, seg=8)
     hz.build()
 
 
