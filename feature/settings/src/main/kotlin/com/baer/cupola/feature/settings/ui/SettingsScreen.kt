@@ -91,11 +91,12 @@ fun SettingsScreen(
             }
 
             Section(R.string.look_around_strength)
+            val lookAroundLabel = stringResource(R.string.look_around_strength)
             Slider(
                 value = s.lookAroundStrength,
                 onValueChange = actions.onLookAroundStrength,
                 valueRange = 0f..1f,
-                modifier = Modifier.testTag(SettingsTags.LOOK_AROUND),
+                modifier = Modifier.testTag(SettingsTags.LOOK_AROUND).semantics { contentDescription = lookAroundLabel },
             )
             SwitchRow(R.string.idle_float, s.idleFloat, actions.onIdleFloat)
 

@@ -1,8 +1,10 @@
 package com.baer.cupola.feature.settings.ui
 
 import android.view.Surface
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -104,6 +106,12 @@ class ScreensTest {
         rule.onNodeWithText("Straight down").performScrollTo().performClick()
         assertEquals(false, bloom)
         assertEquals(RestDirection.NADIR, rest)
+    }
+
+    @Test
+    fun lookAroundSliderHasAnAccessibleName() {
+        host()
+        rule.onNodeWithTag(SettingsTags.LOOK_AROUND).assert(hasContentDescription("Look-around strength"))
     }
 
     @Test
