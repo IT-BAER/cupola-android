@@ -3,7 +3,9 @@ package com.baer.cupola.feature.settings.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -22,6 +24,14 @@ sealed interface Route {
     data object About : Route
 }
 
+private val routes = listOf(Route.Settings, Route.Info, Route.HomeCity, Route.Credits, Route.About)
+
+// Saved as indexes into [routes], so the open screen survives rotation and process restore.
+private val BackStackSaver = listSaver<SnapshotStateList<Route>, Int>(
+    save = { stack -> stack.map(routes::indexOf) },
+    restore = { saved -> mutableStateListOf<Route>().apply { saved.mapTo(this, routes::get) } },
+)
+
 /** Screens and navigation (Navigation 3). The ViewModels are created by the caller (Hilt in the Activity). */
 @Composable
 fun CupolaNavHost(
@@ -34,7 +44,7 @@ fun CupolaNavHost(
     onSetWallpaper: () -> Unit,
     onShare: () -> Unit,
 ) {
-    val backStack = remember { mutableStateListOf<Route>(Route.Settings) }
+    val backStack = rememberSaveable(saver = BackStackSaver) { mutableStateListOf<Route>(Route.Settings) }
     val settingsState by settings.uiState.collectAsStateWithLifecycle()
     val infoState by info.uiState.collectAsStateWithLifecycle()
     val searchState by search.uiState.collectAsStateWithLifecycle()

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -152,6 +153,25 @@ class ScreensTest {
     fun infoWithoutFlagHasNoRetiredNote() {
         rule.setContent { CupolaTheme { InfoScreen(InfoUiState(snapshot(retired = false))) } }
         rule.onAllNodesWithText("The ISS has been retired.", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun openScreenSurvivesStateRestore() {
+        val restore = StateRestorationTester(rule)
+        val repo = FakeSettingsRepository()
+        val cities = FakeCityRepository(listOf(VIENNA, GRAZ))
+        val clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC)
+        val settings = SettingsViewModel(repo, cities)
+        val info = InfoViewModel(repo, FakeTleRepository(), cities, clock, Dispatchers.Default)
+        val search = HomeCitySearchViewModel(repo, cities)
+        val credits = CreditsViewModel { Credits(emptyList(), emptyList()) }
+        restore.setContent {
+            CupolaNavHost(settings, info, search, credits, RecordingPreview(), AppInfo("1.2.3"), onSetWallpaper = {}, onShare = {})
+        }
+        rule.onNodeWithText("About and privacy").performScrollTo().performClick()
+        rule.onNodeWithText("Version 1.2.3").assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        rule.onNodeWithText("Version 1.2.3").assertIsDisplayed()
     }
 
     @Test
