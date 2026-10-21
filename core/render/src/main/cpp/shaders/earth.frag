@@ -28,10 +28,10 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 up;       // xyz camera up, w = month layer 0
     vec4 back;     // xyz camera back (view = -back), w = month layer 1
     vec4 sun;      // xyz sun direction, w = tan(fov / 2) on the long axis
-    vec4 moon;     // xyz Moon direction (ISS to Moon)
+    vec4 moon;     // xyz Moon direction (ISS to Moon), w = lunar irradiance relative to the Sun
     vec4 iRight;   // xyz camera right in the Blender interior frame, w = 1 when the interior is shown
     vec4 iUp;      // xyz camera up in the interior frame, w = Earth brightness for the Earthlight layer
-    vec4 iBack;    // xyz camera back in the interior frame
+    vec4 iBack;    // xyz camera back in the interior frame, w = linear exposure
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
@@ -69,11 +69,17 @@ const float SCALE_EARTH = 0.37785929441452026;
 const float SCALE_CABIN = 5.627439498901367;
 const float SCALE_EMISSIVE = 4.801466941833496;
 const float SCALE_AMBIENT = 0.3945154845714569;
-// Light mix, first values for the P4.7 review: cabin light at 5 % of its built strength (as the previews),
-// laptop and LEDs at built strength (decision 26), a dim uniform fill.
+// Static light mix of the P4.7 review (cabin light at 5 % of its built strength, laptop and LEDs at built
+// strength, decision 26, a dim fill), scaled by STATIC_SCALE so the night interior keeps its photo median at
+// the night exposure (Exposure.KEY / NIGHT_FLOOR); by day it is negligible next to the Earthlight.
 const float CABIN_GAIN = 0.05;
 const float EMISSIVE_GAIN = 1.0;
 const float AMBIENT_GAIN = 0.02;
+const float STATIC_SCALE = 2.0e-4;
+// Earthlight gains over the mean Earth radiance (Scene.earthLight): the Earthlight layer, and the uniform fill
+// (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the P4.7 day photo.
+const float EARTHLIGHT_GAIN = 18.0;
+const float EARTH_FILL_GAIN = 6.0;
 // Above this window alpha the interior hides the Earth completely.
 const float OPAQUE = 0.999;
 
@@ -91,6 +97,13 @@ float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 // Wraps a longitude difference into [-pi, pi], so derivatives stay small across 180 deg.
 float wrapDelta(float d) { return d - 2.0 * PI * round(d / (2.0 * PI)); }
+
+// Filmic tone map (ACES fit, Narkowicz 2015) of exposed linear radiance.
+vec3 toneMap(vec3 x) { return clamp(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+
+// The scaled Earth target stores exposed radiance x as x / (1 + x) (8-bit sRGB, unbounded range).
+vec3 encodeHdr(vec3 x) { return x / (1.0 + x); }
+vec3 decodeHdr(vec3 y) { y = min(y, vec3(0.999)); return y / (1.0 - y); }
 
 vec3 encodeSrgb(vec3 c) {
     c = clamp(c, 0.0, 1.0);
@@ -151,12 +164,12 @@ vec4 interior(vec3 c) {
     if (f == 5) return vec4(0.0, 0.0, 0.0, 1.0);  // -Z (towards the hatch) is never visible
     vec2 a = atlasUv(vec2(textureSize(interiorEarth, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
     vec4 earth = textureLod(interiorEarth, a, 0.0);
-    vec3 light = earth.rgb * (SCALE_EARTH * s.iUp.w);
-    light += textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN);
-    light += textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN);
     vec2 b = atlasUv(vec2(textureSize(interiorAmbient, 0)), uv, 512.0, SLOT_512[f], Y0_512[f]);
-    light += textureLod(interiorAmbient, b, 0.0).rgb * (SCALE_AMBIENT * AMBIENT_GAIN);
-    return vec4(light, earth.a);
+    vec3 ambient = textureLod(interiorAmbient, b, 0.0).rgb * SCALE_AMBIENT;
+    vec3 cabin = textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN);
+    cabin += textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN) + ambient * AMBIENT_GAIN;
+    vec3 earthlit = earth.rgb * (SCALE_EARTH * EARTHLIGHT_GAIN) + ambient * EARTH_FILL_GAIN;
+    return vec4(earthlit * s.iUp.w + cabin * STATIC_SCALE, earth.a);
 }
 
 // Unit-ellipsoid ray cast; c comes in precomputed in double. t = c / (-b + sqrt(disc)) avoids cancellation.
@@ -266,14 +279,15 @@ void main() {
                 return;
             }
         }
-        outColor = vec4(earthRadiance(p, stepPx), 1.0);  // sRGB attachment: stored encoded, sampled linear
+        outColor = vec4(encodeHdr(earthRadiance(p, stepPx) * s.iBack.w), 1.0);  // sRGB attachment
         return;
     }
     vec2 p = gl_FragCoord.xy;
     vec4 inside = interior(cameraRay(p));
     vec3 earth = vec3(0.0);
     if (inside.a <= OPAQUE) {
-        earth = MODE == 2 ? textureLod(earthImage, p / vec2(pc.extent), 0.0).rgb : earthRadiance(p, vec2(1.0));
+        earth = MODE == 2 ? decodeHdr(textureLod(earthImage, p / vec2(pc.extent), 0.0).rgb)
+                          : earthRadiance(p, vec2(1.0)) * s.iBack.w;
     }
-    outColor = vec4(encodeSrgb(earth * (1.0 - inside.a) + inside.rgb), 1.0);
+    outColor = vec4(encodeSrgb(toneMap(earth * (1.0 - inside.a) + inside.rgb * s.iBack.w)), 1.0);
 }

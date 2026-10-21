@@ -3,10 +3,13 @@ package com.baer.cupola.wallpaper
 import android.util.Log
 import android.view.Surface
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.core.render.scene.AutoExposure
+import com.baer.cupola.core.render.scene.Exposure
 import com.baer.cupola.core.render.scene.FrameScheduler
 import com.baer.cupola.core.render.scene.LookAroundController
 import com.baer.cupola.core.render.scene.PreviewClock
 import com.baer.cupola.core.render.scene.RestView
+import com.baer.cupola.core.render.scene.Scene
 import com.baer.cupola.core.render.scene.SceneInputs
 import com.baer.cupola.core.render.scene.toSceneState
 import com.baer.cupola.orbit.OrbitModel
@@ -27,6 +30,7 @@ internal data class EngineState(
 internal class RenderSession(private val orbit: OrbitModel) {
     private val look = LookAroundController(System::nanoTime)
     private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, orbit.meanMotionRevPerDay)
+    private val exposure = AutoExposure()
     private var orbitFailureLogged = false
     private var wasVisible = false
     private val rateVote = FrameRateVote<Surface> { surface, fps ->
@@ -96,16 +100,18 @@ internal class RenderSession(private val orbit: OrbitModel) {
      */
     private fun writeScene(inputs: FloatArray, yawDeg: Double, pitchDeg: Double) {
         val override = Gate.sceneOverride()
-        override?.let(SceneInputs::buildPose)?.let { return it.write(inputs) }
+        override?.let(SceneInputs::buildPose)?.let { return adapted(it).write(inputs) }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
         when (val state = orbit.stateAt(instant)) {
-            is OrbitState -> SceneInputs.build(state.toSceneState(), REST_VIEW, yawDeg, pitchDeg, override).write(inputs)
+            is OrbitState -> adapted(SceneInputs.build(state.toSceneState(), REST_VIEW, yawDeg, pitchDeg, override)).write(inputs)
             is OrbitStateResult.Failure -> if (!orbitFailureLogged) {
                 orbitFailureLogged = true
                 Log.w("Cupola", "orbit failed at $instant: ${state.error}")
             }
         }
     }
+
+    private fun adapted(scene: Scene) = scene.copy(exposure = exposure.update(Exposure.steady(scene), System.nanoTime()))
 
     fun applyMoving(scheduler: FrameScheduler) {
         scheduledMoving = moving

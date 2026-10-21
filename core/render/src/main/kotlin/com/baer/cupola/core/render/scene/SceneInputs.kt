@@ -19,9 +19,12 @@ import com.baer.cupola.orbit.time.TimeScales
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.atan2
 import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
@@ -172,6 +175,8 @@ data class Scene(
     val month: MonthBlend,
     /** Blender interior frame from camera; null (debug camera override) renders the Earth without the interior. */
     val blenderFromCamera: Mat3? = null,
+    /** Linear exposure; null uses the steady [Exposure.steady] value (offscreen renders and goldens). */
+    val exposure: Double? = null,
 ) {
     private val tanHalfLong = tan(Math.toRadians(fovLongDeg / 2))
 
@@ -215,20 +220,52 @@ data class Scene(
             put(inputs, FrameInputs.INTERIOR_BACK, interior.c2)
         }
         inputs[FrameInputs.EARTH_LIGHT] = earthLight().toFloat()
+        inputs[FrameInputs.MOON_LIGHT] = moonLight().toFloat()
+        inputs[FrameInputs.EXPOSURE] = (exposure ?: Exposure.steady(this)).toFloat()
     }
 
     /**
-     * Approximate radiance of the visible Earth for the Earthlight layer: mean albedo times the lit share of the disc,
-     * ((1 + cos z) / 2)^2 with z the Sun's zenith angle at the sub-ISS point (full at noon, zero at local midnight).
+     * Mean radiance of the visible Earth (shader units, albedo [EARTH_ALBEDO]): the Sun's cosine at the ground,
+     * averaged over the solid angle of the visible cap as seen from the camera (spherical Earth of radius a).
+     * Rings are uniform in ground angle (smooth as the terminator leaves the cap), weighted by sin(theta) dtheta/dgamma.
      */
     fun earthLight(): Double {
-        val cosZ = SceneGeometry.unit(cameraEcefKm) dot sunDirEcef
-        val lit = (1 + cosZ) / 2
-        return EARTH_ALBEDO * lit * lit
+        val a = SceneGeometry.A_KM
+        val r = cameraEcefKm.norm()
+        val up = SceneGeometry.unit(cameraEcefKm)
+        val e1 = SceneGeometry.unit(if (abs(up.z) < 0.9) up cross Vector3(0.0, 0.0, 1.0) else up cross Vector3(1.0, 0.0, 0.0))
+        val e2 = up cross e1
+        val capAngle = acos(a / r)
+        var sum = 0.0
+        var weight = 0.0
+        for (i in 0 until CAP_RINGS) {
+            val g = capAngle * (i + 0.5) / CAP_RINGS
+            val theta = atan2(a * sin(g), r - a * cos(g))
+            val w = sin(theta) * a * (r * cos(g) - a) / (r * r - 2 * r * a * cos(g) + a * a)
+            for (j in 0 until CAP_SECTORS) {
+                val phi = 2 * Math.PI * (j + 0.5) / CAP_SECTORS
+                val ground = up * cos(g) + (e1 * cos(phi) + e2 * sin(phi)) * sin(g)
+                sum += w * maxOf(0.0, ground dot sunDirEcef)
+            }
+            weight += w * CAP_SECTORS
+        }
+        return EARTH_ALBEDO * sum / weight
     }
 
-    private companion object {
+    /**
+     * Lunar irradiance relative to the Sun's: full Moon [MOON_FULL] times the visual phase law
+     * 10^(-0.4 (0.026 i + 4e-9 i^4)), i = phase angle in degrees (Sun at infinity, so cos i = -sun . moon).
+     */
+    fun moonLight(): Double {
+        val i = Math.toDegrees(acos((-(sunDirEcef dot moonDirEcef)).coerceIn(-1.0, 1.0)))
+        return MOON_FULL * 10.0.pow(-0.4 * (0.026 * i + 4e-9 * i * i * i * i))
+    }
+
+    companion object {
         const val EARTH_ALBEDO = 0.3
+        const val MOON_FULL = 2.5e-6
+        private const val CAP_RINGS = 16
+        private const val CAP_SECTORS = 32
     }
 
     private fun put(inputs: FloatArray, at: Int, v: Vector3) {

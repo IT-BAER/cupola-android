@@ -157,6 +157,43 @@ class EarthRenderTest {
         assertTrue("interior share $share", share in 0.2..0.95)
     }
 
+    /**
+     * Plan P3 acceptance "Night passes are never black": both rest views in the Earth's shadow at the default render
+     * scale; the frame's mean luma (0..255) lies in [NIGHT_BAND] (lower edge about half the P4.7 night photo's interior median of 33.4).
+     */
+    @Test
+    fun nightRestViewsStayInsideTheLuminanceBand() {
+        val night = nightInstant()
+        for (rest in RestView.entries) {
+            val img = render(restScene(night, rest), 0.6f)
+            save("night_band_${rest.name.lowercase()}", img)
+            val mean = meanLuma(img)
+            Log.i(TAG, "night $rest mean luma $mean")
+            assertTrue("night $rest mean luma $mean outside $NIGHT_BAND", mean in NIGHT_BAND)
+        }
+    }
+
+    /**
+     * Day interior brightness: median luma of the pixels where the interior covers the Earth (composite differs from
+     * the Earth-only render by > 2 levels), DIAGONAL rest view; not below the P3.1 level [DAY_INTERIOR_MEDIAN_MIN].
+     */
+    @Test
+    fun dayInteriorIsNotDarkerThanP31() {
+        for (rest in RestView.entries) {
+            val scene = restScene(DAY, rest)
+            val composite = render(scene, 0.6f)
+            val earth = render(scene.copy(blenderFromCamera = null), 0.6f)
+            val inside = ArrayList<Double>()
+            for (y in 0 until H step 4) for (x in 0 until W step 4) {
+                if (abs(luma(composite, x, y) - luma(earth, x, y)) > 2.0) inside += luma(composite, x, y)
+            }
+            inside.sort()
+            val median = inside[inside.size / 2]
+            Log.i(TAG, "day interior $rest median luma $median of ${inside.size} samples, frame mean ${meanLuma(composite)}")
+            if (rest == RestView.DIAGONAL) assertTrue("day interior median $median", median >= DAY_INTERIOR_MEDIAN_MIN)
+        }
+    }
+
     /** The scaled Earth pass composites to nearly the full-resolution frame (mean |luma difference| < 3 levels). */
     @Test
     fun renderScaleMatchesFullResolution() {
@@ -401,6 +438,15 @@ class EarthRenderTest {
     private fun luma(img: ByteArray, x: Int, y: Int) =
         at(x, y).let { 0.2126 * ch(img, it) + 0.7152 * ch(img, it + 1) + 0.0722 * ch(img, it + 2) }
 
+    private fun meanLuma(img: ByteArray): Double {
+        var sum = 0.0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            sum += luma(img, x, y); n++
+        }
+        return sum / n
+    }
+
     private fun channelMeans(img: ByteArray): Triple<Double, Double, Double> {
         var r = 0.0
         var g = 0.0
@@ -428,6 +474,8 @@ class EarthRenderTest {
         private const val ALT_KM = 420.0
         private const val GPU_SAMPLES = 30
         private const val GPU_WARMUP = 10
+        private val NIGHT_BAND = 18.0..64.0
+        private const val DAY_INTERIOR_MEDIAN_MIN = 27.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
         private val DAY = Instant.parse("2026-10-25T09:50:00Z")
