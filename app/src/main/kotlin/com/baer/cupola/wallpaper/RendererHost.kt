@@ -5,6 +5,7 @@ import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.platform.ThermalHeadroomSource
 import com.baer.cupola.core.render.scene.QualityGovernor
+import com.baer.cupola.feature.settings.SettingsRepository
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.tle.Tle
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -12,13 +13,20 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * One [NativeRenderer] (and so one render thread) per process, shared by every wallpaper engine
  * (home, lock, preview). Started by the first [acquire], quit after the last [release].
+ * Settings are observed for the life of the process; a change redraws every session once.
  */
 @Singleton
-class RendererHost @Inject constructor(@ApplicationContext context: Context) {
+class RendererHost @Inject constructor(@ApplicationContext context: Context, settingsRepository: SettingsRepository) {
     private val thermal = ThermalHeadroomSource.create(context)
     private val assets = context.assets
     private val orbit: OrbitModel by lazy { loadOrbit(context) }
@@ -39,16 +47,30 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context) {
 
     private var visibleEngines = 0
 
+    @Volatile internal var settings = RenderSettings()
+        private set
+
+    init {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            settingsRepository.settings.map { it.toRenderSettings() }.distinctUntilChanged().collect { value ->
+                settings = value
+                Gate.onSettings(value)
+                val r = renderer ?: return@collect
+                for (id in sessions.keys) r.updateScheduler(id) { requestFrame() }
+            }
+        }
+    }
+
     internal fun acquire(): NativeRenderer = shared.acquire()
 
     internal fun release() = shared.release()
 
     /** A session not bound to a surface (one-shot offscreen renders). */
-    internal fun detachedSession() = RenderSession(orbit)
+    internal fun detachedSession() = RenderSession(orbit, ::settings)
 
     internal fun openSession(): Pair<Int, RenderSession> {
         val id = nextId.incrementAndGet()
-        return id to RenderSession(orbit).also { sessions[id] = it; Gate.opened(id, it) }
+        return id to RenderSession(orbit, ::settings).also { sessions[id] = it; Gate.opened(id, it) }
     }
 
     internal fun closeSession(id: Int) {

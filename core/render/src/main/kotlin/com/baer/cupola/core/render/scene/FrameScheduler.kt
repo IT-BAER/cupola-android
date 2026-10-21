@@ -35,6 +35,11 @@ class FrameScheduler {
         visible = value
     }
 
+    /** One extra frame while visible (a settings change), also in battery saver; ignored while hidden. */
+    fun requestFrame() {
+        if (visible) renderOnce = true
+    }
+
     /** Call on every vsync; [vsyncNs] is the display refresh period. */
     fun shouldRender(nowNs: Long, vsyncNs: Long): Boolean {
         if (!visible) return false
