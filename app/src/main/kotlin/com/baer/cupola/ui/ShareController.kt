@@ -5,12 +5,16 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
+import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.baer.cupola.R
 import com.baer.cupola.feature.settings.ShareRenderer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.nio.ByteBuffer
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,6 +43,18 @@ class ShareController(
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             .apply { clipData = ClipData.newRawUri(null, uri) }
+    }
+
+    /** Starts the share chooser through [start]; any failure shows a short message instead of failing silently. */
+    suspend fun share(start: (Intent) -> Unit) {
+        try {
+            start(Intent.createChooser(createShareIntent(), null))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("Cupola", "share failed", e)
+            Toast.makeText(context, R.string.share_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     companion object {

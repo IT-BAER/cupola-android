@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -26,6 +27,15 @@ class UiIntentsTest {
         assertEquals(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER, intent.action)
         val component = intent.getParcelableExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, ComponentName::class.java)
         assertEquals(ComponentName(context.packageName, "com.baer.cupola.wallpaper.CupolaWallpaperService"), component)
+    }
+
+    @Test
+    fun failedShareShowsAMessageInsteadOfTheChooser() = runBlocking {
+        val controller = ShareController(context, ShareRenderer { _, _ -> error("render failed") }) { _, _ -> Uri.EMPTY }
+        var started: Intent? = null
+        controller.share { started = it }
+        assertEquals(null, started)
+        assertEquals("Could not create the image. Please try again.", ShadowToast.getTextOfLatestToast())
     }
 
     @Test

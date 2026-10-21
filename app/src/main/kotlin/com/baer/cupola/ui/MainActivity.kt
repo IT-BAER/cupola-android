@@ -1,9 +1,7 @@
 package com.baer.cupola.ui
 
 import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -52,12 +50,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shareImage() {
-        lifecycleScope.launch {
-            try {
-                startActivity(Intent.createChooser(share.createShareIntent(), null))
-            } catch (e: Exception) {
-                Log.w("Cupola", "share failed", e)
-            }
-        }
+        lifecycleScope.launch { share.share(::startActivity) }
     }
 }

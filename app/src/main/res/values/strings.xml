@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">Cupola</string>
     <string name="wallpaper_author">IT-BAER</string>
+    <string name="share_failed">Could not create the image. Please try again.</string>
     <string name="wallpaper_description">The Earth through the Cupola windows, on a realistic ISS orbit.</string>
 </resources>
