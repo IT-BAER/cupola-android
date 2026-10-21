@@ -74,6 +74,7 @@ fun CupolaNavHost(
                             onAbout = { backStack.add(Route.About) },
                             onSetWallpaper = onSetWallpaper,
                             onShare = onShare,
+                            onReset = settings::resetToDefaults,
                         ),
                     )
                 }

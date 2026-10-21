@@ -14,6 +14,7 @@
     <string name="effect_glare">Window glare</string>
     <string name="effect_reflections">Reflections</string>
     <string name="effect_dust">Dust</string>
+    <string name="reset_defaults">Reset to defaults</string>
     <string name="home_city">Home city</string>
     <string name="home_city_none">Not set</string>
     <string name="home_city_clear">Clear home city</string>

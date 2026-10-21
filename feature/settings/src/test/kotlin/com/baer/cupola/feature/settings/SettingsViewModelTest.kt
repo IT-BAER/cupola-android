@@ -52,6 +52,20 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun resetRestoresDefaultsAndKeepsTheHomeCity() = runTest {
+        val home = CityEntry(GRAZ).id
+        val changed = Settings(RestDirection.NADIR, 0.2f, false, false, false, false, false, home)
+        val vm = SettingsViewModel(FakeSettingsRepository(changed), FakeCityRepository(listOf(GRAZ)))
+        vm.uiState.test {
+            var s = awaitItem()
+            while (!s.loaded) s = awaitItem()
+            vm.resetToDefaults()
+            while (!s.settings.dust) s = awaitItem()
+            assertEquals(Settings(homeCityId = home), s.settings)
+        }
+    }
+
+    @Test
     fun homeCityIsResolvedFromItsId() = runTest {
         val cities = FakeCityRepository(listOf(VIENNA, GRAZ))
         val repo = FakeSettingsRepository(Settings(homeCityId = CityEntry(GRAZ).id))

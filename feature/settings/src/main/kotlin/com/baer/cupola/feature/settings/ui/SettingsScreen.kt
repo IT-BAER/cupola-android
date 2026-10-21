@@ -56,6 +56,7 @@ data class SettingsActions(
     val onAbout: () -> Unit,
     val onSetWallpaper: () -> Unit,
     val onShare: () -> Unit,
+    val onReset: () -> Unit,
 )
 
 object SettingsTags {
@@ -105,6 +106,7 @@ fun SettingsScreen(
             SwitchRow(R.string.effect_glare, s.windowGlare, actions.onWindowGlare)
             SwitchRow(R.string.effect_reflections, s.reflections, actions.onReflections)
             SwitchRow(R.string.effect_dust, s.dust, actions.onDust)
+            TextButton(onClick = actions.onReset) { Text(stringResource(R.string.reset_defaults)) }
 
             Section(R.string.home_city)
             Column(Modifier.fillMaxWidth().clickable(onClick = actions.onHomeCity).padding(vertical = 12.dp)) {

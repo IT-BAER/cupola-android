@@ -100,7 +100,7 @@ class ScreensTest {
         var bloom: Boolean? = null
         var rest: RestDirection? = null
         val noop = {}
-        val actions = SettingsActions({ rest = it }, {}, {}, { bloom = it }, {}, {}, {}, noop, noop, noop, noop, noop, noop)
+        val actions = SettingsActions({ rest = it }, {}, {}, { bloom = it }, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
         rule.setContent { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) }
         rule.onNodeWithText("Bloom").performScrollTo().performClick()
         rule.onNodeWithText("Straight down").performScrollTo().performClick()
@@ -120,6 +120,14 @@ class ScreensTest {
         host(repo = repo)
         rule.onNodeWithText("Dust").performScrollTo().performClick()
         rule.waitUntil(5_000) { !runBlocking { repo.settings.first() }.dust }
+    }
+
+    @Test
+    fun resetButtonRestoresDefaultsThroughTheViewModel() {
+        val repo = FakeSettingsRepository(Settings(bloom = false, dust = false))
+        host(repo = repo)
+        rule.onNodeWithText("Reset to defaults").performScrollTo().performClick()
+        rule.waitUntil(5_000) { runBlocking { repo.settings.first() } == Settings() }
     }
 
     @Test

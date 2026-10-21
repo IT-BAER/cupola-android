@@ -52,6 +52,18 @@ class SettingsViewModel @Inject constructor(
     fun setDust(value: Boolean) = launch { repository.setDust(value) }
     fun clearHomeCity() = launch { repository.setHomeCity(null) }
 
+    /** View and effect settings back to [Settings] defaults; the home city is user data and stays. */
+    fun resetToDefaults() = launch {
+        val d = Settings()
+        repository.setRestDirection(d.restDirection)
+        repository.setLookAroundStrength(d.lookAroundStrength)
+        repository.setIdleFloat(d.idleFloat)
+        repository.setBloom(d.bloom)
+        repository.setWindowGlare(d.windowGlare)
+        repository.setReflections(d.reflections)
+        repository.setDust(d.dust)
+    }
+
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }
