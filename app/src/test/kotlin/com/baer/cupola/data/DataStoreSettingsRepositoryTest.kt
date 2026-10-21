@@ -30,6 +30,15 @@ class DataStoreSettingsRepositoryTest {
     )
 
     @Test
+    fun corruptFileResetsToDefaultsAndStaysWritable() = runBlocking {
+        val file = File(dir, "settings.preferences_pb").apply { writeBytes(byteArrayOf(0x0a, 0x7f, 0x01, 0x02)) }
+        val r = DataStoreSettingsRepository(settingsDataStore(scope) { file })
+        assertEquals(Settings(), r.settings.first())
+        r.setDust(false)
+        assertEquals(false, r.settings.first().dust)
+    }
+
+    @Test
     fun emptyStoreYieldsDefaults() = runBlocking {
         assertEquals(Settings(), repo().settings.first())
     }

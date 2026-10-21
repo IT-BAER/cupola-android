@@ -2,8 +2,10 @@ package com.baer.cupola.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.baer.cupola.feature.settings.CityRepository
 import com.baer.cupola.feature.settings.SettingsRepository
@@ -14,6 +16,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.io.File
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,9 +29,7 @@ object DataModule {
     @Provides
     @Singleton
     fun settingsDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
-        PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) {
-            context.preferencesDataStoreFile("settings")
-        }
+        settingsDataStore(CoroutineScope(SupervisorJob() + Dispatchers.IO)) { context.preferencesDataStoreFile("settings") }
 
     @Provides
     @Singleton
@@ -43,3 +44,11 @@ object DataModule {
     @Singleton
     fun cityRepository(): CityRepository = GeoIndexCityRepository(lazy { GeoIndex.load() })
 }
+
+/** A corrupt settings file is replaced by defaults instead of failing every read. */
+internal fun settingsDataStore(scope: CoroutineScope, file: () -> File): DataStore<Preferences> =
+    PreferenceDataStoreFactory.create(
+        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+        scope = scope,
+        produceFile = file,
+    )
