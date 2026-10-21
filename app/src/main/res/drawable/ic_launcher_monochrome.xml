@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer: the window frame lines of ic_launcher_foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z M69,54 L61.5,66.99 L46.5,66.99 L39,54 L46.5,41.01 L61.5,41.01 Z M69,54 L84,54 M61.5,66.99 L69,79.98 M46.5,66.99 L39,79.98 M39,54 L24,54 M46.5,41.01 L39,28.02 M61.5,41.01 L69,28.02 M43,54 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineJoin="round" />
+</vector>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher foreground, 108 dp canvas, content inside the 66 dp safe circle: the Cupola seen from inside
+     (round top window, six trapezoid windows) with the Earth limb behind. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group>
+        <clip-path android:pathData="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z" />
+        <path
+            android:fillColor="#FF02040A"
+            android:pathData="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z" />
+        <path android:pathData="M-32,122 a72,72 0 1,0 144,0 a72,72 0 1,0 -144,0 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:endX="40"
+                    android:endY="96"
+                    android:startX="40"
+                    android:startY="50"
+                    android:type="linear">
+                    <item android:color="#FF3F86D8" android:offset="0" />
+                    <item android:color="#FF184A93" android:offset="0.45" />
+                    <item android:color="#FF0A2350" android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:fillAlpha="0.55"
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M30,62 C40,57 52,58 60,61 C52,63 41,64 30,62 Z M52,70 C62,66 72,66 80,69 C71,71 61,72 52,70 Z" />
+        <path
+            android:pathData="M-32.8,122 a72.8,72.8 0 1,0 145.6,0 a72.8,72.8 0 1,0 -145.6,0 Z"
+            android:strokeWidth="1.6"
+            android:strokeAlpha="0.85"
+            android:strokeColor="#FF9FD6FF" />
+    </group>
+    <path
+        android:fillColor="#FF2B313B"
+        android:fillType="evenOdd"
+        android:pathData="M69,54 L61.5,66.99 L46.5,66.99 L39,54 L46.5,41.01 L61.5,41.01 Z M43,54 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z" />
+    <path
+        android:pathData="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z M69,54 L61.5,66.99 L46.5,66.99 L39,54 L46.5,41.01 L61.5,41.01 Z M69,54 L84,54 M61.5,66.99 L69,79.98 M46.5,66.99 L39,79.98 M39,54 L24,54 M46.5,41.01 L39,28.02 M61.5,41.01 L69,28.02 M43,54 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z"
+        android:strokeWidth="2.4"
+        android:strokeColor="#FFC9CED6"
+        android:strokeLineJoin="round" />
+</vector>

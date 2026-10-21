@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="18 18 72 72">
+  <!-- Play listing icon: same geometry as app/src/main/res/drawable/ic_launcher_foreground.xml, cropped to 72 units. -->
+  <defs>
+    <clipPath id="win"><path d="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z"/></clipPath>
+    <linearGradient id="earth" x1="0" y1="50" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3F86D8"/><stop offset="0.45" stop-color="#184A93"/><stop offset="1" stop-color="#0A2350"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="108" height="108" fill="#0A1226"/>
+  <g clip-path="url(#win)">
+    <path d="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z" fill="#02040A"/>
+    <circle cx="40" cy="122" r="72" fill="url(#earth)"/>
+    <path d="M30,62 C40,57 52,58 60,61 C52,63 41,64 30,62 Z M52,70 C62,66 72,66 80,69 C71,71 61,72 52,70 Z" fill="#FFFFFF" fill-opacity="0.55"/>
+    <circle cx="40" cy="122" r="72.8" fill="none" stroke="#9FD6FF" stroke-opacity="0.85" stroke-width="1.6"/>
+  </g>
+  <path d="M69,54 L61.5,66.99 L46.5,66.99 L39,54 L46.5,41.01 L61.5,41.01 Z M43,54 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z" fill="#2B313B" fill-rule="evenodd"/>
+  <path d="M84,54 L69,79.98 L39,79.98 L24,54 L39,28.02 L69,28.02 Z M69,54 L61.5,66.99 L46.5,66.99 L39,54 L46.5,41.01 L61.5,41.01 Z M69,54 L84,54 M61.5,66.99 L69,79.98 M46.5,66.99 L39,79.98 M39,54 L24,54 M46.5,41.01 L39,28.02 M61.5,41.01 L69,28.02 M43,54 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0 Z" fill="none" stroke="#C9CED6" stroke-width="2.4" stroke-linejoin="round"/>
+</svg>
