@@ -99,6 +99,11 @@ internal object Gate {
         Log.i(TAG, "gate command action=$action x=$x y=$y z=$z extras=${extras?.keySet()?.sorted()}")
     }
 
+    /** Every settings snapshot the host applies (the P6 "within 1 s" check reads its logcat time). */
+    fun onSettings(settings: RenderSettings) {
+        Log.i(TAG, "gate settings $settings")
+    }
+
     private fun log(id: Int, now: Long) {
         val state = sessions[id]?.engineState ?: EngineState()
         val stat = stats.getOrPut(id) { GateStats() }

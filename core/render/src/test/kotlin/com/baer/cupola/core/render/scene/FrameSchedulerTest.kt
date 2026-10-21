@@ -54,6 +54,17 @@ class FrameSchedulerTest {
         assertEquals(listOf(0), renderedTicks(s, vsync60, 240, 10_000_000_000L))
     }
 
+    @Test fun requestedFrameRendersOnceInBatterySaverAndNotWhileHidden() {
+        val s = FrameScheduler()
+        s.batterySaver = true
+        s.requestFrame()
+        assertTrue(renderedTicks(s, vsync60, 10).isEmpty())
+        s.setVisible(true)
+        renderedTicks(s, vsync60, 10)
+        s.requestFrame()
+        assertEquals(listOf(0), renderedTicks(s, vsync60, 240, 10_000_000_000L))
+    }
+
     @Test fun hiddenThenBatterySaverDoesNotRenderWhileHidden() {
         val s = FrameScheduler()
         s.batterySaver = true

@@ -20,4 +20,6 @@ internal object Gate {
     fun onFrame(id: Int, gpuNanos: Long) = Unit
 
     fun onCommand(action: String, x: Int, y: Int, z: Int, extras: Bundle?) = Unit
+
+    fun onSettings(settings: RenderSettings) = Unit
 }

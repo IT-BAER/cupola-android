@@ -26,8 +26,11 @@ internal data class EngineState(
     val batterySaver: Boolean = false,
 )
 
-/** Per-engine scene state. Everything except [surface] is touched on the render thread only. */
-internal class RenderSession(private val orbit: OrbitModel) {
+/**
+ * Per-engine scene state. Everything except [surface] is touched on the render thread only. [settings] returns the
+ * latest snapshot and is read once per frame.
+ */
+internal class RenderSession(private val orbit: OrbitModel, private val settings: () -> RenderSettings = { RenderSettings() }) {
     private val look = LookAroundController(System::nanoTime)
     private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, orbit.meanMotionRevPerDay)
     private val exposure = AutoExposure()
@@ -83,13 +86,16 @@ internal class RenderSession(private val orbit: OrbitModel) {
     /** Frame inputs in the [FrameInputs] layout; unused slots stay zero. */
     fun nextFrameInputs(): FloatArray {
         feedTrace()
+        val current = settings()
+        look.strength = current.lookStrength
+        look.idleFloat = current.idleFloat
         val view = look.update()
         moving = view.isMoving
         val inputs = FloatArray(FrameInputs.COUNT)
         inputs[FrameInputs.TIME_SECONDS] = (clock.nowUtcMillis() % MILLIS_PER_DAY / 1000.0).toFloat()
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
-        writeScene(inputs, view.yawDeg, view.pitchDeg)
+        writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg)
         Gate.applyLoad(inputs)
         return inputs
     }
@@ -98,12 +104,12 @@ internal class RenderSession(private val orbit: OrbitModel) {
      * Real UTC (preview: time-lapse) or the debug override; an override with instant and position skips SGP4.
      * An SGP4 failure leaves the test pattern.
      */
-    private fun writeScene(inputs: FloatArray, yawDeg: Double, pitchDeg: Double) {
+    private fun writeScene(inputs: FloatArray, rest: RestView, yawDeg: Double, pitchDeg: Double) {
         val override = Gate.sceneOverride()
         override?.let(SceneInputs::buildPose)?.let { return adapted(it).write(inputs) }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
         when (val state = orbit.stateAt(instant)) {
-            is OrbitState -> adapted(SceneInputs.build(state.toSceneState(), REST_VIEW, yawDeg, pitchDeg, override)).write(inputs)
+            is OrbitState -> adapted(SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override)).write(inputs)
             is OrbitStateResult.Failure -> if (!orbitFailureLogged) {
                 orbitFailureLogged = true
                 Log.w("Cupola", "orbit failed at $instant: ${state.error}")
@@ -122,8 +128,6 @@ internal class RenderSession(private val orbit: OrbitModel) {
     private fun syncRate(scheduler: FrameScheduler) = rateVote.sync(scheduler.voteFps)
 
     private companion object {
-        // The rest-view setting arrives with P6; Cam_Rest until then.
-        val REST_VIEW = RestView.DIAGONAL
         const val MILLIS_PER_DAY = 86_400_000L
     }
 }
