@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_title">Cupola</string>
     <string name="preview_description">Live preview of the wallpaper</string>
     <string name="set_wallpaper">Set wallpaper</string>
     <string name="share">Share image</string>
@@ -47,10 +46,7 @@
     <string name="about_privacy">No data collected, no network access.</string>
     <string name="about_nasa">Based on NASA 3D model and imagery; not endorsed by NASA.</string>
     <string name="about_credits">Credits</string>
-    <string name="nav_back">Back</string>
     <string name="nav_credits">Credits</string>
     <string name="nav_about">About and privacy</string>
     <string name="credits_orbit_data">Orbit data: US Space Force via CelesTrak</string>
-    <string name="credits_nasa">Based on NASA 3D model and imagery; not endorsed by NASA</string>
-    <string name="credits_licences">Licences</string>
 </resources>
