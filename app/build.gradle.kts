@@ -2,6 +2,7 @@ import com.android.build.api.artifact.SingleArtifact
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import java.util.Properties
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
@@ -28,9 +29,37 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Upload key (plan P8.1): CI passes the decoded keystore by environment, a local build reads local.properties.
+    // Without either the release build stays unsigned (CI build job).
+    signingConfigs {
+        create("release") {
+            val localProperties = Properties().apply {
+                val file = rootProject.file("local.properties")
+                if (file.exists()) file.inputStream().use { load(it) }
+            }
+            val envKeystore = System.getenv("RELEASE_KEYSTORE_FILE")
+            val localKeystore = localProperties.getProperty("RELEASE_STORE_FILE", "")
+            if (envKeystore != null && file(envKeystore).exists()) {
+                storeFile = file(envKeystore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            } else if (localKeystore.isNotEmpty()) {
+                storeFile = file(localKeystore)
+                storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD", "")
+                keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS", "")
+                keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD", "")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+        }
+        release {
+            val upload = signingConfigs.getByName("release")
+            if (upload.storeFile?.exists() == true) signingConfig = upload
         }
     }
 
