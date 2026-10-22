@@ -30,6 +30,7 @@ set(CASES
     fixture_astc_8x8_unorm_array3
     fixture_etc2_rgb_srgb_2d
     fixture_etc2_rgba_unorm_2d
+    etc2_rgba_srgb
     negative_truncated
     negative_header
     negative_levels

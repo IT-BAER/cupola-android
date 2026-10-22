@@ -18,8 +18,8 @@ struct FormatSpec {
 
 constexpr FormatSpec kFormats[] = {
     {Format::kEtc2R8G8B8Unorm, 4, 4, 8},  {Format::kEtc2R8G8B8Srgb, 4, 4, 8}, {Format::kEtc2R8G8B8A8Unorm, 4, 4, 16},
-    {Format::kAstc6x6Unorm, 6, 6, 16},    {Format::kAstc6x6Srgb, 6, 6, 16},  {Format::kAstc8x8Unorm, 8, 8, 16},
-    {Format::kAstc8x8Srgb, 8, 8, 16},
+    {Format::kEtc2R8G8B8A8Srgb, 4, 4, 16}, {Format::kAstc6x6Unorm, 6, 6, 16}, {Format::kAstc6x6Srgb, 6, 6, 16},
+    {Format::kAstc8x8Unorm, 8, 8, 16},    {Format::kAstc8x8Srgb, 8, 8, 16},
 };
 
 // KTX2 is little-endian; byte-wise reads are independent of host endianness and alignment.

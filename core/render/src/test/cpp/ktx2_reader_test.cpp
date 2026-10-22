@@ -272,6 +272,10 @@ constexpr RealTexture kRealTextures[] = {
     {"city_lights", Format::kAstc8x8Srgb, 8192, 3277, 14, Format::kEtc2R8G8B8Srgb, 4096, 1638, 13, 0},
     {"terrain_normal", Format::kAstc6x6Unorm, 4096, 1638, 13, Format::kEtc2R8G8B8A8Unorm, 2048, 819, 12, 0},
     {"stars", Format::kAstc6x6Srgb, 4096, 2048, 13, Format::kEtc2R8G8B8Srgb, 2048, 1024, 12, 0},
+    {"interior_earth", Format::kAstc6x6Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8A8Srgb, 1024, 4032, 1, 0},
+    {"interior_cabin", Format::kAstc8x8Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8Srgb, 1024, 4032, 1, 0},
+    {"interior_emissive", Format::kAstc8x8Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8Srgb, 1024, 4032, 1, 0},
+    {"interior_ambient", Format::kAstc8x8Srgb, 512, 2016, 1, Format::kEtc2R8G8B8Srgb, 256, 1008, 1, 0},
 };
 
 // Reads only header + level index, like the loader does.
@@ -342,6 +346,21 @@ const std::vector<Case>& cases() {
         {"fixture_etc2_rgba_unorm_2d",
          [] {
              checkFixture("etc2_rgba_unorm_2d.ktx2", Format::kEtc2R8G8B8A8Unorm, 4, 4, 16, 1, false, false);
+             return 0;
+         }},
+        {"etc2_rgba_srgb",
+         [] {
+             // Same block layout as the UNORM fixture; only vkFormat differs (interior_earth ETC2 slice).
+             std::vector<uint8_t> bytes = fixture("etc2_rgba_unorm_2d.ktx2");
+             put32(bytes, 12, static_cast<uint32_t>(Format::kEtc2R8G8B8A8Srgb));
+             Info info;
+             Error error = parseAll(bytes, &info);
+             if (error != Error::kNone) std::printf("etc2_rgba_srgb: %s\n", errorName(error));
+             CHECK_EQ(error, Error::kNone);
+             CHECK_EQ(info.format, Format::kEtc2R8G8B8A8Srgb);
+             CHECK_EQ(info.blockWidth, 4);
+             CHECK_EQ(info.blockHeight, 4);
+             CHECK_EQ(info.blockBytes, 16);
              return 0;
          }},
         {"negative_truncated", negativeTruncated},

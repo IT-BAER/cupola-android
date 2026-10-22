@@ -10,6 +10,7 @@ namespace {
 static_assert(static_cast<uint32_t>(ktx2::Format::kEtc2R8G8B8Unorm) == VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kEtc2R8G8B8Srgb) == VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kEtc2R8G8B8A8Unorm) == VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK);
+static_assert(static_cast<uint32_t>(ktx2::Format::kEtc2R8G8B8A8Srgb) == VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc6x6Unorm) == VK_FORMAT_ASTC_6x6_UNORM_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc6x6Srgb) == VK_FORMAT_ASTC_6x6_SRGB_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc8x8Unorm) == VK_FORMAT_ASTC_8x8_UNORM_BLOCK);

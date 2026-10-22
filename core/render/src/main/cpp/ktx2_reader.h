@@ -12,6 +12,7 @@ enum class Format : uint32_t {
     kEtc2R8G8B8Unorm = 147,
     kEtc2R8G8B8Srgb = 148,
     kEtc2R8G8B8A8Unorm = 151,
+    kEtc2R8G8B8A8Srgb = 152,
     kAstc6x6Unorm = 165,
     kAstc6x6Srgb = 166,
     kAstc8x8Unorm = 171,
