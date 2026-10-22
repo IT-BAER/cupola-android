@@ -2,7 +2,10 @@ package com.baer.cupola.feature.settings.ui
 
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,8 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -93,11 +98,20 @@ fun SettingsScreen(
 
             Section(R.string.look_around_strength)
             val lookAroundLabel = stringResource(R.string.look_around_strength)
+            val sliderInteraction = remember { MutableInteractionSource() }
+            // The M3 Slider draws no focus state; match the 10 % focus layer of the rows.
+            val sliderFocus = if (sliderInteraction.collectIsFocusedAsState().value) {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+            } else {
+                Color.Transparent
+            }
             Slider(
                 value = s.lookAroundStrength,
                 onValueChange = actions.onLookAroundStrength,
                 valueRange = 0f..1f,
-                modifier = Modifier.testTag(SettingsTags.LOOK_AROUND).semantics { contentDescription = lookAroundLabel },
+                interactionSource = sliderInteraction,
+                modifier = Modifier.testTag(SettingsTags.LOOK_AROUND).background(sliderFocus)
+                    .semantics { contentDescription = lookAroundLabel },
             )
             SwitchRow(R.string.idle_float, s.idleFloat, actions.onIdleFloat)
 

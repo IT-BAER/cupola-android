@@ -1,7 +1,14 @@
 package com.baer.cupola.feature.settings.ui
 
 import android.view.Surface
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.view.View
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
@@ -47,12 +54,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 private class RecordingPreview : PreviewRenderer {
     val events = mutableListOf<String>()
@@ -112,6 +121,33 @@ class ScreensTest {
     fun lookAroundSliderHasAnAccessibleName() {
         host()
         rule.onNodeWithTag(SettingsTags.LOOK_AROUND).assert(hasContentDescription("Look-around strength"))
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun lookAroundSliderShowsKeyboardFocus() {
+        val noop = {}
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        lateinit var root: View
+        rule.setContent {
+            root = LocalView.current
+            SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions)
+        }
+        val slider = rule.onNodeWithTag(SettingsTags.LOOK_AROUND).performScrollTo()
+        // captureToImage needs JDK 21 inside Robolectric's ShadowUiAutomation; drawing the root view does not.
+        fun sliderPixels(): IntArray {
+            val b = slider.fetchSemanticsNode().boundsInRoot
+            val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+            root.draw(Canvas(bitmap))
+            val w = b.width.toInt()
+            val h = b.height.toInt()
+            return IntArray(w * h).also { bitmap.getPixels(it, 0, w, b.left.toInt(), b.top.toInt(), w, h) }
+        }
+        val unfocused = sliderPixels()
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress)).requestFocus()
+        rule.waitForIdle()
+        val focused = sliderPixels()
+        assertFalse("focused slider looks the same as unfocused", unfocused.contentEquals(focused))
     }
 
     @Test
