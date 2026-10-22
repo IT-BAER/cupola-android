@@ -60,6 +60,10 @@ android {
         release {
             val upload = signingConfigs.getByName("release")
             if (upload.storeFile?.exists() == true) signingConfig = upload
+            // JNI is static natives on NativeBridge only; the default rules keep those names.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 
