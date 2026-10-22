@@ -28,7 +28,7 @@ class SettingsViewModelTest {
             assertFalse(s.loaded)
             s = awaitItem()
             assertEquals(Settings(), s.settings)
-            assertEquals(RestDirection.DIAGONAL, s.settings.restDirection)
+            assertEquals(RestDirection.NADIR, s.settings.restDirection)
             assertEquals(1f, s.settings.lookAroundStrength)
             assertNull(s.homeCity)
         }

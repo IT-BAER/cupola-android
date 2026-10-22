@@ -6,7 +6,7 @@ enum class RestDirection { DIAGONAL, NADIR }
 
 /** User settings (design decision 19). [homeCityId] is a [CityEntry.id], null when no home city is set. */
 data class Settings(
-    val restDirection: RestDirection = RestDirection.DIAGONAL,
+    val restDirection: RestDirection = RestDirection.NADIR,
     /** 0 = no look-around, 1 = full. */
     val lookAroundStrength: Float = 1f,
     val idleFloat: Boolean = true,

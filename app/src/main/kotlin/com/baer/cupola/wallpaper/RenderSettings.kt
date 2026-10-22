@@ -6,7 +6,7 @@ import com.baer.cupola.feature.settings.Settings
 
 /** The part of [Settings] the render thread reads every frame; [effects] uses the bits below. */
 data class RenderSettings(
-    val rest: RestView = RestView.DIAGONAL,
+    val rest: RestView = RestView.NADIR,
     val lookStrength: Double = 1.0,
     val idleFloat: Boolean = true,
     val effects: Int = BLOOM or WINDOW_GLARE or REFLECTIONS or DUST,
