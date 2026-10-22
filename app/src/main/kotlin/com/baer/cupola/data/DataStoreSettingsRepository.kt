@@ -1,5 +1,6 @@
 package com.baer.cupola.data
 
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -9,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.feature.settings.SettingsRepository
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -38,8 +40,13 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
     override suspend fun setDust(value: Boolean) = put { it[DUST] = value }
     override suspend fun setHomeCity(id: String?) = put { if (id == null) it.remove(HOME_CITY) else it[HOME_CITY] = id }
 
+    /** A failed write (storage full, I/O error) keeps the stored value; callers run in viewModelScope without a handler. */
     private suspend fun put(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
-        store.edit { block(it) }
+        try {
+            store.edit { block(it) }
+        } catch (e: IOException) {
+            Log.w("Cupola", "settings write failed", e)
+        }
     }
 
     private companion object {

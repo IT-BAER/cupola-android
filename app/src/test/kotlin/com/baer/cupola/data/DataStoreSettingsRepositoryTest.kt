@@ -15,7 +15,12 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class DataStoreSettingsRepositoryTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val dir = File.createTempFile("cupola-ds", "").apply { delete(); mkdirs() }
@@ -60,6 +65,16 @@ class DataStoreSettingsRepositoryTest {
         assertEquals(expected, DataStoreSettingsRepository(
             PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) { File(dir, "settings.preferences_pb") },
         ).settings.first())
+    }
+
+    @Test
+    fun failedWriteKeepsTheOldValueInsteadOfThrowing() = runBlocking {
+        val r = repo()
+        r.setDust(false)
+        // A directory at DataStore's scratch path makes the next write fail with an IOException.
+        File(dir, "settings.preferences_pb.tmp").mkdir()
+        r.setDust(true)
+        assertEquals(false, r.settings.first().dust)
     }
 
     @Test
