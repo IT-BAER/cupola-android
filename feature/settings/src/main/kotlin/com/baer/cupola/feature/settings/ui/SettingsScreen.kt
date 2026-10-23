@@ -129,8 +129,13 @@ fun SettingsScreen(
             TextButton(onClick = actions.onReset) { Text(stringResource(R.string.reset_defaults)) }
 
             Section(R.string.home_city)
-            Column(Modifier.fillMaxWidth().clickable(onClick = actions.onHomeCity).padding(vertical = 12.dp)) {
-                Text(state.homeCity?.city?.name ?: stringResource(R.string.home_city_none))
+            val homeCityLabel = stringResource(R.string.home_city)
+            val homeCity = state.homeCity?.city?.name ?: stringResource(R.string.home_city_none)
+            Column(
+                Modifier.fillMaxWidth().clickable(onClick = actions.onHomeCity)
+                    .semantics { contentDescription = "$homeCityLabel, $homeCity" }.padding(vertical = 12.dp),
+            ) {
+                Text(homeCity)
             }
 
             HorizontalDivider()

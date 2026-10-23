@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import com.baer.cupola.feature.settings.HomeCitySearchUiState
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.requestFocus
@@ -234,6 +236,17 @@ class ScreensTest {
         rule.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Vi")
         rule.waitUntil(10_000) { rule.onAllNodesWithText("Vienna").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Vienna").assertIsDisplayed()
+    }
+
+    @Test
+    fun homeCityRowNamesItselfWithItsValue() {
+        host()
+        val spoken = SemanticsMatcher("speaks Home city and its value") { node ->
+            val words = node.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() } +
+                node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text }
+            words.any { "Home city" in it } && words.any { "Not set" in it }
+        }
+        rule.onNode(hasClickAction() and spoken).performScrollTo().assertIsDisplayed()
     }
 
     @Test
