@@ -9,8 +9,10 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
@@ -78,7 +80,11 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val s = state.settings
-    Column(modifier.safeDrawingPadding().verticalScroll(rememberScrollState())) {
+    // Opaque, so the previous screen does not show through during predictive back.
+    Column(
+        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding().verticalScroll(rememberScrollState()),
+    ) {
         PreviewSurface(preview, Modifier.fillMaxWidth().height(320.dp))
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -166,7 +172,7 @@ private fun SwitchRow(label: Int, checked: Boolean, onChange: (Boolean) -> Unit)
 @Composable
 private fun RadioRow(label: Int, selected: Boolean, onSelect: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onSelect).padding(vertical = 4.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null)

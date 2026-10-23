@@ -1,5 +1,6 @@
 package com.baer.cupola.feature.settings.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,7 +29,8 @@ import com.baer.cupola.feature.settings.R
 
 @Composable
 private fun ScreenColumn(title: Int, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Column(modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
+    // Opaque, so the previous screen does not show through during predictive back.
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).then(modifier).safeDrawingPadding().padding(horizontal = 16.dp)) {
         Text(stringResource(title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 16.dp))
         content()
     }

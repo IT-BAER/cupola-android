@@ -4,12 +4,26 @@ import android.view.Surface
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import com.baer.cupola.feature.settings.HomeCitySearchUiState
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
@@ -115,6 +129,46 @@ class ScreensTest {
         rule.onNodeWithText("Straight down").performScrollTo().performClick()
         assertEquals(false, bloom)
         assertEquals(RestDirection.NADIR, rest)
+    }
+
+    @Test
+    fun restRowsMeetTheTouchTargetMinimum() {
+        val noop = {}
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        rule.setContent { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) }
+        rule.onNodeWithText("Diagonal").performScrollTo().assertHeightIsAtLeast(48.dp)
+        rule.onNodeWithText("Straight down").performScrollTo().assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun everyScreenCoversWhatIsBehindIt() {
+        val noop = {}
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+            "Settings" to { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) },
+            "Info" to { InfoScreen(InfoUiState(snapshot(retired = false))) },
+            "HomeCity" to { HomeCityScreen(HomeCitySearchUiState(), {}, {}, {}) },
+            "Credits" to { CreditsScreen(null) },
+            "About" to { AboutScreen(AppInfo("1.2.3"), onCredits = {}) },
+        )
+        var screen by mutableStateOf(screens.first().second)
+        lateinit var root: View
+        // Predictive back draws the outgoing screen over the previous one; red stands in for the previous one.
+        rule.setContent {
+            root = LocalView.current
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize().background(Color.Red)) { screen() }
+            }
+        }
+        for ((name, content) in screens) {
+            screen = content
+            rule.waitForIdle()
+            val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+            root.draw(Canvas(bitmap))
+            val pixels = IntArray(root.width * root.height).also { bitmap.getPixels(it, 0, root.width, 0, 0, root.width, root.height) }
+            assertEquals("$name shows the screen behind it", 0, pixels.count { it == android.graphics.Color.RED })
+        }
     }
 
     @Test
