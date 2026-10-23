@@ -117,6 +117,20 @@ class QualityGovernorTest {
         assertEquals(3, g.step)
     }
 
+    @Test fun reportsEveryStepChange() {
+        val changes = mutableListOf<Pair<Int, Int>>()
+        val reported = QualityGovernor(steps = 5, defaultStep = 3, clockNs = { now }) { from, to -> changes += from to to }
+        reported.onThermalHeadroom(0.9f)
+        now += 16_000_000L
+        reported.onFrame(5.0)
+        reported.onThermalHeadroom(0.3f)
+        repeat(1200) {
+            now += 10_000_000L
+            reported.onFrame(5.0)
+        }
+        assertEquals(listOf(3 to 2, 2 to 3), changes)
+    }
+
     @Test fun neverAboveDefaultStep() {
         frames(5000, 1.0, dtMs = 10.0)
         assertEquals(3, g.step)

@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.scene.SceneOverride
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -102,6 +103,12 @@ internal object Gate {
     /** Every settings snapshot the host applies (the P6 "within 1 s" check reads its logcat time). */
     fun onSettings(settings: RenderSettings) {
         Log.i(TAG, "gate settings $settings")
+    }
+
+    /** Render thread, on every quality step change (W12). */
+    fun onGovernorStep(from: Int, to: Int, renderScale: Float, gpuNanos: Long, headroom: Float) {
+        Log.i(TAG, String.format(Locale.ROOT, "gate governor step=%d->%d render_scale=%.2f gpu_ms=%.2f headroom=%.2f",
+            from, to, renderScale, if (gpuNanos >= 0) gpuNanos / 1e6 else -1.0, headroom))
     }
 
     private fun log(id: Int, now: Long) {

@@ -11,6 +11,7 @@ class QualityGovernor(
     private val defaultStep: Int,
     private val budgetMs: Double = 12.0,
     private val clockNs: () -> Long,
+    private val onChange: (from: Int, to: Int) -> Unit = { _, _ -> },
 ) {
     init {
         require(defaultStep in 0 until steps) { "defaultStep must be within 0 until steps" }
@@ -51,7 +52,9 @@ class QualityGovernor(
     }
 
     private fun change(to: Int, now: Long) {
+        val from = step
         step = to
+        onChange(from, to)
         lastChangeNs = now
         calmSinceNs = NONE
         count = 0

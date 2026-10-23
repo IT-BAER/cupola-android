@@ -22,4 +22,6 @@ internal object Gate {
     fun onCommand(action: String, x: Int, y: Int, z: Int, extras: Bundle?) = Unit
 
     fun onSettings(settings: RenderSettings) = Unit
+
+    fun onGovernorStep(from: Int, to: Int, renderScale: Float, gpuNanos: Long, headroom: Float) = Unit
 }
