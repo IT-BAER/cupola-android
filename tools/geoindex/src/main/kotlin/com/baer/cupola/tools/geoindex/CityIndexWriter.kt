@@ -10,7 +10,7 @@ import kotlin.math.roundToInt
 
 /** Writes cities.bin from a GeoNames cities15000 dump; layout is read by `GeoIndex.load()`. */
 object CityIndexWriter {
-    private const val MAGIC = 0x47435431 // "GCT1"
+    private const val MAGIC = 0x47435432 // "GCT2"
     private const val FIXED_SCALE = 1e4
 
     /** Historical, abandoned or destroyed places are dropped everywhere. */
@@ -26,6 +26,7 @@ object CityIndexWriter {
         val feature: String,
         val cc: String,
         val pop: Int,
+        val timeZone: String,
     )
 
     /** Returns (file bytes, city count, alias count). */
@@ -35,7 +36,7 @@ object CityIndexWriter {
             zf.getInputStream(entry).bufferedReader(Charsets.UTF_8).useLines { lines ->
                 lines.filter { it.isNotBlank() }.map { line ->
                     val c = line.split('\t')
-                    Row(c[0].toInt(), c[1], c[2], c[3], c[4].toDouble(), c[5].toDouble(), c[7], c[8], c[14].toInt())
+                    Row(c[0].toInt(), c[1], c[2], c[3], c[4].toDouble(), c[5].toDouble(), c[7], c[8], c[14].toInt(), c[17])
                 }.filter { it.feature !in HISTORICAL }.toList()
             }
         }.sortedWith(compareByDescending<Row> { it.pop }.thenBy { it.id })
@@ -60,6 +61,8 @@ object CityIndexWriter {
                 aliasTotal += aliases.size
                 out.writeShort(aliases.size)
                 aliases.forEach { out.writeUTF(it) }
+                // IANA zone id, empty when GeoNames has none.
+                out.writeUTF(r.timeZone)
             }
         }
         return Triple(target.length(), rows.size, aliasTotal)

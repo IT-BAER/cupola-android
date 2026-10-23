@@ -47,7 +47,7 @@ fun InfoContent(snapshot: InfoSnapshot?, compact: Boolean, modifier: Modifier = 
             is GroundLabel.Sea -> stringResource(R.string.info_ground_sea, g.name)
         }
         InfoLine(stringResource(R.string.info_ground_point), ground)
-        val offset = ZoneOffset.ofHours(snapshot.utcOffsetHours).id.let { if (it == "Z") "+0" else it }
+        val offset = snapshot.utcOffset.id.let { if (it == "Z") "+0" else it }
         InfoLine(
             stringResource(R.string.info_local_time),
             stringResource(R.string.info_local_time_value, snapshot.localTime.format(timeFormat), offset),

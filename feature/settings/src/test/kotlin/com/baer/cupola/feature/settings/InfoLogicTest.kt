@@ -5,7 +5,7 @@ import com.baer.cupola.orbit.OrbitState
 import com.baer.cupola.orbit.geo.GroundLabel
 import java.time.Duration
 import java.time.Instant
-import java.time.LocalTime
+import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,7 +69,27 @@ class InfoLogicTest {
         assertEquals(-5, InfoLogic.utcOffsetHours(-75.0))
         assertEquals(12, InfoLogic.utcOffsetHours(180.0))
         assertEquals(-12, InfoLogic.utcOffsetHours(-180.0))
-        assertEquals(LocalTime.of(13, 30), InfoLogic.localTime(Instant.parse("2026-10-20T12:30:00Z"), 16.37))
+    }
+
+    @Test
+    fun localTimeUsesTheCityZoneAndTheLongitudeOverTheSea() {
+        val t = Instant.parse("2026-10-22T21:11:00Z")
+        fun at(label: GroundLabel, lonDeg: Double) = InfoLogic.utcOffset(t, label, lonDeg)
+        assertEquals(ZoneOffset.ofHours(8), at(GroundLabel.City("Ordos", "CN", 21.0, "Asia/Shanghai"), 109.8))
+        assertEquals(ZoneOffset.ofHoursMinutes(5, 30), at(GroundLabel.City("New Delhi", "IN", 3.0, "Asia/Kolkata"), 77.2))
+        assertEquals(ZoneOffset.ofHours(2), at(GroundLabel.City("Vienna", "AT", 1.0, "Europe/Vienna"), 16.4)) // CEST
+        assertEquals(ZoneOffset.ofHours(7), at(GroundLabel.Sea("South China Sea"), 109.8))
+        assertEquals(ZoneOffset.ofHours(7), at(GroundLabel.City("Nowhere", "XX", 900.0, "Not/AZone"), 109.8))
+        assertEquals(ZoneOffset.ofHours(7), at(GroundLabel.City("Old data", "CN", 21.0), 109.8))
+    }
+
+    @Test
+    fun snapshotLocalTimeFollowsTheCityZone() = runTest {
+        val t = tle.epoch.plusSeconds(3600)
+        val cities = FakeCityRepository(label = GroundLabel.City("New Delhi", "IN", 3.0, "Asia/Kolkata"))
+        val info = InfoLogic(orbit, cities).snapshot(t, metadata, null)
+        assertEquals(ZoneOffset.ofHoursMinutes(5, 30), info.utcOffset)
+        assertEquals(t.atOffset(ZoneOffset.ofHoursMinutes(5, 30)).toLocalTime(), info.localTime)
     }
 
     @Test

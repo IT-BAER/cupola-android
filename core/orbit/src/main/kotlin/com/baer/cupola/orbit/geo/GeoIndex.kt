@@ -101,11 +101,11 @@ class GeoIndex private constructor(
                 }
             }
             val c = cities[pick]
-            return GroundLabel.City(c.name, c.countryCode, pickKm)
+            return GroundLabel.City(c.name, c.countryCode, pickKm, c.timeZone)
         }
         marine.nameAt(lat, lon)?.let { return GroundLabel.Sea(it) }
         val city = cities[best]
-        return GroundLabel.City(city.name, city.countryCode, bestKm)
+        return GroundLabel.City(city.name, city.countryCode, bestKm, city.timeZone)
     }
 
     /** Visits every label candidate whose grid cell intersects the cap of [radiusKm] around the point. */
@@ -175,7 +175,7 @@ class GeoIndex private constructor(
         private const val CELL_DEG = 2.0
         private const val GRID_ROWS = 90
         private const val GRID_COLS = 180
-        private const val CITIES_MAGIC = 0x47435431 // "GCT1"
+        private const val CITIES_MAGIC = 0x47435432 // "GCT2"
         private const val FIXED_SCALE = 1e4
 
         fun load(): GeoIndex {
@@ -210,7 +210,7 @@ class GeoIndex private constructor(
                     keys.add(input.readUTF())
                     keyCity.add(i)
                 }
-                City(name, cc, lat, lon, pop)
+                City(name, cc, lat, lon, pop, input.readUTF().ifEmpty { null })
             }
             return CityData(cities, keys.toTypedArray(), keyCity.toIntArray(), sections)
         }

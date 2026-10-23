@@ -88,7 +88,7 @@ private fun snapshot(retired: Boolean, home: CityEntry? = null) = InfoSnapshot(
     instant = Instant.parse("2026-10-19T12:00:00Z"),
     groundLabel = GroundLabel.City("Vienna", "AT", 12.0),
     localTime = LocalTime.of(13, 0),
-    utcOffsetHours = 1,
+    utcOffset = ZoneOffset.ofHours(1),
     sunlit = false,
     timeToDaylight = Duration.ofMinutes(23),
     orbitDataEpoch = Instant.parse("2026-10-18T11:12:47Z"),

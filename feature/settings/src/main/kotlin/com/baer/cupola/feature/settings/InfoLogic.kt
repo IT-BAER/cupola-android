@@ -8,6 +8,7 @@ import com.baer.cupola.orbit.geo.GroundLabel
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.math.roundToInt
 
@@ -16,7 +17,7 @@ data class InfoSnapshot(
     val instant: Instant,
     val groundLabel: GroundLabel,
     val localTime: LocalTime,
-    val utcOffsetHours: Int,
+    val utcOffset: ZoneOffset,
     val sunlit: Boolean,
     val timeToDaylight: Duration?,
     val orbitDataEpoch: Instant,
@@ -33,11 +34,13 @@ class InfoLogic(private val orbit: OrbitModel, private val cities: CityRepositor
     suspend fun snapshot(now: Instant, metadata: OrbitMetadata, home: CityEntry?): InfoSnapshot {
         val state = orbit.stateAt(now) as? OrbitState ?: throw IllegalStateException("orbit propagation failed at $now")
         val sunlit = state.sunlitFraction > 0.0
+        val label = cities.label(state.latitudeDeg, state.longitudeDeg)
+        val offset = utcOffset(now, label, state.longitudeDeg)
         return InfoSnapshot(
             instant = now,
-            groundLabel = cities.label(state.latitudeDeg, state.longitudeDeg),
-            localTime = localTime(now, state.longitudeDeg),
-            utcOffsetHours = utcOffsetHours(state.longitudeDeg),
+            groundLabel = label,
+            localTime = now.atOffset(offset).toLocalTime(),
+            utcOffset = offset,
             sunlit = sunlit,
             timeToDaylight = if (sunlit) Duration.ZERO else timeToDaylight(now),
             orbitDataEpoch = metadata.epoch,
@@ -73,13 +76,13 @@ class InfoLogic(private val orbit: OrbitModel, private val cities: CityRepositor
         private const val SEARCH_LIMIT_S = 100 * 60L
         private const val PASS_RECHECK_S = 3600L
 
-        /**
-         * Simplification: 15 degrees of longitude per hour, rounded to the hour. No time zone database ships,
-         * so political zones and daylight saving time are ignored.
-         */
+        /** Over the sea: 15 degrees of longitude per hour, rounded to the hour. */
         fun utcOffsetHours(lonDeg: Double): Int = (lonDeg / 15.0).roundToInt().coerceIn(-12, 12)
 
-        fun localTime(instant: Instant, lonDeg: Double): LocalTime =
-            instant.atOffset(ZoneOffset.ofHours(utcOffsetHours(lonDeg))).toLocalTime()
+        /** The civil zone (with daylight saving time) of a city label; else, or for an unknown zone id, [utcOffsetHours]. */
+        fun utcOffset(instant: Instant, label: GroundLabel, lonDeg: Double): ZoneOffset {
+            val zone = (label as? GroundLabel.City)?.timeZone?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+            return zone?.rules?.getOffset(instant) ?: ZoneOffset.ofHours(utcOffsetHours(lonDeg))
+        }
     }
 }

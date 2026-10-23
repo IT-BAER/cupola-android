@@ -32,6 +32,12 @@ class GeoIndexTest {
     @Test fun lima() = assertCity(-12.0464, -77.0428, "lima", "PE")
     @Test fun anchorage() = assertCity(61.2181, -149.9003, "anchorage", "US")
 
+    @Test fun cityLabelsCarryTheCivilTimeZone() {
+        assertEquals("Asia/Shanghai", city(39.6, 109.8).timeZone) // Ordos, CN: UTC+8, longitude says +7
+        assertEquals("Asia/Kolkata", city(28.6139, 77.2090).timeZone) // New Delhi: UTC+5:30
+        assertEquals("Europe/Vienna", city(48.2082, 16.3738).timeZone)
+    }
+
     private fun assertSea(lat: Double, lon: Double, name: String) =
         assertEquals(GroundLabel.Sea(name), index.label(lat, lon))
 
