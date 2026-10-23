@@ -13,8 +13,8 @@ import java.time.format.DateTimeParseException
 
 /**
  * `am broadcast -n com.baer.cupola.debug/com.baer.cupola.wallpaper.GateReceiver --es cmd load --ei iterations N`
- * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump),
- * scene (--es arg clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
+ * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump), freeze (--es arg on|off),
+ * fault (--es arg orbit|clear), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
  * the ISS, needs the position; --ef fov field of view on the long screen axis in deg).
  */
@@ -28,10 +28,20 @@ class GateReceiver : BroadcastReceiver() {
                 "stop" -> Gate.stopTrace()
                 else -> Log.w("CupolaGate", "gate bad trace arg=$arg")
             }
-            "scene" -> try {
+            "scene" -> if (arg == "dump") Gate.dumpScenes() else try {
                 Gate.setSceneOverride(if (arg == "clear") null else sceneOverride(intent))
             } catch (e: DateTimeParseException) {
                 Log.w("CupolaGate", "gate bad scene time: ${e.message}")
+            }
+            "freeze" -> when (arg) {
+                "on" -> Gate.setFrozen(true)
+                "off" -> Gate.setFrozen(false)
+                else -> Log.w("CupolaGate", "gate bad freeze arg=$arg")
+            }
+            "fault" -> when (arg) {
+                "orbit" -> Gate.setOrbitFault(true)
+                "clear" -> Gate.setOrbitFault(false)
+                else -> Log.w("CupolaGate", "gate bad fault arg=$arg")
             }
             "stats" -> when (arg) {
                 "reset" -> Gate.resetStats()

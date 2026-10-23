@@ -13,6 +13,10 @@ internal object Gate {
 
     fun sceneOverride(): SceneOverride? = null
 
+    fun frozen() = false
+
+    fun orbitFault() = false
+
     fun sensorBlocked() = false
 
     fun traceOrientation(nowNs: Long): Orientation? = null

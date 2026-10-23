@@ -12,6 +12,8 @@ import com.baer.cupola.core.render.scene.toSceneState
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.OrbitState
 import com.baer.cupola.orbit.OrbitStateResult
+import com.baer.cupola.orbit.frames.Frames
+import com.baer.cupola.orbit.sgp4.Sgp4Error
 import java.time.Instant
 
 /** Engine-side facts the render thread needs; an immutable snapshot is posted on every change. */
@@ -21,6 +23,21 @@ internal data class EngineState(
     val xOffset: Float = 0.5f,
     val reducedMotion: Boolean = false,
     val batterySaver: Boolean = false,
+)
+
+/**
+ * What a session's last frame showed; [source] is live, preview, override (gate time), pose (gate time and position),
+ * last_good or epoch (orbit failure). [sunlit] is null for a gate pose.
+ */
+internal data class SceneDump(
+    val source: String,
+    val instant: Instant,
+    val latDeg: Double,
+    val lonDeg: Double,
+    val altKm: Double,
+    val sunlit: Double?,
+    val yawDeg: Double,
+    val pitchDeg: Double,
 )
 
 /**
@@ -83,8 +100,19 @@ internal class RenderSession(
         if (traced != null) look.setOrientation(traced.yawRad, traced.pitchRad)
     }
 
-    /** Frame inputs in the [FrameInputs] layout; unused slots stay zero. */
+    // Render thread writes a fresh copy per frame; the debug gate reads it.
+    @Volatile private var lastInputs: FloatArray? = null
+
+    /** Scene of the last frame; read by the debug gate. */
+    @Volatile var lastScene: SceneDump? = null
+        private set
+
+    /** Copy of the last frame inputs, before the host's render scale; null before the first frame. */
+    fun lastFrameInputs(): FloatArray? = lastInputs?.copyOf()
+
+    /** Frame inputs in the [FrameInputs] layout; unused slots stay zero. A frozen gate repeats the last ones. */
     fun nextFrameInputs(): FloatArray {
+        if (Gate.frozen()) lastInputs?.let { return it.copyOf() }
         feedTrace()
         val current = settings()
         look.strength = current.lookStrength
@@ -97,6 +125,7 @@ internal class RenderSession(
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
         writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg)
         Gate.applyLoad(inputs)
+        lastInputs = inputs.copyOf()
         return inputs
     }
 
@@ -106,18 +135,40 @@ internal class RenderSession(
      */
     private fun writeScene(inputs: FloatArray, rest: RestView, yawDeg: Double, pitchDeg: Double) {
         val override = Gate.sceneOverride()
-        override?.let(SceneInputs::buildPose)?.let { return it.write(inputs) }
+        val poseInstant = override?.instant
+        val posePosition = override?.positionEcefKm
+        if (poseInstant != null && posePosition != null) {
+            SceneInputs.buildPose(override)?.let { pose ->
+                val at = Frames.ecefToGeodetic(posePosition)
+                lastScene = SceneDump(
+                    "pose", poseInstant, Math.toDegrees(at.latitudeRad), Math.toDegrees(at.longitudeRad), at.heightKm,
+                    null, yawDeg, pitchDeg,
+                )
+                return pose.write(inputs)
+            }
+        }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
-        val state = when (val result = orbit.stateAt(instant)) {
+        val result = if (Gate.orbitFault()) OrbitStateResult.Failure(Sgp4Error.DECAYED) else orbit.stateAt(instant)
+        var source = when {
+            override?.instant != null -> "override"
+            engineState.preview -> "preview"
+            else -> "live"
+        }
+        val state = when (result) {
             is OrbitState -> result.also { lastGoodState = it }
             is OrbitStateResult.Failure -> {
                 if (!orbitFailureLogged) {
                     orbitFailureLogged = true
                     Log.w("Cupola", "orbit failed at $instant: ${result.error}")
                 }
-                lastGoodState ?: orbit.stateAt(orbit.epoch) as? OrbitState ?: return
+                lastGoodState?.also { source = "last_good" }
+                    ?: (orbit.stateAt(orbit.epoch) as? OrbitState)?.also { source = "epoch" }
+                    ?: return
             }
         }
+        lastScene = SceneDump(
+            source, state.instant, state.latitudeDeg, state.longitudeDeg, state.heightKm, state.sunlitFraction, yawDeg, pitchDeg,
+        )
         SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override).write(inputs)
     }
 

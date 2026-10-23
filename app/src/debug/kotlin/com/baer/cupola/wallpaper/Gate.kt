@@ -15,6 +15,8 @@ internal object Gate {
 
     @Volatile private var loadIterations = 0
     @Volatile private var override: SceneOverride? = null
+    @Volatile private var frozen = false
+    @Volatile private var orbitFault = false
     private val traceStartNs = AtomicLong(OFF)
     private val sessions = ConcurrentHashMap<Int, RenderSession>()
     private val stats = ConcurrentHashMap<Int, GateStats>()
@@ -47,6 +49,35 @@ internal object Gate {
     }
 
     fun sceneOverride(): SceneOverride? = override
+
+    /** While frozen every session repeats its last frame inputs: time, orbit and look-around stop. */
+    fun setFrozen(value: Boolean) {
+        frozen = value
+        Log.i(TAG, "gate freeze=$value")
+    }
+
+    fun frozen() = frozen
+
+    /** While set every orbit propagation fails like a decayed TLE (the F21 last-good-scene path). */
+    fun setOrbitFault(value: Boolean) {
+        orbitFault = value
+        Log.i(TAG, "gate fault orbit=$value")
+    }
+
+    fun orbitFault() = orbitFault
+
+    fun dumpScenes() {
+        sessions.keys.sorted().forEach { Log.i(TAG, sceneLine(it, sessions[it]?.lastScene)) }
+    }
+
+    fun sceneLine(id: Int, dump: SceneDump?): String {
+        if (dump == null) return "gate scene id=$id none"
+        val sunlit = dump.sunlit?.let { String.format(Locale.ROOT, "%.2f", it) } ?: "n/a"
+        return String.format(
+            Locale.ROOT, "gate scene id=%d source=%s instant=%s lat=%.3f lon=%.3f alt_km=%.1f sunlit=%s yaw=%.1f pitch=%.1f",
+            id, dump.source, dump.instant, dump.latDeg, dump.lonDeg, dump.altKm, sunlit, dump.yawDeg, dump.pitchDeg,
+        )
+    }
 
     fun startTrace() {
         traceStartNs.set(System.nanoTime())
