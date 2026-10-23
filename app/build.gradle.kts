@@ -11,6 +11,14 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.licensee)
+}
+
+// Fails the build on a dependency licence outside this list; bundles assets/app/cash/licensee/artifacts.json for Credits.
+licensee {
+    allow("Apache-2.0")
+    allow("BSD-3-Clause") // androidx.datastore:datastore-preferences-external-protobuf
+    bundleAndroidAsset.set(true)
 }
 
 android {
