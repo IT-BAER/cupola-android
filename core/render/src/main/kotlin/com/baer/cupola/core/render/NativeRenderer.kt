@@ -77,6 +77,9 @@ class NativeRenderer(
     /** GPU time of the last frame's scaled Earth pass in nanoseconds (0 without one), -1 if unknown. */
     fun lastEarthPassGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastEarthPassGpuTimeNanos() }
 
+    /** GPU time of the last frame's sky view LUT pass in nanoseconds, -1 if unknown. */
+    fun lastSkyPassGpuTimeNanos(): Long = thread.postAndWait { NativeBridge.lastSkyPassGpuTimeNanos() }
+
     /**
      * Keeps the Vulkan device (and its texture set) alive until the returned handle is closed; without a surface
      * every [renderOffscreen] otherwise creates and destroys the instance and device.

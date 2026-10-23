@@ -4,6 +4,7 @@ import kotlin.math.ceil
 
 /**
  * Adapts the quality step (higher index is higher quality) to GPU frame time and thermal headroom.
+ * [budgetMs] is the p95 GPU time allowed for a frame of [REFERENCE_INTERVAL_MS].
  * Headroom follows Android semantics: 1.0 means severe throttling is expected, NaN when unsupported.
  */
 class QualityGovernor(
@@ -31,9 +32,13 @@ class QualityGovernor(
         headroom = value
     }
 
-    fun onFrame(gpuMs: Double) {
+    /**
+     * [gpuMs] of a frame scheduled every [intervalMs]; scaled to the 60 fps interval, so a GPU that lowers its clock
+     * to fill a longer interval (15 fps still mode) does not read as overloaded.
+     */
+    fun onFrame(gpuMs: Double, intervalMs: Double = REFERENCE_INTERVAL_MS) {
         val now = clockNs()
-        window[next] = gpuMs
+        window[next] = gpuMs * REFERENCE_INTERVAL_MS / intervalMs
         next = (next + 1) % WINDOW_FRAMES
         if (count < WINDOW_FRAMES) count++
 
@@ -63,13 +68,16 @@ class QualityGovernor(
 
     private fun p95(): Double = window.sortedArray()[ceil(WINDOW_FRAMES * 0.95).toInt() - 1]
 
-    private companion object {
-        const val NONE = Long.MIN_VALUE
-        const val WINDOW_FRAMES = 120
-        const val HEADROOM_DOWN = 0.85f
-        const val HEADROOM_UP = 0.6f
-        const val CALM_BUDGET_FRACTION = 0.75
-        const val CALM_NS = 10_000_000_000L
-        const val HYSTERESIS_NS = 5_000_000_000L
+    companion object {
+        /** The frame interval [budgetMs] applies to (60 fps). */
+        const val REFERENCE_INTERVAL_MS = 1000.0 / 60
+
+        private const val NONE = Long.MIN_VALUE
+        private const val WINDOW_FRAMES = 120
+        private const val HEADROOM_DOWN = 0.85f
+        private const val HEADROOM_UP = 0.6f
+        private const val CALM_BUDGET_FRACTION = 0.75
+        private const val CALM_NS = 10_000_000_000L
+        private const val HYSTERESIS_NS = 5_000_000_000L
     }
 }

@@ -28,6 +28,8 @@ internal object NativeBridge {
 
     @JvmStatic external fun lastEarthPassGpuTimeNanos(): Long
 
+    @JvmStatic external fun lastSkyPassGpuTimeNanos(): Long
+
     /** true acquires a device reference (returns a VkResult), false releases one. */
     @JvmStatic external fun holdDevice(hold: Boolean): Int
 

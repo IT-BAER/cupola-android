@@ -141,6 +141,11 @@ JNIEXPORT jlong JNICALL Java_com_baer_cupola_core_render_NativeBridge_lastEarthP
     return Device::lastEarthPassGpuTimeNs();
 }
 
+JNIEXPORT jlong JNICALL Java_com_baer_cupola_core_render_NativeBridge_lastSkyPassGpuTimeNanos(JNIEnv*, jclass) {
+    cupola::assertRenderThread("lastSkyPassGpuTimeNanos");
+    return Device::lastSkyPassGpuTimeNs();
+}
+
 // hold = true acquires one device reference (VkResult on failure), false releases it.
 JNIEXPORT jint JNICALL Java_com_baer_cupola_core_render_NativeBridge_holdDevice(JNIEnv*, jclass, jboolean hold) {
     cupola::assertRenderThread("holdDevice");

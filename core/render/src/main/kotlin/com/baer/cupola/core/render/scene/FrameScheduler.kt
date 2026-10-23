@@ -18,8 +18,8 @@ class FrameScheduler {
     val targetFps: Int
         get() = when {
             !visible || batterySaver -> 0
-            moving -> 60
-            else -> 15
+            moving -> MOVING_FPS
+            else -> STILL_FPS
         }
 
     /**
@@ -57,7 +57,9 @@ class FrameScheduler {
         return true
     }
 
-    private companion object {
-        const val NO_ANCHOR = Long.MIN_VALUE
+    companion object {
+        const val MOVING_FPS = 60
+        const val STILL_FPS = 15
+        private const val NO_ANCHOR = Long.MIN_VALUE
     }
 }

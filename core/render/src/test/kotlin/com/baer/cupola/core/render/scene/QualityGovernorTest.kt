@@ -31,6 +31,23 @@ class QualityGovernorTest {
         assertEquals(2, g.step)
     }
 
+    /** A35 home screen at 15 fps: the GPU clock drops to its minimum and a frame takes about 21.7 ms of its 66.7 ms. */
+    @Test fun stillFramesAtALowGpuClockDoNotStepDown() {
+        repeat(600) {
+            now += 66_666_667L
+            g.onFrame(21.7, intervalMs = 1000.0 / 15)
+        }
+        assertEquals(3, g.step)
+    }
+
+    @Test fun stillFramesThatFillTheirIntervalStepDown() {
+        repeat(130) {
+            now += 66_666_667L
+            g.onFrame(55.0, intervalMs = 1000.0 / 15)
+        }
+        assertEquals(2, g.step)
+    }
+
     @Test fun fewSlowFramesDoNotStepDown() {
         frames(114, 8.0)
         frames(6, 20.0)

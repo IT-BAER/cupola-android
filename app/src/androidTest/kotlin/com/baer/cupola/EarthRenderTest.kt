@@ -229,17 +229,18 @@ class EarthRenderTest {
             repeat(GPU_WARMUP) { render(scene, scale, interior) }
             val samples = (0 until GPU_SAMPLES).map {
                 render(scene, scale, interior)
-                renderer.lastGpuTimeNanos() / 1e6 to renderer.lastEarthPassGpuTimeNanos() / 1e6
-            }.filter { it.first >= 0 && it.second >= 0 }
+                Triple(renderer.lastGpuTimeNanos() / 1e6, renderer.lastEarthPassGpuTimeNanos() / 1e6, renderer.lastSkyPassGpuTimeNanos() / 1e6)
+            }.filter { it.first >= 0 && it.second >= 0 && it.third >= 0 }
             assertTrue("no GPU timestamps", samples.isNotEmpty())
             fun pct(values: List<Double>, p: Int) = values.sorted()[((values.size - 1) * p + 99) / 100]
             val total = samples.map { it.first }
             val earth = samples.map { it.second }
-            val composite = samples.map { it.first - it.second }
+            val sky = samples.map { it.third }
+            val composite = samples.map { it.first - it.second - it.third }
             Log.i(
                 TAG,
-                "frame gpu $rest scale $scale interior $interior ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms earth p50=%.3f composite p50=%.3f"
-                    .format(pct(total, 50), pct(total, 95), pct(earth, 50), pct(composite, 50)),
+                "frame gpu $rest scale $scale interior $interior ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms sky p50=%.3f earth p50=%.3f composite p50=%.3f"
+                    .format(pct(total, 50), pct(total, 95), pct(sky, 50), pct(earth, 50), pct(composite, 50)),
             )
         }
     }

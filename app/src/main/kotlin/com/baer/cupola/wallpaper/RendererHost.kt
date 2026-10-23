@@ -4,6 +4,7 @@ import android.content.Context
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.platform.ThermalHeadroomSource
+import com.baer.cupola.core.render.scene.FrameScheduler
 import com.baer.cupola.core.render.scene.QualityGovernor
 import com.baer.cupola.feature.settings.SettingsRepository
 import com.baer.cupola.orbit.OrbitModel
@@ -105,7 +106,8 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context, set
         if (frameTimeNanos != governedFrameNanos) {
             governedFrameNanos = frameTimeNanos
             lastGpuNanos = renderer?.lastGpuTimeNanos() ?: return null
-            if (lastGpuNanos >= 0) governor.onFrame(lastGpuNanos / 1e6)
+            val fps = if (session.scheduledMoving) FrameScheduler.MOVING_FPS else FrameScheduler.STILL_FPS
+            if (lastGpuNanos >= 0) governor.onFrame(lastGpuNanos / 1e6, 1000.0 / fps)
             governor.onThermalHeadroom(thermal.current())
         }
         Gate.onFrame(surfaceId, lastGpuNanos)
