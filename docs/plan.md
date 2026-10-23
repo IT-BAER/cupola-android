@@ -17,7 +17,7 @@ Asked with AskUserQuestion and answered by the owner on 18 October 2026.
 
 | ID | Decision | Owner's answer |
 |---|---|---|
-| D1 | Repo folder and hosting | `D:\VSC\Cupola`, plus a private GitHub repo `IT-BAER/cupola` for CI, the TLE fetch and the Play upload (HandType pattern) |
+| D1 | Repo folder and hosting | `D:\VSC\Cupola`, plus a private GitHub repo `IT-BAER/cupola-android` (renamed from `IT-BAER/cupola` on 23 October 2026) for CI, the TLE fetch and the Play upload (HandType pattern) |
 | D2 | Viewers for the photoreal gate (decision 16) | The owner alone. Bias control: the NASA photos used in G-PR are a hold-out set the owner does not see before the gate run (see P4.1 and G-PR) |
 | D3 | Battery budget for the final performance gate | At most 1 %/h extra drain, screen on, phone still (15 fps), live against static wallpaper |
 | D4 | Closed test for a paid app (testers must buy it) | Decided at the start of P8; the OC5 promo-code check is an input |
