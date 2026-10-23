@@ -250,6 +250,13 @@ class ScreensTest {
     }
 
     @Test
+    fun homeCityValueIsAnnouncedOnlyWithItsLabel() {
+        host()
+        val announcedAlone = hasText("Not set") and SemanticsMatcher.keyNotDefined(SemanticsProperties.HideFromAccessibility)
+        rule.onAllNodes(announcedAlone, useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test
     fun creditsListShowsEveryCreditsTsvRow() {
         val rows = CreditsParser.parseRows(File("../../app/src/main/assets/credits.tsv").readText())
         assertTrue(rows.size >= 7)

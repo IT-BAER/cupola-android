@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -135,7 +136,8 @@ fun SettingsScreen(
                 Modifier.fillMaxWidth().clickable(onClick = actions.onHomeCity)
                     .semantics { contentDescription = "$homeCityLabel, $homeCity" }.padding(vertical = 12.dp),
             ) {
-                Text(homeCity)
+                // The row's description already speaks the value; TalkBack would read it twice otherwise.
+                Text(homeCity, Modifier.semantics { hideFromAccessibility() })
             }
 
             HorizontalDivider()
