@@ -22,14 +22,17 @@ struct PushConstants {
     float lookPitchDeg;
     float earthScaleX;  // scaled Earth target / full extent (EarthPass only)
     float earthScaleY;
+    int32_t effects;  // FrameInputs.EFFECTS bits
 };
 
 // earth.frag specialization constant MODE.
 constexpr int32_t kEarthModeSingle = 0;
 constexpr int32_t kEarthModeScaled = 1;
 constexpr int32_t kEarthModeComposite = 2;
+constexpr int32_t kEarthModeSky = 3;
 
 class EarthPass;
+class SkyPass;
 
 struct TextureSet;
 
@@ -77,24 +80,27 @@ public:
     static int64_t lastGpuTimeNs();
     // GPU time of the last frame's scaled Earth pass (0 without one), -1 if unknown.
     static int64_t lastEarthPassGpuTimeNs();
-    static constexpr uint32_t kTimestampsPerFrame = 3;
+    // GPU time of the last frame's sky view LUT pass, -1 if unknown.
+    static int64_t lastSkyPassGpuTimeNs();
+    static constexpr uint32_t kTimestampsPerFrame = 4;
 
     VkResult createRenderPass(VkFormat format, VkImageLayout finalLayout, VkRenderPass* out) const;
-    // `earthMode` (kEarthMode*) applies to the Earth pipeline.
+    // `earthMode` (kEarthMode*) applies to the Earth pipeline; `attachments` colour attachments, no blending.
     VkResult createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out,
-                            int32_t earthMode = kEarthModeSingle) const;
+                            int32_t earthMode = kEarthModeSingle, uint32_t attachments = 1) const;
     // Returns UINT32_MAX when no memory type matches.
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) const;
     // Memory of type `preferred`, else `required`; VK_ERROR_OUT_OF_DEVICE_MEMORY when neither exists.
     VkResult allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
                       VkDeviceMemory* out) const;
-    // kTimestampsPerFrame timestamps per frame at query index `first`: begin, after the Earth pass, end.
-    // A non-null `earthPass` is recorded (with `earthScene`) before the main pass, which then uses the composite
-    // pipeline.
+    // kTimestampsPerFrame timestamps per frame at query index `first`: begin, after the sky pass, after the
+    // Earth pass, end. A non-null `skyPass` is recorded first (with `skyScene`); a non-null `earthPass` next (with
+    // `earthScene`), and the main pass then uses the composite pipeline.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                      VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr,
-                     VkDescriptorSet earthScene = VK_NULL_HANDLE) const;
+                     VkDescriptorSet earthScene = VK_NULL_HANDLE, const SkyPass* skyPass = nullptr,
+                     VkDescriptorSet skyScene = VK_NULL_HANDLE) const;
     VkResult createTimestampPool(uint32_t count, VkQueryPool* out) const;
     void collectGpuTime(VkQueryPool queries, uint32_t first);
 

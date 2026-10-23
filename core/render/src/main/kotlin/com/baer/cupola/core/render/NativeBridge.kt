@@ -41,4 +41,7 @@ internal object NativeBridge {
 
     /** Loads a KTX2 asset into a Vulkan image and destroys it; layout in [NativeRenderer.loadTextureInfo]. */
     @JvmStatic external fun loadTextureInfo(assets: AssetManager, path: String): IntArray
+
+    /** Atmosphere LUT [index] (0 transmittance, 1 multiple scattering, 2 sky irradiance): width, height, RGBA texels. */
+    @JvmStatic external fun atmosphereLut(index: Int): FloatArray?
 }

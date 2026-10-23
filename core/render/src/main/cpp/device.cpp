@@ -10,6 +10,7 @@
 #include "earth_pass.h"
 #include "frame_inputs.h"
 #include "shaders.h"
+#include "sky_pass.h"
 #include "texture_set.h"
 
 namespace cupola {
@@ -19,6 +20,7 @@ Device* gDevice = nullptr;
 int gRefs = 0;
 int64_t gLastGpuTimeNs = -1;
 int64_t gLastEarthPassGpuTimeNs = -1;
+int64_t gLastSkyPassGpuTimeNs = -1;
 AAssetManager* gAssets = nullptr;
 
 #if CUPOLA_DEBUG
@@ -110,6 +112,7 @@ PushConstants makePushConstants(const float* inputs, VkExtent2D extent, int32_t 
         inputs[inputs::kLookPitchDeg],
         1.0f,
         1.0f,
+        static_cast<int32_t>(inputs[inputs::kEffects]),
     };
 }
 
@@ -141,6 +144,8 @@ Device* Device::current() { return gDevice; }
 int64_t Device::lastGpuTimeNs() { return gLastGpuTimeNs; }
 
 int64_t Device::lastEarthPassGpuTimeNs() { return gLastEarthPassGpuTimeNs; }
+
+int64_t Device::lastSkyPassGpuTimeNs() { return gLastSkyPassGpuTimeNs; }
 
 VkResult Device::init() {
     uint32_t loaderVersion = VK_API_VERSION_1_0;
@@ -257,8 +262,8 @@ VkResult Device::init() {
     shaderInfo.pCode = shaders::kEarthFrag;
     VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &earthShader));
 
-    VkDescriptorSetLayoutBinding bindings[kEarthImageBinding + 1]{};
-    for (uint32_t i = 0; i <= kEarthImageBinding; ++i) {
+    VkDescriptorSetLayoutBinding bindings[kBindingCount]{};
+    for (uint32_t i = 0; i < kBindingCount; ++i) {
         bindings[i].binding = i;
         bindings[i].descriptorType =
             i == 0 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -266,7 +271,7 @@ VkResult Device::init() {
         bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
     VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    setInfo.bindingCount = kEarthImageBinding + 1;
+    setInfo.bindingCount = kBindingCount;
     setInfo.pBindings = bindings;
     VK_TRY(vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &sceneSetLayout));
 
@@ -344,7 +349,8 @@ VkResult Device::createRenderPass(VkFormat format, VkImageLayout finalLayout, Vk
     return vkCreateRenderPass(device, &info, nullptr, out);
 }
 
-VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out, int32_t earthMode) const {
+VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline* out, int32_t earthMode,
+                                uint32_t attachments) const {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -370,12 +376,14 @@ VkResult Device::createPipeline(VkRenderPass renderPass, bool earth, VkPipeline*
     raster.lineWidth = 1.0f;
     VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineColorBlendAttachmentState blendAttachment{};
-    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendAttachmentState blendAttachments[2]{};
+    for (auto& b : blendAttachments) {
+        b.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+                           VK_COLOR_COMPONENT_A_BIT;
+    }
     VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    blend.attachmentCount = 1;
-    blend.pAttachments = &blendAttachment;
+    blend.attachmentCount = std::min<uint32_t>(attachments, 2);
+    blend.pAttachments = blendAttachments;
     VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dynamic.dynamicStateCount = 2;
@@ -427,14 +435,18 @@ VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
 void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                          VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                          VkQueryPool queries, uint32_t first, const EarthPass* earthPass,
-                         VkDescriptorSet earthScene) const {
+                         VkDescriptorSet earthScene, const SkyPass* skyPass, VkDescriptorSet skyScene) const {
     if (queries != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(cmd, queries, first, kTimestampsPerFrame);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
     }
-    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, push);
+    if (skyPass != nullptr) skyPass->record(*this, cmd, skyScene, push);
     if (queries != VK_NULL_HANDLE) {
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
+    }
+    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, push);
+    if (queries != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 2);
     }
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     begin.renderPass = renderPass;
@@ -453,7 +465,7 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
     if (queries != VK_NULL_HANDLE) {
-        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 2);
+        vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 3);
     }
 }
 
@@ -468,8 +480,9 @@ void Device::collectGpuTime(VkQueryPool queries, uint32_t first) {
         uint64_t delta = ((to & timestampMask) - (from & timestampMask)) & timestampMask;
         return static_cast<int64_t>(std::llround(static_cast<double>(delta) * properties.limits.timestampPeriod));
     };
-    gLastGpuTimeNs = ns(ticks[0], ticks[2]);
-    gLastEarthPassGpuTimeNs = ns(ticks[0], ticks[1]);
+    gLastGpuTimeNs = ns(ticks[0], ticks[3]);
+    gLastSkyPassGpuTimeNs = ns(ticks[0], ticks[1]);
+    gLastEarthPassGpuTimeNs = ns(ticks[1], ticks[2]);
 }
 
 }  // namespace cupola

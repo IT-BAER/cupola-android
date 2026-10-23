@@ -24,6 +24,23 @@ object FrameInputs {
     const val RENDER_SCALE = 6
 
     /**
+     * Effect switches: an OR of the EFFECT_* bits (user settings; [EFFECTS_ALL] by default, see `scene.Scene.effects`)
+     * and debug-only DEBUG_* bits, which settings must leave at 0. Integer-valued float, below 2^24.
+     */
+    const val EFFECTS = 7
+    const val EFFECT_BLOOM = 1
+    const val EFFECT_WINDOW_GLARE = 2
+    const val EFFECT_REFLECTIONS = 4
+    const val EFFECT_DUST = 8
+    const val EFFECTS_ALL = EFFECT_BLOOM or EFFECT_WINDOW_GLARE or EFFECT_REFLECTIONS or EFFECT_DUST
+
+    /** Debug: no atmosphere (bare ground and black space), for the analytic geometry checks. */
+    const val DEBUG_NO_ATMOSPHERE = 1 shl 16
+
+    /** Debug: atmosphere without its airlight (inscatter): ground light through the sun and view transmittance only. */
+    const val DEBUG_NO_INSCATTER = 1 shl 17
+
+    /**
      * Start of the scene block, copied into the per-frame uniform buffer (std140, vec4-aligned; see
      * `earth.frag`). Written by `scene.Scene.write`. Directions are ECEF unit vectors, positions ECEF km.
      */
@@ -66,7 +83,17 @@ object FrameInputs {
     /** Linear exposure applied before the tone map (scene.AutoExposure). */
     const val EXPOSURE = 43
 
-    const val COUNT = 44
+    /**
+     * Atmosphere frame of the camera in the ellipsoid-scaled space (z x a / b, the surface a sphere of radius a):
+     * radial up, the Sun's azimuth axis (unit, perpendicular to up), and the nadir angles (rad) of the ground horizon
+     * and of the atmosphere top's tangent. Parameterises the sky view LUT (earth.frag MODE 3).
+     */
+    const val SKY_UP = 44
+    const val SKY_HORIZON_NADIR = 47
+    const val SKY_SUN_AXIS = 48
+    const val SKY_TOP_NADIR = 51
+
+    const val COUNT = 52
 
     fun empty() = FloatArray(COUNT)
 }

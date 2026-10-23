@@ -1,8 +1,12 @@
 #include "texture_set.h"
 
 #include <chrono>
+#include <cmath>
+#include <cstring>
 #include <string>
+#include <vector>
 
+#include "atmosphere_lut.h"
 #include "device.h"
 
 namespace cupola {
@@ -30,13 +34,14 @@ constexpr SlotInfo kSlots[kTextureSlots] = {
     {"interior_ambient", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
 };
 
-VkResult createSampler(const Device& device, VkSamplerAddressMode u, VkSampler* out) {
+VkResult createSampler(const Device& device, VkSamplerAddressMode u, VkSampler* out,
+                       VkSamplerAddressMode v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE) {
     VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     info.magFilter = VK_FILTER_LINEAR;
     info.minFilter = VK_FILTER_LINEAR;
     info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     info.addressModeU = u;
-    info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    info.addressModeV = v;
     info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     info.maxLod = VK_LOD_CLAMP_NONE;
     return vkCreateSampler(device.device, &info, nullptr, out);
@@ -110,6 +115,93 @@ VkResult createFallback(Device& device, const SlotInfo& slot, Texture* out) {
     return result;
 }
 
+// IEEE half from float, mantissa truncated (relative error below 0.1 %, enough for LUT data).
+uint16_t toHalf(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    const uint32_t sign = (x >> 16) & 0x8000u;
+    const int32_t exp = static_cast<int32_t>((x >> 23) & 0xFF) - 127 + 15;
+    const uint32_t mant = x & 0x7FFFFFu;
+    if (exp <= 0) {
+        if (exp < -10) return static_cast<uint16_t>(sign);
+        return static_cast<uint16_t>(sign | ((mant | 0x800000u) >> (14 - exp)));
+    }
+    if (exp >= 31) return static_cast<uint16_t>(sign | 0x7BFFu);
+    return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | (mant >> 13));
+}
+
+VkResult uploadLut(Device& device, const atmosphere::Lut& lut, Texture* out) {
+    std::vector<uint16_t> half(lut.rgba.size());
+    for (size_t i = 0; i < half.size(); ++i) half[i] = toHalf(lut.rgba[i]);
+    return uploadTexture(device, VK_FORMAT_R16G16B16A16_SFLOAT, lut.width, lut.height, half.data(),
+                         half.size() * sizeof(uint16_t), out);
+}
+
+// Tiling noise, 4 independent channels: value noise on periodic lattices of 4, 8, 16 and 32 cells (fBm, gains
+// 1/2), stretched to 0..1. Deterministic integer hash.
+constexpr uint32_t kNoiseSize = 256;
+
+uint32_t hash(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float lattice(uint32_t channel, uint32_t period, uint32_t ix, uint32_t iy) {
+    const uint32_t h = hash((ix % period) + 1024u * (iy % period) + 0x100000u * period + 0x4000000u * channel);
+    return static_cast<float>(h & 0xFFFFFFu) / 16777215.0f;
+}
+
+float valueNoise(uint32_t channel, uint32_t period, float x, float y) {
+    const float fx = std::floor(x), fy = std::floor(y);
+    const uint32_t ix = static_cast<uint32_t>(fx), iy = static_cast<uint32_t>(fy);
+    float tx = x - fx, ty = y - fy;
+    tx = tx * tx * (3 - 2 * tx);
+    ty = ty * ty * (3 - 2 * ty);
+    const float a = lattice(channel, period, ix, iy), b = lattice(channel, period, ix + 1, iy);
+    const float c = lattice(channel, period, ix, iy + 1), d = lattice(channel, period, ix + 1, iy + 1);
+    return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+}
+
+VkResult createNoise(Device& device, Texture* out) {
+    std::vector<uint8_t> texels(kNoiseSize * kNoiseSize * 4);
+    for (uint32_t y = 0; y < kNoiseSize; ++y) {
+        for (uint32_t x = 0; x < kNoiseSize; ++x) {
+            for (uint32_t c = 0; c < 4; ++c) {
+                float sum = 0, amp = 0.5f, norm = 0;
+                for (uint32_t period = 4; period <= 32; period *= 2) {
+                    const float scale = static_cast<float>(period) / kNoiseSize;
+                    sum += amp * valueNoise(c, period, (x + 0.5f) * scale, (y + 0.5f) * scale);
+                    norm += amp;
+                    amp *= 0.5f;
+                }
+                // fBm of value noise clusters near 0.5; stretch by 2 about the mean.
+                const float v = std::fmin(1.0f, std::fmax(0.0f, (sum / norm - 0.5f) * 2.0f + 0.5f));
+                texels[(y * kNoiseSize + x) * 4 + c] = static_cast<uint8_t>(std::lround(v * 255.0f));
+            }
+        }
+    }
+    return uploadTexture(device, VK_FORMAT_R8G8B8A8_UNORM, kNoiseSize, kNoiseSize, texels.data(), texels.size(),
+                         out);
+}
+
+VkResult createGenerated(Device& device, TextureSet* out) {
+    auto start = std::chrono::steady_clock::now();
+    atmosphere::Luts luts;
+    atmosphere::computeLuts(&luts);
+    const long lutMs = static_cast<long>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
+    VK_TRY(uploadLut(device, luts.transmittance, &out->generated[kTransmittanceLut]));
+    VK_TRY(uploadLut(device, luts.multiScatter, &out->generated[kMultiScatterLut]));
+    VK_TRY(uploadLut(device, luts.irradiance, &out->generated[kSkyIrradianceLut]));
+    VK_TRY(createNoise(device, &out->generated[kNoise]));
+    LOGI("atmosphere LUTs computed in %ld ms", lutMs);
+    return VK_SUCCESS;
+}
+
 }  // namespace
 
 VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) {
@@ -117,6 +209,8 @@ VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) 
     auto start = std::chrono::steady_clock::now();
     VK_TRY(createSampler(device, VK_SAMPLER_ADDRESS_MODE_REPEAT, &out->wrapU));
     VK_TRY(createSampler(device, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, &out->clamp));
+    VK_TRY(createSampler(device, VK_SAMPLER_ADDRESS_MODE_REPEAT, &out->wrap, VK_SAMPLER_ADDRESS_MODE_REPEAT));
+    VK_TRY(createGenerated(device, out));
     std::string missing;
     for (uint32_t s = 0; s < kTextureSlots; ++s) {
         int32_t status = static_cast<int32_t>(TextureStatus::kAssetOpen);
@@ -146,6 +240,8 @@ VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) 
 
 void destroyTextureSet(const Device& device, TextureSet* set) {
     for (Texture& t : set->textures) destroyTexture(device, &t);
+    for (Texture& t : set->generated) destroyTexture(device, &t);
+    vkDestroySampler(device.device, set->wrap, nullptr);
     vkDestroySampler(device.device, set->wrapU, nullptr);
     vkDestroySampler(device.device, set->clamp, nullptr);
     *set = TextureSet{};

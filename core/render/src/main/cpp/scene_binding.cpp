@@ -6,27 +6,33 @@
 #include "texture_set.h"
 
 namespace cupola {
+namespace {
+
+constexpr uint32_t kSets = 3;
+
+}  // namespace
 
 VkResult SceneBinding::init(Device& device) {
     VkDevice dev = device.device;
     VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * (kTextureSlots + 1)},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * (kBindingCount - 1)},
     };
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.maxSets = 2;
+    poolInfo.maxSets = kSets;
     poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes = sizes;
     VK_TRY(vkCreateDescriptorPool(dev, &poolInfo, nullptr, &pool_));
     VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     alloc.descriptorPool = pool_;
-    const VkDescriptorSetLayout layouts[2] = {device.sceneSetLayout, device.sceneSetLayout};
-    VkDescriptorSet sets[2];
-    alloc.descriptorSetCount = 2;
+    const VkDescriptorSetLayout layouts[kSets] = {device.sceneSetLayout, device.sceneSetLayout, device.sceneSetLayout};
+    VkDescriptorSet sets[kSets];
+    alloc.descriptorSetCount = kSets;
     alloc.pSetLayouts = layouts;
     VK_TRY(vkAllocateDescriptorSets(dev, &alloc, sets));
     set = sets[0];
     earthSet = sets[1];
+    skySet = sets[2];
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = kSceneUniformBytes;
@@ -42,8 +48,8 @@ VkResult SceneBinding::init(Device& device) {
     std::memset(mapped_, 0, kSceneUniformBytes);
 
     VkDescriptorBufferInfo uniform{buffer_, 0, kSceneUniformBytes};
-    VkWriteDescriptorSet writes[2];
-    for (int i = 0; i < 2; ++i) {
+    VkWriteDescriptorSet writes[kSets];
+    for (uint32_t i = 0; i < kSets; ++i) {
         writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[i].dstSet = sets[i];
         writes[i].dstBinding = 0;
@@ -51,7 +57,7 @@ VkResult SceneBinding::init(Device& device) {
         writes[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[i].pBufferInfo = &uniform;
     }
-    vkUpdateDescriptorSets(dev, 2, writes, 0, nullptr);
+    vkUpdateDescriptorSets(dev, kSets, writes, 0, nullptr);
     return VK_SUCCESS;
 }
 
@@ -63,38 +69,60 @@ void SceneBinding::destroy(VkDevice dev) {
     *this = SceneBinding{};
 }
 
-VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage) {
+VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage, const SkyPass& sky) {
     const TextureSet* textures = nullptr;
     VK_TRY(device.textures(&textures));
     const VkImageView placeholder = textures->textures[kInteriorEarth].view;
+    auto image = [](VkSampler sampler, VkImageView view) {
+        return VkDescriptorImageInfo{sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    };
+    auto write = [](VkDescriptorSet dst, uint32_t binding, uint32_t count, const VkDescriptorImageInfo* images) {
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = dst;
+        w.dstBinding = binding;
+        w.descriptorCount = count;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = images;
+        return w;
+    };
     if (earthImage == VK_NULL_HANDLE) earthImage = placeholder;
     if (earthImage != earthImage_) {
-        VkDescriptorImageInfo image{textures->clamp, earthImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = set;
-        write.dstBinding = kEarthImageBinding;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = &image;
-        vkUpdateDescriptorSets(device.device, 1, &write, 0, nullptr);
+        const VkDescriptorImageInfo info = image(textures->clamp, earthImage);
+        const VkWriteDescriptorSet w = write(set, kEarthImageBinding, 1, &info);
+        vkUpdateDescriptorSets(device.device, 1, &w, 0, nullptr);
         earthImage_ = earthImage;
+    }
+    // `set` and `earthSet` read the view LUT; `skySet` (the pass that renders it) gets placeholders.
+    const VkImageView inscatter = sky.inscatter != VK_NULL_HANDLE ? sky.inscatter : placeholder;
+    const VkImageView transmittance = sky.transmittance != VK_NULL_HANDLE ? sky.transmittance : placeholder;
+    if (inscatter != skyInscatter_) {
+        const VkDescriptorImageInfo views[2] = {image(textures->clamp, inscatter), image(textures->clamp, transmittance)};
+        const VkWriteDescriptorSet w[2] = {write(set, kSkyInscatterBinding, 2, views),
+                                           write(earthSet, kSkyInscatterBinding, 2, views)};
+        vkUpdateDescriptorSets(device.device, 2, w, 0, nullptr);
+        skyInscatter_ = inscatter;
     }
     if (!texturesBound_) {
         VkDescriptorImageInfo images[kTextureSlots];
-        for (uint32_t s = 0; s < kTextureSlots; ++s) {
-            images[s] = {textures->sampler(s), textures->textures[s].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        for (uint32_t s = 0; s < kTextureSlots; ++s) images[s] = image(textures->sampler(s), textures->textures[s].view);
+        VkDescriptorImageInfo generated[kGeneratedSlots];
+        for (uint32_t g = 0; g < kGeneratedSlots; ++g) {
+            generated[g] = image(textures->generatedSampler(g), textures->generated[g].view);
         }
-        VkDescriptorImageInfo image{textures->clamp, placeholder, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet writes[3];
-        for (int i = 0; i < 3; ++i) {
-            writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            writes[i].dstSet = i == 0 ? set : earthSet;
-            writes[i].dstBinding = i == 2 ? kEarthImageBinding : 1;
-            writes[i].descriptorCount = i == 2 ? 1 : kTextureSlots;
-            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[i].pImageInfo = i == 2 ? &image : images;
-        }
-        vkUpdateDescriptorSets(device.device, 3, writes, 0, nullptr);
+        const VkDescriptorImageInfo hold = image(textures->clamp, placeholder);
+        const VkDescriptorImageInfo holdPair[2] = {hold, hold};
+        const VkWriteDescriptorSet w[] = {
+            write(set, 1, kTextureSlots, images),
+            write(earthSet, 1, kTextureSlots, images),
+            write(skySet, 1, kTextureSlots, images),
+            write(set, kGeneratedBinding, kGeneratedSlots, generated),
+            write(earthSet, kGeneratedBinding, kGeneratedSlots, generated),
+            write(skySet, kGeneratedBinding, kGeneratedSlots, generated),
+            write(earthSet, kEarthImageBinding, 1, &hold),
+            write(skySet, kEarthImageBinding, 1, &hold),
+            write(skySet, kSkyInscatterBinding, 2, holdPair),
+        };
+        vkUpdateDescriptorSets(device.device, sizeof(w) / sizeof(w[0]), w, 0, nullptr);
         texturesBound_ = true;
     }
     std::memcpy(mapped_, inputs + inputs::kSceneBlock, sizeof(float) * (inputs::kCount - inputs::kSceneBlock));

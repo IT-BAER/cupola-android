@@ -20,9 +20,11 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.math.abs
 import kotlin.math.acos
+import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.atan
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.sin
@@ -164,6 +166,12 @@ object SceneGeometry {
     }
 }
 
+/** Atmosphere shell of the renderer; must match `atmosphere_params.h` (radii in the ellipsoid-scaled space). */
+object Atmosphere {
+    const val BOTTOM_KM = 6378.137
+    const val TOP_KM = 6478.137
+}
+
 /** Everything the Earth shader needs for one frame; [write] fills the [FrameInputs] scene slots. */
 data class Scene(
     val instant: Instant,
@@ -177,6 +185,8 @@ data class Scene(
     val blenderFromCamera: Mat3? = null,
     /** Linear exposure; null uses the steady [Exposure.steady] value (offscreen renders and goldens). */
     val exposure: Double? = null,
+    /** [FrameInputs.EFFECTS] bits (user effect switches, plus debug bits in tests). */
+    val effects: Int = FrameInputs.EFFECTS_ALL,
 ) {
     private val tanHalfLong = tan(Math.toRadians(fovLongDeg / 2))
 
@@ -222,14 +232,41 @@ data class Scene(
         inputs[FrameInputs.EARTH_LIGHT] = earthLight().toFloat()
         inputs[FrameInputs.MOON_LIGHT] = moonLight().toFloat()
         inputs[FrameInputs.EXPOSURE] = (exposure ?: Exposure.steady(this)).toFloat()
+        inputs[FrameInputs.EFFECTS] = effects.toFloat()
+        writeSkyFrame(inputs)
     }
 
+    /** [FrameInputs.SKY_UP] .. [FrameInputs.SKY_TOP_NADIR], in double. */
+    private fun writeSkyFrame(inputs: FloatArray) {
+        val c = cameraEcefKm
+        val scaled = Vector3(c.x, c.y, c.z * SceneGeometry.A_KM / SceneGeometry.B_KM)
+        val r = scaled.norm()
+        val up = SceneGeometry.unit(scaled)
+        val across = sunDirEcef - up * (sunDirEcef dot up)
+        // Sun at the zenith or nadir: every azimuth is equivalent, any perpendicular axis does.
+        val axis = if (across.norm() > 1e-9) {
+            SceneGeometry.unit(across)
+        } else {
+            SceneGeometry.unit(up cross if (abs(up.x) < 0.9) Vector3(1.0, 0.0, 0.0) else Vector3(0.0, 1.0, 0.0))
+        }
+        put(inputs, FrameInputs.SKY_UP, up)
+        inputs[FrameInputs.SKY_HORIZON_NADIR] = asin((Atmosphere.BOTTOM_KM / r).coerceAtMost(1.0)).toFloat()
+        put(inputs, FrameInputs.SKY_SUN_AXIS, axis)
+        inputs[FrameInputs.SKY_TOP_NADIR] = asin((Atmosphere.TOP_KM / r).coerceAtMost(1.0)).toFloat()
+    }
+
+    /** Mean radiance of the visible ground (shader units, albedo [EARTH_ALBEDO], no atmosphere). */
+    fun earthLight(): Double = EARTH_ALBEDO * capMean { maxOf(0.0, it) }
+
+    /** Mean radiance (luma) of the sunlit air in front of the visible ground: [airlight] averaged like [earthLight]. */
+    fun airLight(): Double = capMean(::airlight)
+
     /**
-     * Mean radiance of the visible Earth (shader units, albedo [EARTH_ALBEDO]): the Sun's cosine at the ground,
-     * averaged over the solid angle of the visible cap as seen from the camera (spherical Earth of radius a).
-     * Rings are uniform in ground angle (smooth as the terminator leaves the cap), weighted by sin(theta) dtheta/dgamma.
+     * Mean of [f] (of the Sun's cosine at the ground) over the solid angle of the visible cap as seen from the camera
+     * (spherical Earth of radius a). Rings are uniform in ground angle (smooth as the terminator leaves the cap),
+     * weighted by sin(theta) dtheta/dgamma.
      */
-    fun earthLight(): Double {
+    private fun capMean(f: (Double) -> Double): Double {
         val a = SceneGeometry.A_KM
         val r = cameraEcefKm.norm()
         val up = SceneGeometry.unit(cameraEcefKm)
@@ -245,11 +282,11 @@ data class Scene(
             for (j in 0 until CAP_SECTORS) {
                 val phi = 2 * Math.PI * (j + 0.5) / CAP_SECTORS
                 val ground = up * cos(g) + (e1 * cos(phi) + e2 * sin(phi)) * sin(g)
-                sum += w * maxOf(0.0, ground dot sunDirEcef)
+                sum += w * f(ground dot sunDirEcef)
             }
             weight += w * CAP_SECTORS
         }
-        return EARTH_ALBEDO * sum / weight
+        return sum / weight
     }
 
     /**
@@ -266,6 +303,24 @@ data class Scene(
         const val MOON_FULL = 2.5e-6
         private const val CAP_RINGS = 16
         private const val CAP_SECTORS = 32
+
+        /** Multiple over single scattering in airlight luma (A35 render vs tools/atmosphere/airlight.py: 1.24-1.43 at -1..-3 deg). */
+        const val AIRLIGHT_MULTI_SCATTER = 1.3
+
+        /**
+         * Airlight luma (shader units) seen from 420 km over ground where the Sun's cosine is [muS]: a fit (within 11 %
+         * from -8 to 90 deg elevation) to the cap-mean single scattering of tools/atmosphere/airlight.py, times
+         * [AIRLIGHT_MULTI_SCATTER]. Twilight: a Gaussian falloff in elevation below the horizon.
+         */
+        fun airlight(muS: Double): Double {
+            val e = Math.toDegrees(asin(muS.coerceIn(-1.0, 1.0)))
+            val day = AIRLIGHT_MULTI_SCATTER * 0.0418
+            return if (e >= 0) {
+                day * (1 - exp(-(e + 2.34) / 8.83))
+            } else {
+                day * (1 - exp(-2.34 / 8.83)) * exp(0.495 * e - 0.0413 * e * e)
+            }
+        }
     }
 
     private fun put(inputs: FloatArray, at: Int, v: Vector3) {

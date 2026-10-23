@@ -1,12 +1,15 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // P3.1 Earth: per-pixel ray cast against the WGS-84 ellipsoid (no mesh), day colour, relief and sun glint,
 // seen through the baked Cupola interior panorama (decision 22).
 // Texture contract: tools/textures/README.md "Runtime contract (P5.5)" and "interior_*";
 // panorama contract: tools/blender/README.md "Runtime contract".
 
+#include "../atmosphere_params.h"
+
 // 0: Earth and interior in one full-resolution pass. 1: Earth only into the scaled target, skipped where the
-// interior covers it. 2: interior over the scaled Earth target, full resolution.
+// interior covers it. 2: interior over the scaled Earth target, full resolution. 3: the sky view LUT (SkyPass).
 layout(constant_id = 0) const int MODE = 0;
 
 // Must match cupola::PushConstants in device.h.
@@ -19,7 +22,12 @@ layout(push_constant) uniform Push {
     float lookYawDeg;
     float lookPitchDeg;
     vec2 earthScale;  // scaled Earth target extent / full extent, per axis (MODE 1)
+    int effects;      // FrameInputs.EFFECTS bits
 } pc;
+
+// FrameInputs.DEBUG_* bits.
+const int DEBUG_NO_ATMOSPHERE = 1 << 16;
+const int DEBUG_NO_INSCATTER = 1 << 17;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -32,6 +40,8 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 iRight;   // xyz camera right in the Blender interior frame, w = 1 when the interior is shown
     vec4 iUp;      // xyz camera up in the interior frame, w = Earth brightness for the Earthlight layer
     vec4 iBack;    // xyz camera back in the interior frame, w = linear exposure
+    vec4 skyUp;    // xyz radial up of the camera in the ellipsoid-scaled space, w = nadir angle of the horizon
+    vec4 skyAxis;  // xyz the Sun's azimuth axis (perpendicular to skyUp), w = nadir angle of the atmosphere top
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
@@ -43,8 +53,15 @@ layout(set = 0, binding = 9) uniform sampler2D interiorCabin;
 layout(set = 0, binding = 10) uniform sampler2D interiorEmissive;
 layout(set = 0, binding = 11) uniform sampler2D interiorAmbient;
 layout(set = 0, binding = 12) uniform sampler2D earthImage;  // MODE 2: the scaled Earth target (linear)
+// Atmosphere LUTs computed at start (atmosphere_lut.cpp, mappings mirrored below) and the per-frame view LUT.
+layout(set = 0, binding = 13) uniform sampler2D transmittanceLut;
+layout(set = 0, binding = 14) uniform sampler2D multiScatterLut;
+layout(set = 0, binding = 15) uniform sampler2D irradianceLut;
+layout(set = 0, binding = 17) uniform sampler2D skyInscatter;
+layout(set = 0, binding = 18) uniform sampler2D skyTransmittance;
 
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outTransmittance;  // MODE 3 only
 
 const float A_KM = 6378.137;
 const float B_KM = 6356.752314245179;
@@ -82,6 +99,18 @@ const float EARTHLIGHT_GAIN = 18.0;
 const float EARTH_FILL_GAIN = 6.0;
 // Above this window alpha the interior hides the Earth completely.
 const float OPAQUE = 0.999;
+
+// Atmosphere (Hillaire 2020; model in atmosphere_params.h). Lengths in the ellipsoid-scaled space, where the
+// WGS-84 surface is the sphere RG. The LUTs hold radiance per unit sun illuminance; shader units give the Sun an
+// illuminance of pi (a white Lambertian surface facing it has radiance 1).
+const float RG = ATMO_BOTTOM_KM;
+const float RT = ATMO_TOP_KM;
+const vec3 TO_SPHERE = vec3(1.0, 1.0, A_KM / B_KM);
+const float SUN_ILLUMINANCE = PI;
+const float SUN_RADIUS = 0.004654;  // rad
+const vec3 RAYLEIGH_SCATTER = vec3(ATMO_RAYLEIGH_SCATTER_R, ATMO_RAYLEIGH_SCATTER_G, ATMO_RAYLEIGH_SCATTER_B);
+const vec3 OZONE_ABSORB = vec3(ATMO_OZONE_ABSORB_R, ATMO_OZONE_ABSORB_G, ATMO_OZONE_ABSORB_B);
+const int SKY_STEPS = 20;  // per segment of a view ray (MODE 3)
 
 // Physical pixel position (continuous) to the logical (unrotated) image.
 vec2 logicalPixel(vec2 p) {
@@ -172,6 +201,136 @@ vec4 interior(vec3 c) {
     return vec4(earthlit * s.iUp.w + cabin * STATIC_SCALE, earth.a);
 }
 
+// Bruneton 2017 mapping between [0, 1] and the texel centres of an n-texel axis.
+float texcoordFromUnit(float x, float n) { return 0.5 / n + x * (1.0 - 1.0 / n); }
+float unitFromTexcoord(float u, float n) { return (u - 0.5 / n) / (1.0 - 1.0 / n); }
+
+// Transmittance LUT (atmosphere_lut.cpp transmittanceUv): from radius r along cos(zenith) mu to the top boundary.
+vec3 transmittanceToTop(float r, float mu) {
+    float h = sqrt(RT * RT - RG * RG);
+    float rho = sqrt(max((r - RG) * (r + RG), 0.0));
+    float sinZ = sqrt(max(1.0 - mu * mu, 0.0));
+    float d = max(-r * mu + sqrt(max((RT - r * sinZ) * (RT + r * sinZ), 0.0)), 0.0);
+    float dMin = RT - r;
+    float dMax = rho + h;
+    vec2 uv = vec2(texcoordFromUnit(clamp((d - dMin) / (dMax - dMin), 0.0, 1.0), float(ATMO_TRANSMITTANCE_W)),
+                   texcoordFromUnit(clamp(rho / h, 0.0, 1.0), float(ATMO_TRANSMITTANCE_H)));
+    return textureLod(transmittanceLut, uv, 0.0).rgb;
+}
+
+// Sunlight reaching radius r with the Sun at cos(zenith) muS: the LUT transmittance, faded over the Sun's disc as
+// it sets behind the horizon of r.
+vec3 sunlight(float r, float muS) {
+    float muH = -sqrt(max(1.0 - (RG / r) * (RG / r), 0.0));
+    float visible = smoothstep(muH - SUN_RADIUS, muH + SUN_RADIUS, muS);
+    return visible == 0.0 ? vec3(0.0) : transmittanceToTop(r, max(muS, muH)) * visible;
+}
+
+// Sky irradiance on the ground per unit sun illuminance (irradiance LUT, u = 0.5 + 0.5 muS).
+vec3 skyIrradiance(float muS) { return textureLod(irradianceLut, vec2(0.5 + 0.5 * muS, 0.5), 0.0).rgb; }
+
+float rayleighPhase(float nu) { return 3.0 / (16.0 * PI) * (1.0 + nu * nu); }
+
+float miePhase(float nu) {
+    const float g = ATMO_MIE_G;
+    return 3.0 / (8.0 * PI) * (1.0 - g * g) * (1.0 + nu * nu) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * nu, 1.5));
+}
+
+// Integral of exp(-k t) over [0, dt] per channel, without cancellation for small k dt.
+vec3 stepIntegral(vec3 k, float dt) {
+    vec3 x = k * dt;
+    return mix(dt * (1.0 - 0.5 * x), (1.0 - exp(-x)) / max(k, vec3(1e-12)), step(vec3(1e-3), x));
+}
+
+// Single plus multiple scattering along one view-ray segment [a, b] from the camera at radius r (cos zenith mu,
+// cos angle to the Sun nu, the Sun's cos zenith at the camera muS0). Samples crowd at b (denseAtEnd) or at a.
+void marchSegment(float r, float mu, float nu, float muS0, float a, float b, bool denseAtEnd, inout vec3 inscatter,
+                  inout vec3 transmittance) {
+    float phaseR = rayleighPhase(nu);
+    float phaseM = miePhase(nu);
+    float t0 = a;
+    for (int i = 0; i < SKY_STEPS; ++i) {
+        float x = float(i + 1) / float(SKY_STEPS);
+        float f = denseAtEnd ? 1.0 - (1.0 - x) * (1.0 - x) : x * x;
+        float t1 = a + (b - a) * f;
+        float dt = t1 - t0;
+        float t = 0.5 * (t0 + t1);
+        t0 = t1;
+        float ri = sqrt(max(r * r + t * t + 2.0 * r * mu * t, RG * RG));
+        float h = ri - RG;
+        vec3 rayleigh = RAYLEIGH_SCATTER * exp(-h / ATMO_RAYLEIGH_HEIGHT_KM);
+        float mieDensity = exp(-h / ATMO_MIE_HEIGHT_KM);
+        float mie = ATMO_MIE_SCATTER * mieDensity;
+        vec3 extinction = rayleigh + ATMO_MIE_EXTINCTION * mieDensity +
+                          OZONE_ABSORB * max(0.0, 1.0 - abs(h - ATMO_OZONE_CENTER_KM) / ATMO_OZONE_HALF_WIDTH_KM);
+        float muS = clamp((r * muS0 + t * nu) / ri, -1.0, 1.0);
+        vec3 multi = textureLod(multiScatterLut, vec2(0.5 + 0.5 * muS, h / (RT - RG)), 0.0).rgb;
+        vec3 source = sunlight(ri, muS) * (rayleigh * phaseR + mie * phaseM) + (rayleigh + mie) * multi;
+        inscatter += transmittance * source * stepIntegral(extinction, dt);
+        transmittance *= exp(-extinction * dt);
+    }
+}
+
+// Sky view LUT (ATMO_VIEW_W x ATMO_VIEW_H) in the camera's sky frame: u = azimuth from the Sun's axis, 0..pi (the
+// sky is mirror-symmetric about the Sun's vertical plane); v in [0, 0.5): nadir angle 0 to the horizon (ground
+// rays), v in [0.5, 1]: horizon to the atmosphere top (limb rays); both halves crowd their rows at the horizon and
+// put their end texel centres on their end angles, so bilinear lookups never mix the two.
+vec3 skyDirection(vec2 fragCoord, out bool ground) {
+    float halfH = 0.5 * float(ATMO_VIEW_H);
+    ground = fragCoord.y < halfH;
+    float phi = PI * unitFromTexcoord(fragCoord.x / float(ATMO_VIEW_W), float(ATMO_VIEW_W));
+    float k = unitFromTexcoord((ground ? fragCoord.y : fragCoord.y - halfH) / halfH, halfH);
+    float thetaH = s.skyUp.w;
+    float theta = ground ? thetaH * (1.0 - (1.0 - k) * (1.0 - k)) : thetaH + (s.skyAxis.w - thetaH) * k * k;
+    vec3 y = cross(s.skyUp.xyz, s.skyAxis.xyz);
+    return -s.skyUp.xyz * cos(theta) + (s.skyAxis.xyz * cos(phi) + y * sin(phi)) * sin(theta);
+}
+
+// MODE 3: inscattered radiance (per unit sun illuminance) and transmittance from the camera along the LUT texel's
+// ray, to the ground or through the limb.
+void skyTexel(vec2 fragCoord, out vec3 inscatter, out vec3 transmittance) {
+    bool ground;
+    vec3 d = skyDirection(fragCoord, ground);
+    float r = length(s.camPos.xyz * TO_SPHERE);
+    float mu = dot(d, s.skyUp.xyz);
+    float nu = dot(d, s.sun.xyz);
+    float muS0 = dot(s.skyUp.xyz, s.sun.xyz);
+    inscatter = vec3(0.0);
+    transmittance = vec3(1.0);
+    float sinZ = sqrt(max(1.0 - mu * mu, 0.0));
+    float topDisc = (RT - r * sinZ) * (RT + r * sinZ);
+    if (topDisc <= 0.0) return;
+    float mid = -r * mu;  // closest approach to the centre
+    float entry = max(mid - sqrt(topDisc), 0.0);
+    if (ground) {
+        float groundHit = mid - sqrt(max((RG - r * sinZ) * (RG + r * sinZ), 0.0));
+        marchSegment(r, mu, nu, muS0, entry, groundHit, true, inscatter, transmittance);
+    } else {
+        marchSegment(r, mu, nu, muS0, entry, mid, true, inscatter, transmittance);
+        marchSegment(r, mu, nu, muS0, mid, mid + sqrt(topDisc), false, inscatter, transmittance);
+    }
+}
+
+// View LUT lookup for the ECEF ray dir: inscatter (shader units) and transmittance to the ground (hit) or through
+// the limb. Rays past the atmosphere top get none.
+void skyLookup(vec3 dir, bool hit, out vec3 inscatter, out vec3 transmittance) {
+    inscatter = vec3(0.0);
+    transmittance = vec3(1.0);
+    vec3 d = normalize(dir * TO_SPHERE);
+    float theta = acos(clamp(-dot(d, s.skyUp.xyz), -1.0, 1.0));
+    float thetaH = s.skyUp.w;
+    float thetaT = s.skyAxis.w;
+    if (!hit && theta >= thetaT) return;
+    vec3 y = cross(s.skyUp.xyz, s.skyAxis.xyz);
+    float phi = atan(abs(dot(d, y)), dot(d, s.skyAxis.xyz));
+    float halfH = 0.5 * float(ATMO_VIEW_H);
+    float v = hit ? 0.5 * texcoordFromUnit(1.0 - sqrt(1.0 - clamp(theta / thetaH, 0.0, 1.0)), halfH)
+                  : 0.5 + 0.5 * texcoordFromUnit(sqrt(clamp((theta - thetaH) / (thetaT - thetaH), 0.0, 1.0)), halfH);
+    vec2 uv = vec2(texcoordFromUnit(phi / PI, float(ATMO_VIEW_W)), v);
+    inscatter = textureLod(skyInscatter, uv, 0.0).rgb * SUN_ILLUMINANCE;
+    transmittance = textureLod(skyTransmittance, uv, 0.0).rgb;
+}
+
 // Unit-ellipsoid ray cast; c comes in precomputed in double. t = c / (-b + sqrt(disc)) avoids cancellation.
 // Misses return the tangent point so neighbour differences stay continuous at the limb.
 vec3 castEarth(vec3 dir, out bool hit) {
@@ -199,7 +358,12 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 dir = ecefRay(cameraRay(p));
     bool hit;
     vec3 pos = castEarth(dir, hit);
-    if (!hit) return vec3(0.0);
+    bool atmosphere = (pc.effects & DEBUG_NO_ATMOSPHERE) == 0;
+    vec3 inscatter = vec3(0.0);
+    vec3 viewTransmittance = vec3(1.0);
+    if (atmosphere) skyLookup(dir, hit, inscatter, viewTransmittance);
+    if ((pc.effects & DEBUG_NO_INSCATTER) != 0) inscatter = vec3(0.0);
+    if (!hit) return inscatter;
     bool unused;
     vec2 ll = lonLat(pos);
     vec2 llx = lonLat(castEarth(ecefRay(cameraRay(p + vec2(stepPx.x, 0.0))), unused));
@@ -248,9 +412,13 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
 
     vec3 l = s.sun.xyz;
     vec3 v = -dir;
-    // Soft terminator on the ellipsoid normal: sun elevation from about -1 to +2.3 degrees.
-    float daylight = smoothstep(-0.02, 0.04, dot(n, l));
-    vec3 diffuse = albedo * max(dot(relief, l), 0.0) * daylight;
+    // With the atmosphere: sunlight through the transmittance LUT plus sky irradiance. Without: a soft terminator on
+    // the ellipsoid normal, sun elevation from about -1 to +2.3 degrees.
+    float muS = dot(n, l);
+    float daylight = smoothstep(-0.02, 0.04, muS);
+    vec3 sun = atmosphere ? sunlight(RG, muS) : vec3(daylight);
+    vec3 sky = atmosphere ? skyIrradiance(muS) : vec3(0.0);
+    vec3 diffuse = albedo * (max(dot(relief, l), 0.0) * sun + sky);
 
     // Sun glint: Beckmann lobe on the flat sea surface, Schlick Fresnel; radiance with irradiance pi.
     vec3 h = normalize(l + v);
@@ -259,12 +427,20 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     float beckmann = exp((nh2 - 1.0) / (GLINT_M2 * nh2)) / (PI * GLINT_M2 * nh2 * nh2);
     float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
     float nv = max(dot(n, v), 1e-3);
-    float glint = water * fresnel * beckmann * PI / (4.0 * nv) * daylight * step(0.0, dot(n, l));
+    vec3 glint = water * fresnel * beckmann * PI / (4.0 * nv) * sun * step(0.0, muS);
 
-    return diffuse + vec3(glint);
+    return (diffuse + glint) * viewTransmittance + inscatter;
 }
 
 void main() {
+    if (MODE == 3) {
+        vec3 inscatter;
+        vec3 transmittance;
+        skyTexel(gl_FragCoord.xy, inscatter, transmittance);
+        outColor = vec4(inscatter, 1.0);
+        outTransmittance = vec4(transmittance, 1.0);
+        return;
+    }
     if (MODE == 1) {
         // Scaled target: skip texels whose whole bilinear footprint (one target texel around) is interior.
         vec2 stepPx = 1.0 / pc.earthScale;

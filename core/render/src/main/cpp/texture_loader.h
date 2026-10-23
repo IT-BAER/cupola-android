@@ -36,6 +36,11 @@ constexpr VkDeviceSize kStagingCapBytes = 32ull << 20;
 // On failure nothing is left allocated and `*out` is empty; `*vkResult` holds the failing VkResult.
 int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult);
 
+// Uploads one 2D level of tightly packed texels (`bytes` = width x height x texel size) into a sampled image in
+// SHADER_READ_ONLY_OPTIMAL; the generated textures of the TextureSet. Returns the first failing VkResult.
+VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, const void* texels,
+                       VkDeviceSize bytes, Texture* out);
+
 void destroyTexture(const Device& device, Texture* texture);
 
 }  // namespace cupola

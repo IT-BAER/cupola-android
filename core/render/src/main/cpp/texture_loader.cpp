@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <numeric>
 
 namespace cupola {
@@ -249,6 +250,88 @@ int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Tex
     int32_t status = load(device, assets, path, out, vkResult);
     if (status != code(TextureStatus::kOk)) LOGW("loadTexture %s failed: status %d, VkResult %d", path, status, *vkResult);
     return status;
+}
+
+VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, const void* texels,
+                       VkDeviceSize bytes, Texture* out) {
+    *out = Texture{};
+    UploadResources r;
+    r.device = &device;
+    const VkDevice dev = device.device;
+    r.texture.info.width = width;
+    r.texture.info.height = height;
+    r.texture.info.levels = 1;
+    r.texture.info.layers = 1;
+    r.texture.info.format = static_cast<ktx2::Format>(format);
+
+    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = format;
+    imageInfo.extent = {width, height, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &r.texture.image));
+    VkMemoryRequirements imageReq;
+    vkGetImageMemoryRequirements(dev, r.texture.image, &imageReq);
+    VK_TRY(device.allocate(imageReq, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &r.texture.memory));
+    VK_TRY(vkBindImageMemory(dev, r.texture.image, r.texture.memory, 0));
+    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    viewInfo.image = r.texture.image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = format;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &r.texture.view));
+
+    VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bufferInfo.size = bytes;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VK_TRY(vkCreateBuffer(dev, &bufferInfo, nullptr, &r.staging));
+    VkMemoryRequirements bufferReq;
+    vkGetBufferMemoryRequirements(dev, r.staging, &bufferReq);
+    const VkMemoryPropertyFlags coherent = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    VK_TRY(device.allocate(bufferReq, coherent, coherent, &r.stagingMemory));
+    VK_TRY(vkBindBufferMemory(dev, r.staging, r.stagingMemory, 0));
+    VK_TRY(vkMapMemory(dev, r.stagingMemory, 0, VK_WHOLE_SIZE, 0, &r.mapped));
+    std::memcpy(r.mapped, texels, static_cast<size_t>(bytes));
+
+    VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    alloc.commandPool = device.commandPool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VK_TRY(vkAllocateCommandBuffers(dev, &alloc, &r.cmd));
+    VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VK_TRY(vkCreateFence(dev, &fenceInfo, nullptr, &r.fence));
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_TRY(vkBeginCommandBuffer(r.cmd, &begin));
+    VkImageMemoryBarrier toDst = imageBarrier(r.texture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                              0, VK_ACCESS_TRANSFER_WRITE_BIT);
+    vkCmdPipelineBarrier(r.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toDst);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyBufferToImage(r.cmd, r.staging, r.texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    VkImageMemoryBarrier toRead = imageBarrier(r.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                               VK_ACCESS_SHADER_READ_BIT);
+    vkCmdPipelineBarrier(r.cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &toRead);
+    VK_TRY(vkEndCommandBuffer(r.cmd));
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &r.cmd;
+    VK_TRY(vkQueueSubmit(device.queue, 1, &submit, r.fence));
+    r.pending = true;
+    VK_TRY(vkWaitForFences(dev, 1, &r.fence, VK_TRUE, UINT64_MAX));
+    r.pending = false;
+    *out = r.texture;
+    r.texture = Texture{};
+    return VK_SUCCESS;
 }
 
 void destroyTexture(const Device& device, Texture* texture) {

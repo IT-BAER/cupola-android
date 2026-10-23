@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 
+#include "atmosphere_lut.h"
 #include "device.h"
 #include "frame_inputs.h"
 #include "offscreen.h"
@@ -214,6 +215,25 @@ JNIEXPORT jintArray JNICALL Java_com_baer_cupola_core_render_NativeBridge_loadTe
     env->ReleaseStringUTFChars(path, chars);
     jintArray result = env->NewIntArray(7);
     if (result != nullptr) env->SetIntArrayRegion(result, 0, 7, values);
+    return result;
+}
+
+// Computes the atmosphere LUTs on the CPU and returns LUT `index` (0 transmittance, 1 multiple scattering, 2 sky
+// irradiance) as [width, height, rgba texels...]; null for an unknown index.
+JNIEXPORT jfloatArray JNICALL Java_com_baer_cupola_core_render_NativeBridge_atmosphereLut(JNIEnv* env, jclass,
+                                                                                      jint index) {
+    cupola::assertRenderThread("atmosphereLut");
+    if (index < 0 || index > 2) return nullptr;
+    cupola::atmosphere::Luts luts;
+    cupola::atmosphere::computeLuts(&luts);
+    const cupola::atmosphere::Lut& lut =
+        index == 0 ? luts.transmittance : index == 1 ? luts.multiScatter : luts.irradiance;
+    const jsize size = static_cast<jsize>(lut.rgba.size() + 2);
+    jfloatArray result = env->NewFloatArray(size);
+    if (result == nullptr) return nullptr;
+    const jfloat head[2] = {static_cast<jfloat>(lut.width), static_cast<jfloat>(lut.height)};
+    env->SetFloatArrayRegion(result, 0, 2, head);
+    env->SetFloatArrayRegion(result, 2, size - 2, lut.rgba.data());
     return result;
 }
 

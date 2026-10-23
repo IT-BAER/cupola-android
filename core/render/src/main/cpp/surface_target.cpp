@@ -103,6 +103,7 @@ SurfaceTarget::~SurfaceTarget() {
         vkDestroyPipeline(dev, earthPipeline_, nullptr);
         vkDestroyPipeline(dev, compositePipeline_, nullptr);
         earthPass_.destroy(dev);
+        skyPass_.destroy(dev);
         vkDestroyRenderPass(dev, renderPass_, nullptr);
         vkDestroySurfaceKHR(device_->instance, surface_, nullptr);
         Device::release();
@@ -258,7 +259,10 @@ VkResult SurfaceTarget::drawFrame() {
     const bool earth = wantsEarth(inputs_);
     const bool scaled = EarthPass::wanted(inputs_);
     if (scaled) VK_TRY(earthPass_.ensure(*device_, extent_, inputs_[inputs::kRenderScale]));
-    if (earth) VK_TRY(frame.scene.update(*device_, inputs_, scaled ? earthPass_.view : VK_NULL_HANDLE));
+    if (earth) {
+        VK_TRY(skyPass_.ensure(*device_));
+        VK_TRY(frame.scene.update(*device_, inputs_, scaled ? earthPass_.view : VK_NULL_HANDLE, skyPass_));
+    }
 
     uint32_t imageIndex = 0;
     VkResult acquired;
@@ -282,7 +286,8 @@ VkResult SurfaceTarget::drawFrame() {
     device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline,
                          earth ? frame.scene.set : VK_NULL_HANDLE, extent_,
                          makePushConstants(inputs_, extent_, rotation_), queries_,
-                         frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet);
+                         frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet,
+                         earth ? &skyPass_ : nullptr, frame.scene.skySet);
     VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

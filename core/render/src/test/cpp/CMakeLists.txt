@@ -1,4 +1,4 @@
-# Host tests of the KTX2 reader (no Android, no Vulkan). From the repo root:
+# Host tests of the KTX2 reader and the atmosphere LUTs (no Android, no Vulkan). From the repo root:
 #   cmake -S core/render/src/test/cpp -B build/host-tests -G Ninja && cmake --build build/host-tests
 #   ctest --test-dir build/host-tests --output-on-failure
 cmake_minimum_required(VERSION 3.22.1)
@@ -39,4 +39,15 @@ set(CASES
 foreach(CASE ${CASES})
     add_test(NAME ktx2.${CASE} COMMAND ktx2_reader_test ${CASE})
     set_tests_properties(ktx2.${CASE} PROPERTIES SKIP_RETURN_CODE 77)
+endforeach()
+
+add_executable(atmosphere_lut_test atmosphere_lut_test.cpp "${RENDER_CPP}/atmosphere_lut.cpp")
+target_include_directories(atmosphere_lut_test PRIVATE "${RENDER_CPP}")
+if(MSVC)
+    target_compile_options(atmosphere_lut_test PRIVATE /W4 /WX /utf-8)
+else()
+    target_compile_options(atmosphere_lut_test PRIVATE -Wall -Wextra -Werror -O2)
+endif()
+foreach(CASE sizes_and_finite zenith_transmittance horizon_reddens multi_scatter sky_irradiance)
+    add_test(NAME atmosphere.${CASE} COMMAND atmosphere_lut_test ${CASE})
 endforeach()

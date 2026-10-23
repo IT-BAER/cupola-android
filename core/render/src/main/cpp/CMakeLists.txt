@@ -20,7 +20,7 @@ foreach(SHADER fullscreen.vert pattern.frag earth.frag)
     add_custom_command(
         OUTPUT "${INC}"
         COMMAND "${GLSLC}" --target-env=vulkan1.1 -O -Werror -mfmt=c -o "${INC}" "${SRC}"
-        DEPENDS "${SRC}"
+        DEPENDS "${SRC}" "${CMAKE_CURRENT_SOURCE_DIR}/atmosphere_params.h"
         COMMENT "glslc ${SHADER}"
         VERBATIM)
     list(APPEND SHADER_INCS "${INC}")
@@ -28,11 +28,13 @@ endforeach()
 add_custom_target(cupola_shaders DEPENDS ${SHADER_INCS})
 
 add_library(cupola_render SHARED
+    atmosphere_lut.cpp
     device.cpp
     earth_pass.cpp
     jni_bridge.cpp
     offscreen.cpp
     scene_binding.cpp
+    sky_pass.cpp
     surface_target.cpp
     texture_loader.cpp
     texture_set.cpp

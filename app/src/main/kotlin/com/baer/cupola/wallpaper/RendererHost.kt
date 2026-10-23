@@ -8,7 +8,10 @@ import com.baer.cupola.core.render.scene.QualityGovernor
 import com.baer.cupola.feature.settings.SettingsRepository
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.tle.Tle
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -19,6 +22,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+
+/** The process [RendererHost] for code without injection; in-process tests must share its renderer (one per process). */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface RendererHostEntryPoint {
+    fun rendererHost(): RendererHost
+}
 
 /**
  * One [NativeRenderer] (and so one render thread) per process, shared by every wallpaper engine

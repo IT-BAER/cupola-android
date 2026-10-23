@@ -114,6 +114,11 @@ class NativeRenderer(
         TextureInfo(status = v[0], vkResult = v[1], format = v[2], width = v[3], height = v[4], layers = v[5], levels = v[6])
     }
 
+    /** The CPU atmosphere LUT [index] as computed at texture-set load: width, height, then RGBA texels row by row. */
+    internal fun atmosphereLut(index: Int): FloatArray = thread.postAndWait {
+        checkNotNull(NativeBridge.atmosphereLut(index)) { "no atmosphere LUT $index" }
+    }
+
     /** Detaches every surface, releases the device and stops the render thread. */
     override fun close() {
         thread.postAndWait { targets.detachAll() }

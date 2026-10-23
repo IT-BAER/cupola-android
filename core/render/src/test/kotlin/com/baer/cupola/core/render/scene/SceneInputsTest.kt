@@ -215,4 +215,41 @@ class SceneInputsTest {
         val q = (c.x / a) * (c.x / a) + (c.y / a) * (c.y / a) + (c.z / b) * (c.z / b) - 1
         assertEquals(q.toFloat(), inputs[FrameInputs.CAMERA_ELLIPSOID_C])
     }
+
+    /**
+     * Sky frame of the view LUT in the ellipsoid-scaled space (z x a / b): radial up, the Sun's azimuth axis, and the
+     * nadir angles of the ground horizon and of the atmosphere top ([Atmosphere.TOP_KM], same as atmosphere_params.h).
+     */
+    @Test
+    fun writeFillsTheSkyFrameAndDefaultEffects() {
+        val st = state(40.0, 20.0).copy(sunDirEcef = SceneGeometry.unit(Vector3(0.3, -0.5, 0.8)))
+        val scene = SceneInputs.build(st, RestView.NADIR, 0.0, 0.0)
+        val inputs = FrameInputs.empty()
+        scene.write(inputs)
+        val a = Frames.WGS84_A_KM
+        val b = a * (1 - Frames.WGS84_F)
+        val c = scene.cameraEcefKm
+        val scaled = Vector3(c.x, c.y, c.z * a / b)
+        val up = SceneGeometry.unit(scaled)
+        fun vec(at: Int) = Vector3(inputs[at].toDouble(), inputs[at + 1].toDouble(), inputs[at + 2].toDouble())
+        assertVec(up, vec(FrameInputs.SKY_UP), 1e-6)
+        val axis = vec(FrameInputs.SKY_SUN_AXIS)
+        assertEquals(1.0, axis.norm(), 1e-6)
+        assertEquals(0.0, axis dot up, 1e-6)
+        // The Sun lies in the plane of up and the axis, on the axis side.
+        val sun = scene.sunDirEcef
+        assertEquals(0.0, sun dot (up cross axis), 1e-6)
+        assertEquals((sun - up * (sun dot up)).norm(), sun dot axis, 1e-6)
+        assertEquals(asin(a / scaled.norm()), inputs[FrameInputs.SKY_HORIZON_NADIR].toDouble(), 1e-6)
+        assertEquals(asin((a + 100.0) / scaled.norm()), inputs[FrameInputs.SKY_TOP_NADIR].toDouble(), 1e-6)
+        assertEquals(FrameInputs.EFFECTS_ALL.toFloat(), inputs[FrameInputs.EFFECTS])
+    }
+
+    @Test
+    fun atmosphereConstantsMatchTheNativeHeader() {
+        val header = java.io.File("src/main/cpp/atmosphere_params.h").readText()
+        fun define(name: String) = Regex("""#define\s+$name\s+([0-9.eE+-]+)""").find(header)!!.groupValues[1].toDouble()
+        assertEquals(define("ATMO_BOTTOM_KM"), Atmosphere.BOTTOM_KM, 0.0)
+        assertEquals(define("ATMO_TOP_KM"), Atmosphere.TOP_KM, 0.0)
+    }
 }

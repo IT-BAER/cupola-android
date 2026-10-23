@@ -44,6 +44,30 @@ class ExposureTest {
         assertTrue("terminator $terminator", terminator in 0.01..0.2)
     }
 
+    /**
+     * Cap-mean single-scatter airlight luma from 420 km (tools/atmosphere/airlight.py) by sun elevation; the model
+     * adds [Scene.AIRLIGHT_MULTI_SCATTER] for multiple scattering.
+     */
+    @Test
+    fun airlightFollowsTheSingleScatterIntegration() {
+        val table = mapOf(
+            -6.0 to 1.0200e-04, -4.0 to 6.8747e-04, -2.0 to 3.2992e-03, -1.0 to 5.8999e-03, 0.0 to 9.2146e-03,
+            1.0 to 1.2711e-02, 3.0 to 1.9136e-02, 8.0 to 2.9403e-02, 20.0 to 3.7918e-02, 90.0 to 4.1976e-02,
+        )
+        for ((elevationDeg, singleScatter) in table) {
+            val model = Scene.airlight(sin(Math.toRadians(elevationDeg))) / Scene.AIRLIGHT_MULTI_SCATTER
+            assertEquals("elevation $elevationDeg", 1.0, model / singleScatter, 0.12)
+        }
+    }
+
+    /** Sun 3.25 deg below the sub-ISS horizon (EarthRenderTest terminator pose): the sunlit air keeps exposure low. */
+    @Test
+    fun airlightBoundsTheTerminatorExposure() {
+        val scene = scene(93.25)
+        assertTrue("airlight ${scene.airLight()} earthLight ${scene.earthLight()}", scene.airLight() > scene.earthLight())
+        assertTrue("exposure ${Exposure.steady(scene)}", Exposure.steady(scene) < 40.0)
+    }
+
     @Test
     fun nightExposureLiftsTheShadowPassFarAboveDay() {
         val day = Exposure.steady(scene(0.0))

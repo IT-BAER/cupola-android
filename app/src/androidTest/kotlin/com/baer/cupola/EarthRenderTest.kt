@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
+import com.baer.cupola.core.render.scene.Exposure
 import com.baer.cupola.core.render.scene.Mat3
 import com.baer.cupola.core.render.scene.RestView
 import com.baer.cupola.core.render.scene.Scene
@@ -26,6 +27,9 @@ import com.baer.cupola.orbit.frames.times
 import com.baer.cupola.orbit.frames.unaryMinus
 import com.baer.cupola.orbit.sgp4.Vector3
 import com.baer.cupola.orbit.tle.Tle
+import com.baer.cupola.wallpaper.RendererHost
+import com.baer.cupola.wallpaper.RendererHostEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import java.io.File
 import java.nio.ByteBuffer
 import java.time.Instant
@@ -58,10 +62,12 @@ class EarthRenderTest {
         return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, override)
     }
 
-    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true): ByteArray {
+    /** [debug] = FrameInputs.DEBUG_* bits added to the scene's effects. */
+    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true, debug: Int = 0): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
         inputs[FrameInputs.RENDER_SCALE] = renderScale
+        inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or debug).toFloat()
         if (!interior) inputs[FrameInputs.INTERIOR] = 0f
         return renderer.renderOffscreen(W, H, inputs)
     }
@@ -259,11 +265,12 @@ class EarthRenderTest {
         assertTrue("colour, not grey: rgb $r $g $b", maxOf(abs(r - g), abs(g - b), abs(r - b)) > 8.0)
     }
 
+    /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */
     @Test
     fun limbWithinTwoPixelsOfTheAnalyticHorizon() {
         val (lat, lon) = subsolar(GLINT)
         val scene = scene(GLINT, lat, lon, 0.0, -20.0)
-        val img = render(scene)
+        val img = render(scene, debug = FrameInputs.DEBUG_NO_ATMOSPHERE)
         save("limb", img)
         var worst = 0.0
         for (x in 0 until W step 54) {
@@ -277,6 +284,127 @@ class EarthRenderTest {
         }
         Log.i(TAG, "limb worst |rendered - analytic| = $worst px")
         assertTrue("limb off by $worst px", worst <= 2.0)
+    }
+
+    /**
+     * P3.3 limb by day: the atmosphere glows bright and blue 3 px above the analytic ground horizon in every sampled
+     * column, and ends at its top: black from 3 px above the row where rays graze the 100 km shell (the shader's
+     * sphere in the ellipsoid-scaled space) upwards.
+     */
+    @Test
+    fun atmosphereGlowsAboveTheLimbAndEndsAtItsTop() {
+        val (lat, lon) = subsolar(GLINT)
+        val scene = scene(GLINT, lat, lon, 0.0, -20.0)
+        val img = render(scene)
+        save("limb_atmosphere", img)
+        var aboveTop = 0.0
+        var dimmest = Double.MAX_VALUE
+        var blueOverRed = 0
+        var columns = 0
+        for (x in 0 until W step 54) {
+            val ground = horizonRow(scene, x + 0.5)!!
+            val top = shellRow(scene, x + 0.5, TOP_KM)!!
+            for (y in 0..(top - 3).toInt()) aboveTop = maxOf(aboveTop, luma(img, x, y))
+            val y = (ground - 3).toInt()
+            dimmest = minOf(dimmest, luma(img, x, y))
+            val i = at(x, y)
+            if (ch(img, i + 2) > ch(img, i)) blueOverRed++
+            columns++
+            if (x == 540) {
+                val profile = (0 until 16).map { luma(img, x, (ground - 1 - it * 4).toInt()).toInt() }
+                Log.i(TAG, "limb column $x ground row $ground top row $top glow every 4 px up: $profile")
+            }
+        }
+        Log.i(TAG, "limb atmosphere: max luma above the top $aboveTop, dimmest glow $dimmest, blue over red $blueOverRed of $columns")
+        assertTrue("light above the atmosphere top: $aboveTop", aboveTop < 1.0)
+        assertTrue("limb glow too dim: $dimmest", dimmest > 20.0)
+        assertTrue("limb glow not blue in ${columns - blueOverRed} columns", blueOverRed == columns)
+    }
+
+    /**
+     * P3.3 aerial perspective: an oblique day view over Egypt towards the horizon. The atmosphere adds blue haze to the
+     * ground, most along the long paths just below the horizon, less in the frame's bottom rows (short paths).
+     */
+    @Test
+    fun aerialPerspectiveHazesTheGroundMostNearTheHorizon() {
+        val scene = scene(DAY, 25.0, 32.0, 0.0, -20.0)
+        val on = render(scene)
+        val off = render(scene, debug = FrameInputs.DEBUG_NO_ATMOSPHERE)
+        save("haze_oblique", on)
+        save("haze_oblique_off", off)
+        var near = 0.0
+        var nearN = 0
+        var far = 0.0
+        var farN = 0
+        for (x in 0 until W step 8) {
+            val h = horizonRow(scene, x + 0.5)!!.toInt()
+            for (y in h + 5 until h + 60 step 2) {
+                near += ch(on, at(x, y) + 2) - ch(off, at(x, y) + 2); nearN++
+            }
+            for (y in H - 200 until H step 8) {
+                far += ch(on, at(x, y) + 2) - ch(off, at(x, y) + 2); farN++
+            }
+        }
+        Log.i(TAG, "haze blue gain near the horizon ${near / nearN} bottom rows ${far / farN}")
+        assertTrue("no haze near the horizon: ${near / nearN}", near / nearN > 15.0)
+        assertTrue("haze near ${near / nearN} not above bottom ${far / farN}", near / nearN > far / farN + 5.0)
+    }
+
+    /**
+     * P3.3 terminator colours: in the terminator scene the reddened low sunlight warms the ground of the lit band
+     * beside the terminator (red/blue ratio of the render without airlight at least 1.2 x the atmosphere-free one; over
+     * this dark ocean the blue airlight outshines that ground light), and twilight lights the band beyond it.
+     */
+    @Test
+    fun terminatorIsWarmAndTwilightLit() {
+        val (_, lon) = subsolar(GLINT)
+        val scene = terminatorScene(lon)
+        val on = render(scene)
+        val ground = render(scene, debug = FrameInputs.DEBUG_NO_INSCATTER)
+        val off = render(scene, debug = FrameInputs.DEBUG_NO_ATMOSPHERE)
+        save("terminator_atmosphere", on)
+        save("terminator_ground_light", ground)
+        fun ratio(img: ByteArray): Double {
+            var r = 0.0
+            var b = 0.0
+            for (y in H / 2 - 300 until H / 2 - 100 step 4) for (x in 0 until W step 4) {
+                r += ch(img, at(x, y)); b += ch(img, at(x, y) + 2)
+            }
+            return r / maxOf(b, 1.0)
+        }
+        fun night(img: ByteArray) =
+            (H / 2 + 100 until H / 2 + 300 step 4).flatMap { y -> (0 until W step 4).map { x -> luma(img, x, y) } }.average()
+        Log.i(
+            TAG,
+            "terminator r/b with atmosphere ${ratio(on)} ground light ${ratio(ground)} without ${ratio(off)}, " +
+                "night band ${night(on)} vs ${night(off)}",
+        )
+        assertTrue("terminator ground not warm: ${ratio(ground)} vs ${ratio(off)}", ratio(ground) >= 1.2 * ratio(off))
+        assertTrue("no twilight: ${night(on)} vs ${night(off)}", night(on) > night(off) + 0.5)
+    }
+
+    /**
+     * Decision 11 steady exposure: the analytic luminance estimate lies within a factor 3 of the mean linear radiance
+     * of the Earth pixels actually rendered (atmosphere on), by day at nadir and at the terminator, where the sunlit
+     * air outshines the ground. The frame is rendered 2 EV under the steady exposure and decoded (sRGB, ACES fit).
+     */
+    @Test
+    fun steadyExposureMatchesTheRenderedEarth() {
+        val (_, lon) = subsolar(GLINT)
+        for ((name, scene) in listOf("day nadir" to scene(DAY, 25.0, 32.0, 0.0, -90.0), "terminator" to terminatorScene(lon))) {
+            val exposure = Exposure.steady(scene) / 4
+            val img = render(scene.copy(exposure = exposure))
+            var sum = 0.0
+            var n = 0
+            for (y in 0 until H step 8) for (x in 0 until W step 8) {
+                if (SceneGeometry.intersectEllipsoid(scene.cameraEcefKm, scene.rayEcef(x + 0.5, y + 0.5, W, H)) == null) continue
+                sum += linearLuma(img, x, y); n++
+            }
+            val rendered = sum / n / exposure
+            val estimate = Exposure.luminance(scene)
+            Log.i(TAG, "exposure $name: estimate $estimate rendered $rendered (ratio ${rendered / estimate}, steady ${Exposure.steady(scene)})")
+            assertTrue("$name: estimate $estimate vs rendered $rendered", rendered / estimate in (1.0 / 3)..3.0)
+        }
     }
 
     @Test
@@ -315,20 +443,13 @@ class EarthRenderTest {
     @Test
     fun terminatorCrossesTheFrameCentre() {
         val (_, lon) = subsolar(GLINT)
-        val sceneAt = { off: Double -> scene(GLINT, 0.0, lon + off, 270.0, -50.0) }
-        val centreSun = { sc: Scene ->
-            val d = sc.rayEcef(W / 2.0, H / 2.0, W, H)
-            val hit = sc.cameraEcefKm + d * SceneGeometry.intersectEllipsoid(sc.cameraEcefKm, d)!!
-            abs(SceneGeometry.enu(hit).up dot sc.sunDirEcef)
-        }
-        val best = (0..300).map { 90.0 + it * 0.05 }.minBy { centreSun(sceneAt(it)) }
-        val img = render(sceneAt(best))
+        val img = render(terminatorScene(lon), debug = FrameInputs.DEBUG_NO_ATMOSPHERE)
         save("terminator", img)
         // Day above the centre row, night below: compare 200-row bands either side of a 200-row margin.
         fun band(y0: Int) = (y0 until y0 + 200 step 4).flatMap { y -> (0 until W step 4).map { x -> luma(img, x, y) } }.average()
         val day = band(H / 2 - 300)
         val night = band(H / 2 + 100)
-        Log.i(TAG, "terminator lon offset $best day band $day night band $night")
+        Log.i(TAG, "terminator day band $day night band $night (no atmosphere)")
         assertTrue("day band $day", day > 5.0)
         assertTrue("night band $night", night < 0.5)
     }
@@ -390,6 +511,44 @@ class EarthRenderTest {
         Log.i(TAG, "earth gpu ${W}x$H n=${times.size} p50=%.3f ms p95=%.3f ms max=%.3f ms".format(p50, p95, times.last()))
     }
 
+    /**
+     * Equator east of the subsolar longitude [subsolarLon], looking west 50 deg down, at the camera longitude that puts
+     * the analytic terminator (Sun on the horizon) at the frame centre.
+     */
+    private fun terminatorScene(subsolarLon: Double): Scene {
+        val sceneAt = { off: Double -> scene(GLINT, 0.0, subsolarLon + off, 270.0, -50.0) }
+        val centreSun = { sc: Scene ->
+            val d = sc.rayEcef(W / 2.0, H / 2.0, W, H)
+            val hit = sc.cameraEcefKm + d * SceneGeometry.intersectEllipsoid(sc.cameraEcefKm, d)!!
+            abs(SceneGeometry.enu(hit).up dot sc.sunDirEcef)
+        }
+        return sceneAt((0..300).map { 90.0 + it * 0.05 }.minBy { centreSun(sceneAt(it)) })
+    }
+
+    /**
+     * Continuous y of the first row from the top whose ray meets the atmosphere shell of radius [radiusKm] (a sphere
+     * in the ellipsoid-scaled space, z x a / b, as in the shader).
+     */
+    private fun shellRow(scene: Scene, x: Double, radiusKm: Double): Double? {
+        val k = SceneGeometry.A_KM / SceneGeometry.B_KM
+        val hits = { y: Double ->
+            val d = scene.rayEcef(x, y, W, H)
+            val o = scene.cameraEcefKm
+            val q = Vector3(o.x, o.y, o.z * k)
+            val e = Vector3(d.x, d.y, d.z * k)
+            val b = q dot e
+            b < 0 && b * b - (e dot e) * ((q dot q) - radiusKm * radiusKm) >= 0
+        }
+        if (hits(0.0) || !hits(H.toDouble())) return null
+        var lo = 0.0
+        var hi = H.toDouble()
+        repeat(40) {
+            val mid = (lo + hi) / 2
+            if (hits(mid)) hi = mid else lo = mid
+        }
+        return hi
+    }
+
     /** Continuous y (pixel units) of the hit/miss boundary in column [x], searching from the top. */
     private fun horizonRow(scene: Scene, x: Double): Double? {
         val hits = { y: Double -> SceneGeometry.intersectEllipsoid(scene.cameraEcefKm, scene.rayEcef(x, y, W, H)) != null }
@@ -438,6 +597,19 @@ class EarthRenderTest {
     private fun luma(img: ByteArray, x: Int, y: Int) =
         at(x, y).let { 0.2126 * ch(img, it) + 0.7152 * ch(img, it + 1) + 0.0722 * ch(img, it + 2) }
 
+    /** Exposed linear luma before the tone map: sRGB decode, then the inverse of earth.frag's ACES fit (254 at most). */
+    private fun linearLuma(img: ByteArray, x: Int, y: Int): Double {
+        fun linear(i: Int): Double {
+            val c = minOf(ch(img, i), 254) / 255.0
+            val t = if (c <= 0.04045) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
+            val a = 2.43 * t - 2.51
+            val b = 0.59 * t - 0.03
+            return (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
+        }
+        val i = at(x, y)
+        return 0.2126 * linear(i) + 0.7152 * linear(i + 1) + 0.0722 * linear(i + 2)
+    }
+
     private fun meanLuma(img: ByteArray): Double {
         var sum = 0.0
         var n = 0
@@ -472,6 +644,7 @@ class EarthRenderTest {
         private const val W = 1080
         private const val H = 2340
         private const val ALT_KM = 420.0
+        private const val TOP_KM = 6478.137 // atmosphere_params.h ATMO_TOP_KM
         private const val GPU_SAMPLES = 30
         private const val GPU_WARMUP = 10
         private val NIGHT_BAND = 18.0..64.0
@@ -482,6 +655,7 @@ class EarthRenderTest {
         private val GLINT = Instant.parse("2026-10-25T20:25:00Z")
 
         private val context = InstrumentationRegistry.getInstrumentation().targetContext
+        private lateinit var host: RendererHost
         private lateinit var renderer: NativeRenderer
         private lateinit var device: AutoCloseable
         private lateinit var orbit: OrbitModel
@@ -491,7 +665,9 @@ class EarthRenderTest {
         fun setUp() {
             val lines = context.assets.open("orbit/iss.tle").bufferedReader().use { it.readLines() }.filter { it.isNotBlank() }
             orbit = OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
-            renderer = NativeRenderer(assets = context.assets)
+            // The live wallpaper may already run in this process; a second renderer would rebind the render thread.
+            host = EntryPointAccessors.fromApplication(context, RendererHostEntryPoint::class.java).rendererHost()
+            renderer = host.acquire()
             device = renderer.holdDevice()
         }
 
@@ -499,7 +675,7 @@ class EarthRenderTest {
         @JvmStatic
         fun tearDown() {
             device.close()
-            renderer.close()
+            host.release()
         }
     }
 }

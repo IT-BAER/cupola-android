@@ -9,6 +9,8 @@ constexpr int kLookYawDeg = 3;
 constexpr int kLookPitchDeg = 4;
 constexpr int kScene = 5;
 constexpr int kRenderScale = 6;
+// Bitmask (FrameInputs.EFFECT_* and DEBUG_* bits), pushed to earth.frag as an int.
+constexpr int kEffects = 7;
 // Floats [kSceneBlock, kCount) are the per-frame uniform block of earth.frag (std140 vec4s).
 constexpr int kSceneBlock = 8;
 constexpr int kCameraPosKm = 8;
@@ -29,5 +31,9 @@ constexpr int kInteriorUp = 36;
 constexpr int kEarthLight = 39;
 constexpr int kInteriorBack = 40;
 constexpr int kExposure = 43;
-constexpr int kCount = 44;
+constexpr int kSkyUp = 44;
+constexpr int kSkyHorizonNadir = 47;
+constexpr int kSkySunAxis = 48;
+constexpr int kSkyTopNadir = 51;
+constexpr int kCount = 52;
 }  // namespace cupola::inputs

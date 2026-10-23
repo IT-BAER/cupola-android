@@ -6,8 +6,9 @@ import kotlin.math.pow
 
 /**
  * Steady exposure from an analytic estimate of the scene brightness (decision 11), in linear shader units (a
- * white Lambertian surface facing the Sun has radiance 1): the sunlit Earth in view ([Scene.earthLight]), its
- * moonlit share, and a floor for the interior emissive and the night lights that keeps night passes visible.
+ * white Lambertian surface facing the Sun has radiance 1): the sunlit Earth in view ([Scene.earthLight]), the sunlit
+ * air in front of it ([Scene.airLight], which dominates at the terminator), the moonlit share, and a floor for the
+ * interior emissive and the night lights that keeps night passes visible.
  */
 object Exposure {
     const val MIN = 0.01
@@ -19,7 +20,8 @@ object Exposure {
     /** Interior lights and the night side at night (city lights, airglow), shader units. */
     const val NIGHT_FLOOR = 2.5e-5
 
-    fun luminance(scene: Scene): Double = scene.earthLight() + Scene.EARTH_ALBEDO * 0.5 * scene.moonLight() + NIGHT_FLOOR
+    fun luminance(scene: Scene): Double =
+        scene.earthLight() + scene.airLight() + Scene.EARTH_ALBEDO * 0.5 * scene.moonLight() + NIGHT_FLOOR
 
     fun steady(scene: Scene): Double = (KEY / luminance(scene)).coerceIn(MIN, MAX)
 }
