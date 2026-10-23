@@ -3,18 +3,29 @@ package com.baer.cupola.wallpaper
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
+import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.scene.SceneGeometry
 import com.baer.cupola.core.render.scene.SceneOverride
 import com.baer.cupola.orbit.frames.Frames
 import com.baer.cupola.orbit.frames.Geodetic
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import java.io.File
+import java.nio.ByteBuffer
 import java.time.Instant
 import java.time.format.DateTimeParseException
+import kotlin.concurrent.thread
 
 /**
  * `am broadcast -n com.baer.cupola.debug/com.baer.cupola.wallpaper.GateReceiver --es cmd load --ei iterations N`
  * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump), freeze (--es arg on|off),
- * fault (--es arg orbit|clear), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
+ * fault (--es arg orbit|surface|clear), capture (--es arg NAME [--ei w --ei h], or --es arg diff --es a A.png --es b B.png
+ * [--ei threshold N]; files in getExternalFilesDir/captures), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
  * the ISS, needs the position; --ef fov field of view on the long screen axis in deg).
  */
@@ -40,8 +51,18 @@ class GateReceiver : BroadcastReceiver() {
             }
             "fault" -> when (arg) {
                 "orbit" -> Gate.setOrbitFault(true)
+                "surface" -> withRenderer(context) { renderer -> loseSurfaces(renderer) }
                 "clear" -> Gate.setOrbitFault(false)
                 else -> Log.w("CupolaGate", "gate bad fault arg=$arg")
+            }
+            "capture" -> {
+                val dir = File(context.getExternalFilesDir(null), "captures").apply { mkdirs() }
+                when (arg) {
+                    "diff" -> background { diff(dir, intent) }
+                    else -> withRenderer(context) { renderer ->
+                        capture(renderer, dir, arg ?: "capture", intent.getIntExtra("w", 1080), intent.getIntExtra("h", 2400))
+                    }
+                }
             }
             "stats" -> when (arg) {
                 "reset" -> Gate.resetStats()
@@ -49,6 +70,78 @@ class GateReceiver : BroadcastReceiver() {
                 else -> Log.w("CupolaGate", "gate bad stats arg=$arg")
             }
             else -> Log.w("CupolaGate", "gate bad cmd=$cmd")
+        }
+    }
+
+    /** Off the main thread: offscreen renders and attach wait for the render thread. */
+    private fun background(block: () -> Unit) {
+        val pending = goAsync()
+        thread(name = "CupolaGate") {
+            try {
+                block()
+            } catch (e: Exception) {
+                Log.w("CupolaGate", "gate command failed", e)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    private fun withRenderer(context: Context, block: (NativeRenderer) -> Unit) = background {
+        val host = EntryPointAccessors.fromApplication(context.applicationContext, GateEntryPoint::class.java).host()
+        val renderer = host.acquire()
+        try {
+            block(renderer)
+        } finally {
+            host.release()
+        }
+    }
+
+    /** Renders each session's last frame inputs at full resolution to `<name>-<id>.png`. */
+    private fun capture(renderer: NativeRenderer, dir: File, name: String, width: Int, height: Int) {
+        for ((id, session) in Gate.sessions()) {
+            val inputs = session.lastFrameInputs() ?: continue
+            val file = File(dir, "$name-$id.png")
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            try {
+                bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(renderer.renderOffscreen(width, height, inputs)))
+                file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) { "PNG encode failed" } }
+            } finally {
+                bitmap.recycle()
+            }
+            Log.i("CupolaGate", "gate capture id=$id size=${width}x$height file=$file")
+        }
+    }
+
+    /** `--es a <file> --es b <file>` inside the captures folder, optional `--ei threshold N`. */
+    private fun diff(dir: File, intent: Intent) {
+        val a = intent.getStringExtra("a")
+        val b = intent.getStringExtra("b")
+        if (a == null || b == null) {
+            Log.w("CupolaGate", "gate diff needs a and b")
+            return
+        }
+        val result = ImageDiff.of(pixels(File(dir, a)), pixels(File(dir, b)), intent.getIntExtra("threshold", 0))
+        Log.i("CupolaGate", result.line(a, b))
+    }
+
+    private fun pixels(file: File): IntArray {
+        val bitmap = checkNotNull(BitmapFactory.decodeFile(file.path)) { "cannot decode $file" }
+        try {
+            return IntArray(bitmap.width * bitmap.height).also { bitmap.getPixels(it, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height) }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** Detaches and re-attaches every session's surface, as after a surface loss, then re-applies its engine state. */
+    private fun loseSurfaces(renderer: NativeRenderer) {
+        for ((id, session) in Gate.sessions()) {
+            val surface = session.surface ?: continue
+            renderer.detachSurface(id)
+            val result = renderer.attachSurface(id, surface)
+            if (result >= 0) renderer.updateScheduler(id) { session.apply(session.engineState, this) }
+            Log.i("CupolaGate", "gate fault surface id=$id reattach=$result")
         }
     }
 
@@ -75,4 +168,10 @@ class GateReceiver : BroadcastReceiver() {
     private companion object {
         const val DEFAULT_ALT_KM = 420.0
     }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface GateEntryPoint {
+    fun host(): RendererHost
 }

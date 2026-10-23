@@ -66,6 +66,9 @@ internal object Gate {
 
     fun orbitFault() = orbitFault
 
+    /** Open sessions by id, for the receiver's capture and surface fault. */
+    fun sessions(): Map<Int, RenderSession> = sessions.toSortedMap()
+
     fun dumpScenes() {
         sessions.keys.sorted().forEach { Log.i(TAG, sceneLine(it, sessions[it]?.lastScene)) }
     }
