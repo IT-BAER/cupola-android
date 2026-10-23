@@ -22,10 +22,12 @@ constexpr int kMonthLayer1 = 23;
 constexpr int kSunDir = 24;
 constexpr int kTanHalfFovLong = 27;
 constexpr int kMoonDir = 28;
+constexpr int kMoonLight = 31;
 constexpr int kInteriorRight = 32;
 constexpr int kInterior = 35;
 constexpr int kInteriorUp = 36;
 constexpr int kEarthLight = 39;
 constexpr int kInteriorBack = 40;
+constexpr int kExposure = 43;
 constexpr int kCount = 44;
 }  // namespace cupola::inputs

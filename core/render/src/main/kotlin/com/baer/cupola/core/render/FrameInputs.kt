@@ -48,6 +48,9 @@ object FrameInputs {
     /** Topocentric Moon direction (ISS to Moon). */
     const val MOON_DIR = 28
 
+    /** Lunar irradiance relative to the Sun's (phase law), for moonlit ground and clouds. */
+    const val MOON_LIGHT = 31
+
     /**
      * Blender interior frame from camera (columns right, up, back) for the panorama lookup; [INTERIOR] = 1 composites
      * the interior, 0 shows the Earth alone (debug overrides).
@@ -59,6 +62,9 @@ object FrameInputs {
     /** Earth brightness that scales the baked Earthlight layer (radiance of the visible Earth, shader units). */
     const val EARTH_LIGHT = 39
     const val INTERIOR_BACK = 40
+
+    /** Linear exposure applied before the tone map (scene.AutoExposure). */
+    const val EXPOSURE = 43
 
     const val COUNT = 44
 

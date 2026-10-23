@@ -31,11 +31,13 @@ class FrameInputsLayoutTest {
             "SunDir" to FrameInputs.SUN_DIR,
             "TanHalfFovLong" to FrameInputs.TAN_HALF_FOV_LONG,
             "MoonDir" to FrameInputs.MOON_DIR,
+            "MoonLight" to FrameInputs.MOON_LIGHT,
             "InteriorRight" to FrameInputs.INTERIOR_RIGHT,
             "Interior" to FrameInputs.INTERIOR,
             "InteriorUp" to FrameInputs.INTERIOR_UP,
             "EarthLight" to FrameInputs.EARTH_LIGHT,
             "InteriorBack" to FrameInputs.INTERIOR_BACK,
+            "Exposure" to FrameInputs.EXPOSURE,
             "Count" to FrameInputs.COUNT,
         )
         assertEquals(kotlin, cpp)

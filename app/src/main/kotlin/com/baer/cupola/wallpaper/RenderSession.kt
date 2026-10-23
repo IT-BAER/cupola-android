@@ -3,10 +3,13 @@ package com.baer.cupola.wallpaper
 import android.util.Log
 import android.view.Surface
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.core.render.scene.AutoExposure
+import com.baer.cupola.core.render.scene.Exposure
 import com.baer.cupola.core.render.scene.FrameScheduler
 import com.baer.cupola.core.render.scene.LookAroundController
 import com.baer.cupola.core.render.scene.PreviewClock
 import com.baer.cupola.core.render.scene.RestView
+import com.baer.cupola.core.render.scene.Scene
 import com.baer.cupola.core.render.scene.SceneInputs
 import com.baer.cupola.core.render.scene.toSceneState
 import com.baer.cupola.orbit.OrbitModel
@@ -51,6 +54,7 @@ internal class RenderSession(
 ) {
     private val look = LookAroundController(System::nanoTime)
     private val clock = PreviewClock(System::nanoTime, utcMillis, orbit.meanMotionRevPerDay)
+    private val exposure = AutoExposure()
     private var orbitFailureLogged = false
     private var wasVisible = false
     private val rateVote = FrameRateVote<Surface> { surface, fps ->
@@ -144,7 +148,7 @@ internal class RenderSession(
                     "pose", poseInstant, Math.toDegrees(at.latitudeRad), Math.toDegrees(at.longitudeRad), at.heightKm,
                     null, yawDeg, pitchDeg,
                 )
-                return pose.write(inputs)
+                return adapted(pose).write(inputs)
             }
         }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
@@ -169,10 +173,12 @@ internal class RenderSession(
         lastScene = SceneDump(
             source, state.instant, state.latitudeDeg, state.longitudeDeg, state.heightKm, state.sunlitFraction, yawDeg, pitchDeg,
         )
-        SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override).write(inputs)
+        adapted(SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override)).write(inputs)
     }
 
     private var lastGoodState: OrbitState? = null
+
+    private fun adapted(scene: Scene) = scene.copy(exposure = exposure.update(Exposure.steady(scene), System.nanoTime()))
 
     fun applyMoving(scheduler: FrameScheduler) {
         scheduledMoving = moving
