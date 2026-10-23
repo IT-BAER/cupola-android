@@ -27,9 +27,13 @@ internal data class EngineState(
  * Per-engine scene state. Everything except [surface] is touched on the render thread only. [settings] returns the
  * latest snapshot and is read once per frame.
  */
-internal class RenderSession(private val orbit: OrbitModel, private val settings: () -> RenderSettings = { RenderSettings() }) {
+internal class RenderSession(
+    private val orbit: OrbitModel,
+    private val settings: () -> RenderSettings = { RenderSettings() },
+    utcMillis: () -> Long = System::currentTimeMillis,
+) {
     private val look = LookAroundController(System::nanoTime)
-    private val clock = PreviewClock(System::nanoTime, System::currentTimeMillis, orbit.meanMotionRevPerDay)
+    private val clock = PreviewClock(System::nanoTime, utcMillis, orbit.meanMotionRevPerDay)
     private var orbitFailureLogged = false
     private var wasVisible = false
     private val rateVote = FrameRateVote<Surface> { surface, fps ->
@@ -98,20 +102,26 @@ internal class RenderSession(private val orbit: OrbitModel, private val settings
 
     /**
      * Real UTC (preview: time-lapse) or the debug override; an override with instant and position skips SGP4.
-     * An SGP4 failure leaves the test pattern.
+     * An SGP4 failure (wrong device clock, decayed TLE) keeps the last good state, or the state at the TLE epoch.
      */
     private fun writeScene(inputs: FloatArray, rest: RestView, yawDeg: Double, pitchDeg: Double) {
         val override = Gate.sceneOverride()
         override?.let(SceneInputs::buildPose)?.let { return it.write(inputs) }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
-        when (val state = orbit.stateAt(instant)) {
-            is OrbitState -> SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override).write(inputs)
-            is OrbitStateResult.Failure -> if (!orbitFailureLogged) {
-                orbitFailureLogged = true
-                Log.w("Cupola", "orbit failed at $instant: ${state.error}")
+        val state = when (val result = orbit.stateAt(instant)) {
+            is OrbitState -> result.also { lastGoodState = it }
+            is OrbitStateResult.Failure -> {
+                if (!orbitFailureLogged) {
+                    orbitFailureLogged = true
+                    Log.w("Cupola", "orbit failed at $instant: ${result.error}")
+                }
+                lastGoodState ?: orbit.stateAt(orbit.epoch) as? OrbitState ?: return
             }
         }
+        SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override).write(inputs)
     }
+
+    private var lastGoodState: OrbitState? = null
 
     fun applyMoving(scheduler: FrameScheduler) {
         scheduledMoving = moving

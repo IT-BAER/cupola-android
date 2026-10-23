@@ -44,7 +44,7 @@ class RenderSettingsTest {
         val lines = File("src/main/assets/orbit/iss.tle").readLines().filter { it.isNotBlank() }
         val orbit = OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
         var settings = RenderSettings(rest = RestView.DIAGONAL, idleFloat = false)
-        val session = RenderSession(orbit) { settings }
+        val session = RenderSession(orbit, { settings })
         val instant = Instant.now()
         val back = { inputs: FloatArray -> inputs.copyOfRange(FrameInputs.CAMERA_BACK, FrameInputs.CAMERA_BACK + 3) }
 
