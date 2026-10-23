@@ -228,7 +228,7 @@ Work:
   `docs/plan.md`.
 - P0.6 Manifest permission guard (open check OC3): a Gradle task reads the merged release
   manifest and fails on any `uses-permission` outside the allowlist in rule 3.
-- P0.7 `ci.yml` on push and pull request: build, unit tests, lint, guard.
+- P0.7 `ci.yml` on version tag push (`v*`): build, unit tests, lint, guard.
 - P0.8 Open check OC1: look at the Orbital Window Play screenshots
   (`com.orbitalwindow.wallpaper`) and rate its coverage. Read-only browser task in the main
   session (chrome-automation did not connect in this planning session, M). Report to the owner
