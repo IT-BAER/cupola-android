@@ -1,8 +1,10 @@
 package com.baer.cupola.ui
 
 import android.content.ActivityNotFoundException
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -26,7 +28,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableCupolaEdgeToEdge()
         setContent {
             CupolaNavHost(
                 settings = hiltViewModel<SettingsViewModel>(),
@@ -52,4 +54,12 @@ class MainActivity : ComponentActivity() {
     private fun shareImage() {
         lifecycleScope.launch { share.share(::startActivity) }
     }
+}
+
+// The app is always dark, so bar icons stay light whatever the system theme.
+internal fun ComponentActivity.enableCupolaEdgeToEdge() {
+    enableEdgeToEdge(
+        statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+    )
 }
