@@ -99,7 +99,7 @@ only if the P2 pacing gate fails.
   `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=D:\jtmp`, else tasks fail with "Unable to
   establish loopback connection".
 
-### 2.3 Galaxy A35 (M, adb at <adb serial>)
+### 2.3 Galaxy A35 (M, adb over Wi-Fi)
 
 - SM-A356B, Android 16 (SDK 36), One UI 8.0 (`ro.build.version.oneui` = 80000), security patch
   1 October 2025.
@@ -108,8 +108,8 @@ only if the P2 pacing gate fails.
 - All three animation scales are 0. Reduced motion is therefore on, and decision 28 would switch
   off look-around and idle float on this phone.
 - Locale de-AT. Current wallpaper: the static system ImageWallpaper.
-- Shared device: it is the phone of other live automation, driven by
-  other tooling over the same adb address, so changes there affect a live setup (C).
+- Shared device: other automation drives the same phone over the same adb address, so changes
+  there affect a live setup (C).
 
 ### 2.4 Play and data rules (M)
 
@@ -145,8 +145,8 @@ only if the P2 pacing gate fails.
 5. Licence hygiene: every shipped third-party asset or code file has a credits entry; no AGPL
    code; no NASA or ESA name or logo in the app, icon, store text, screenshots or video; the ESA
    reference clip is used for internal comparison only and is never shipped or published.
-6. Device gates run on the A35 only after the other automation is paused. Animation scales are set to 1 for
-   the run and restored to 0 afterwards, because the bot depends on 0.
+6. Device gates run on the A35 only after the other automation on it is paused. Animation scales are
+   set to 1 for the run and restored to 0 afterwards, because that automation depends on 0.
 7. Execution follows the bounded-plan-execution skill. bounded-implementer (Sonnet 5.5) takes
    bounded batches (Compose screens, ViewModels, CI files); opus-complex-implementer takes the
    SGP4 port and drag guard, the Vulkan core, the atmosphere and cloud shading, and the panorama
@@ -597,8 +597,8 @@ No store screenshots, no video and no production release before G-PR passes.
 - R2 Nadir softness at 4.6x magnification (C). Mitigation: P3a probe first.
 - R3 60 fps on Mali-G68 with atmosphere and clouds. Mitigation: lookup-table atmosphere, render
   scale as a quality step, GPU timing from P2 on.
-- R4 The A35 is shared with the live other automation, and its animation scales are 0 (M). Mitigation:
-  pause the bot and restore its settings around every gate run.
+- R4 The A35 is shared with other live automation, and its animation scales are 0 (M). Mitigation:
+  pause that automation and restore its settings around every gate run.
 - R5 Closed testers must buy the paid app (M). Mitigation: decision at the start of P8 (D4) with
   the OC5 result; plan time for the 14-day closed test in the release schedule.
 - R12 The owner alone judges G-PR and knows the development references (D2). Mitigation: hold-out
@@ -672,7 +672,7 @@ excluded (by the owner).
 | P2.3 | done | FrameScheduler 10, LookAroundController 13, PreviewClock 7, QualityGovernor 14 JVM tests green; thermal headroom listener is API 36 (javap android-36 vs 35), polling on 33-35 |
 | P2.4 | done (risk fix round open) | CupolaWallpaperService (@AndroidEntryPoint), RendererHost singleton (one NativeRenderer per process, ref-counted), RenderSession, OrientationSensor, TapDetector (merge 89f0c7b); 23 JVM tests. A35: livepicker restored for user 0 with owner OK (`cmd package install-existing com.android.wallpaper.livepicker`; undo `pm uninstall --user 0 ...`); preview of com.baer.cupola.debug shows the full-screen test pattern 1080x2340, flags=1 (system), game rotation vector 50 Hz while visible and unregistered after back, no crash or ANR. Gaps: FrameInputs has no yaw/pitch slots (look-around not yet sent to the shader); validation layer absent in the :app debug APK; QualityGovernor output unused until P3 |
 | P2 risk fix | done | Review: 0 Critical, 1 Important (I1), 5 Minor. Fix round (merge 24d5daa): RenderTargets (no Vulkan failure throws; failing id dropped; DEVICE_LOST re-attaches once), native dead targets + fence reset before submit, M1 100 ms acquire timeout, M2 frame-rate vote generation, M3 dirty_ kept; look yaw/pitch push constants; :app ndkVersion (release .so 996,920 B -> 122,896 B). Red then green: RenderTargetsTest 8 failed with IllegalStateException, layout and vote tests failed first. Controller: fresh unit runs core/render 60/0, app 25/0; full build exit 0; A35 am instrument OK (4 tests) incl. DroppedSurfaceTest (closed ImageReader -> VkResult -1000000000, id dropped); 0 VUID lines; preview renders, sensor unregisters, no crash or ANR. Validation layer is in app-debug.apk (earlier absence came from a worktree without local\). Opus re-review: approved, no Critical/Important. Minor, not fixed: `recovering` not reset after all surfaces drop; DEVICE_LOST on attach not recovered; resize not replayed after recovery; dead target may destroy a pending acquire semaphore; 100 ms timeout honoured only on Android 11+ (inferred). Look-around shift not yet seen on the device (phone still) |
-| P2.5 | done | docs/device-checks.md (branch p2-6-gate): 16 KB pass; OC2 not forwarded on One UI 8 (no onCommand for taps/swipes; sleep/wake commands arrive) -> fallback info in settings only; OC4 partial (picker offers lock, engine flags=3; no keyguard on the A35); two engines on one VkDevice pass, PSS 122,834 kB. other automation: owner unpublished all its workflows permanently, 18 October 2026 |
+| P2.5 | done | docs/device-checks.md (branch p2-6-gate): 16 KB pass; OC2 not forwarded on One UI 8 (no onCommand for taps/swipes; sleep/wake commands arrive) -> fallback info in settings only; OC4 partial (picker offers lock, engine flags=3; no keyguard on the A35); two engines on one VkDevice pass, PSS 122,834 kB. Other automation on the A35: paused permanently by the owner, 18 October 2026 |
 | P2.6 | done | Owner ruling 18 October 2026: intended still frames are counted separately from the trace rule (moving 99 % in 16.7 +- 2 ms, still 66.7 +- 2 ms, nothing above one still period). | Gate tooling merge 00cba2e; fixes on branch p2-6-fix, causes and numbers in docs/device-checks.md: frame-rate vote 60 whenever rendering (controller ruling; the 15 vote let SurfaceFlinger lower the render rate), motion and settling measured on the view sphere, speed from SensorEvent.timestamp. Red then green: FrameSchedulerTest "expected 60 but was 15", RestingSensorReplayTest (40 s real A35 samples) 122 of 140 frames moving, LookAroundControllerTest bunched delivery 46 moving frames. Unit tests core/render 62/0, app 35/0, full build exit 0. A35 rerun at load 7: trace 2942 moving + 164 intended still + 1 other interval, max 67.1 ms (raw rule 94.69 %, 99.97 % with still frames excluded); still 15.0 fps PASS (load 0 and 7). Hidden and battery saver not rerun (their vote and scheduler paths unchanged). Battery cost of the 60 vote (app vsync at 60 Hz while still) to be measured in G-PERF |
 | P3.1 | done except GPU budget | Merge 797a23f (p3-earth): SceneInputs (LVLH from Blender = Rz(-30 deg), measured velocity azimuth +30 deg, JVM test red with identity), shared texture set held per process, WGS-84 ray cast, monthly blend + detail, terrain normal, glint, water_mask, deep-ocean albedo (openOceanIsUniform 1.333 -> 0.260, limit 1.0), interior panorama composite from the r3 bake (interior ASTC 15.14 MiB, total about 88.6 MiB; interior_*.ktx2 UNTRACKED until the P3a milestone, rebuild with `build_textures.ps1 -Assets interior -BakeDir locallender3ake`), scaled Earth pass (QualityGovernor 0.4/0.5/0.6, default 0.6) with its own descriptor set. Fixed: 60 x VUID-vkCmdDraw-imageLayout-00344; abort `__thread_specific_ptr construction failed` caused by recreating instance/device/texture set on every surfaceless offscreen render (117 times), now held. Controller A35 rerun 20 October 2026: `:core:render` OK (10 tests), app OK (12 tests), 0 VUID each; main `gradlew build :earthpack:checkTexturePack :app:checkReleaseManifestPermissions` exit 0. GPU (offscreen, 1080x2340, GPU clock seen 351-455 of 949 MHz): NADIR scale 0.6 p50 10.40 / p95 10.59 ms (Earth 5.56, composite 4.95); scale 0.5 p95 9.38 ms; Earth-only full res p50 11.06 ms. OPEN: full-scene budget p95 12 ms must also hold atmosphere and clouds; next levers: merge static interior layers at pack time (interior fetches cost about 2.85 ms), surface-based timing at real clocks|
 | P3a | in progress | Probe poses iss073e0764640 (73.6 deg FOV) and iss022e066972 (89.3 deg) render on the A35 (now with deep-ocean colour), still without atmosphere and clouds; owner comparison after P3.2/P3.3 |

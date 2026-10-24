@@ -1,7 +1,7 @@
 # P2.6 skeleton gate
 
 Debug build only (`com.baer.cupola.debug`). The release build has a no-op `Gate` and no receiver.
-Prereq (plan ground rule 6): other automation paused, animation scales set to 1 for the run, restored to 0 afterwards.
+Prereq (plan ground rule 6): other automation on the phone paused, animation scales set to 1 for the run, restored to 0 afterwards.
 
 ```powershell
 $adb = 'D:\Software\Android\Sdk\platform-tools\adb.exe'

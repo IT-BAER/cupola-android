@@ -1,7 +1,7 @@
 # Device checks on the Galaxy A35 (plan P2.5, P2.6)
 
-SM-A356B, Android 16, One UI 8.0, adb <adb serial>. Run 18 October 2026 with the other automation off (all automation
-workflows unpublished by the owner), animation scales 1 during the run and 0 afterwards.
+SM-A356B, Android 16, One UI 8.0, adb over Wi-Fi. Run 18 October 2026 with the other automation on the phone
+off, animation scales 1 during the run and 0 afterwards.
 
 ## P2.5
 
