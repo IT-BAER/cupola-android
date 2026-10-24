@@ -138,10 +138,12 @@ only if the P2 pacing gate fails.
    the minimal code (green), refactor, rerun. Each phase lists its seams in the order of the slices.
 2. Every pin in 2.1 is re-verified on scaffold day. Any newer stable version is checked against
    the AGP 9.4 compatibility notes before it replaces a pin.
-3. No `uses-permission` except the androidx.core signature permission
-   `${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. The CI guard (P0.6) enforces it.
-4. No network code, no analytics, no WorkManager, no wake locks. Crashes and ANRs come from Play
-   Console Android vitals.
+3. No `uses-permission` except `android.permission.INTERNET` (orbit data download, P7.6) and the
+   androidx.core signature permission `${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`.
+   The CI guard (P0.6) enforces it.
+4. The only network code is the orbit data download (P7.6: HttpURLConnection, at most once a day,
+   only while the wallpaper is visible, settings toggle). No analytics, no WorkManager, no wake
+   locks. Crashes and ANRs come from Play Console Android vitals.
 5. Licence hygiene: every shipped third-party asset or code file has a credits entry; no AGPL
    code; no NASA or ESA name or logo in the app, icon, store text, screenshots or video; the ESA
    reference clip is used for internal comparison only and is never shipped or published.
@@ -236,7 +238,8 @@ Work:
 - P0.9 Mirror the source imagery early (P5.1), because the Blue Marble 2002 cloud map sits on a
   legacy host only (C).
 
-Test-first seam: the guard task. Red: a planted `INTERNET` permission fails the build. Green: the
+Test-first seam: the guard task. Red: a planted permission outside the allowlist (`INTERNET` before
+P7.6, `ACCESS_NETWORK_STATE` after) fails the build. Green: the
 build passes after removal.
 
 Acceptance:
@@ -499,12 +502,26 @@ Work:
   tag time.
 - P7.4 If the catalogue entry is missing or decayed, release-prep reports it and the owner decides
   on the retired flag (decision 38).
+- P7.5 `pages.yml` (cron every 6 h, manual dispatch, push to main under `docs/`): copies `docs/`,
+  runs `:tools:tle` fetch with the P7.2 validation and publishes `orbit/iss.tle` and `iss.json` on
+  GitHub Pages. A failed fetch re-publishes the last published files unchanged. Pages source is
+  GitHub Actions. release-prep stays for the bundled TLE.
+- P7.6 In-app updater (owner decision 24 October 2026): fetches the Pages mirror at most once per
+  24 h plus 0 to 4 h jitter, only while the wallpaper is visible, toggle `Update orbit data online`
+  (default on). Validation as P7.2 plus epoch newer than the TLE in use and not more than 1 day in
+  the future; atomic write to `filesDir/orbit`; the newest valid of bundled and downloaded wins;
+  running sessions pick it up on the next frame. Any failure keeps the current TLE until the next
+  window.
 
 Acceptance:
 - release-prep on a test branch opens a pull request with a valid TLE; a planted checksum error
   fails (red); a fresh TLE passes (green).
 - A planted 30-day-old TLE fails the release guard (red); a fresh one passes (green).
 - `ci.yml` green on main.
+- P7.6: updater, repository and swap tests red before the code, green after; release manifest
+  permissions are INTERNET plus the signature permission only (apkanalyzer).
+- P7.5: after the Pages switch, `https://it-baer.github.io/cupola-android/orbit/iss.tle` serves a TLE
+  that passes the P7.2 validation.
 
 ## P8. Release pipeline
 
@@ -583,7 +600,7 @@ No store screenshots, no video and no production release before G-PR passes.
 |---|---|---|---|
 | OC1 | Orbital Window screenshots: coverage rating | P0.8 | Report only. Its strength is 0 (C), so the GO (NICHE) verdict cannot change |
 | OC2 | `COMMAND_TAP` forwarding on One UI 8 (A35) | P2.5 | Forwarded: overlay. Not forwarded: info only in settings, as designed |
-| OC3 | Merged manifest has no INTERNET and no other permission | P0.6, every CI run, P8 | Allowlist only |
+| OC3 | Merged manifest has only INTERNET and the signature permission (rule 3) | P0.6, every CI run, P8 | Allowlist only |
 | OC4 | One UI 8 shows the live wallpaper on the lock screen | P2.5 | Record; adjust store text if not |
 | OC5 | Promo codes redeem on a closed track | P8.5 | Else per D4 |
 | OC6 | Android Studio update for AGP 9.4 | P0.2 | Command-line builds are unaffected |
@@ -694,6 +711,7 @@ excluded (by the owner).
 | P6.7 | open | Needs the renderer (home-city marker) |
 | P7.1 | done | ci.yml installs ndk;30.0.16248370 and cmake;4.1.2 for the native build; `./gradlew :app:bundleRelease` step with :earthpack (commit 26ef0e9). CI run 39162179046 on f0ca473: success, steps build, bundleRelease, Native host tests, apkanalyzer all success |
 | P7.2-P7.4 | done | `:tools:tle` fetch/validate/guard (merge a89fcb6), 25 JVM tests; red: 13 tests against stubs. Controller checks: CLI rejects a hand-edited TLE "checksum: line 2 checksum is '4' but computes to 5"; release guard with -Pcupola.releaseTag=true fails at 13.9 days. Bundled TLE epoch 2026-10-18T03:28:15Z in app/src/main/assets/orbit/. Live run 39150060891 (owner enabled "Allow GitHub Actions to create and approve pull requests"; default token stays read): success, opened PR #1 with epoch 2026-10-18T11:12:47Z; owner said merge now: TLE checksums recomputed (line 1: 9, line 2: 6, both match), merged as ba08be9 |
+| P7.5-P7.6 | done (live Pages check open) | Commit 8742167. Red: new tests failed to compile before the code; swap test red when the session captured the orbit once. Green: `:tools:tle:test :app:testDebugUnitTest :feature:settings:testDebugUnitTest :core:render:testDebugUnitTest :app:checkReleaseManifestPermissions :app:assembleRelease` exit 0 (tle 25/0, app 107/0, settings 36/0, render 106/0). OC3 red: planted ACCESS_NETWORK_STATE fails the guard. apkanalyzer: INTERNET + DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION only. Action pins: upload-pages-artifact v5.0.0 fc324d3, deploy-pages v5.0.1 368f825 |
 | P8.1-P8.6 | open | |
 | G-PERF | open | |
 | G-PR | open | |
