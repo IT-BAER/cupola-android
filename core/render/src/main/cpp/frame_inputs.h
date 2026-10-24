@@ -40,5 +40,6 @@ constexpr int kStarRowX = 56;
 constexpr int kStarRowY = 60;
 constexpr int kStarRowZ = 64;
 constexpr int kSunLight = 68;
-constexpr int kCount = 72;
+constexpr int kHomeCity = 72;
+constexpr int kCount = 76;
 }  // namespace cupola::inputs

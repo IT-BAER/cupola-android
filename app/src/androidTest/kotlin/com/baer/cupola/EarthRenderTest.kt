@@ -71,9 +71,16 @@ class EarthRenderTest {
         debug: Int = 0,
         animSeconds: Float = 0f,
         effects: Int = 0, // user effects off: the analytic checks see the bare scene
+        homeCity: Vector3? = null,
     ): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
+        if (homeCity != null) {
+            inputs[FrameInputs.HOME_CITY] = homeCity.x.toFloat()
+            inputs[FrameInputs.HOME_CITY + 1] = homeCity.y.toFloat()
+            inputs[FrameInputs.HOME_CITY + 2] = homeCity.z.toFloat()
+            inputs[FrameInputs.HOME_CITY + 3] = 1f
+        }
         inputs[FrameInputs.TIME_SECONDS] = animSeconds
         inputs[FrameInputs.RENDER_SCALE] = renderScale
         inputs[FrameInputs.EFFECTS] = ((inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()) or effects or debug).toFloat()
@@ -644,6 +651,41 @@ class EarthRenderTest {
         assertTrue("dust specks $specks", specks > 200)
         assertTrue("dust is sparse: $specks of $n", specks < n / 10)
         assertTrue("dust at night $nightDiff", nightDiff < 0.3)
+    }
+
+    /**
+     * P6.7: the home-city marker sits on the city's projected pixel (a ring around a dot, same brightness by day and
+     * night) and is absent when the city is behind the Earth.
+     */
+    @Test
+    fun homeCityMarkerSitsOnTheCity() {
+        val vienna = Frames.geodeticToEcef(Geodetic(Math.toRadians(48.209), Math.toRadians(16.372), 0.0))
+        for (instant in listOf(DAY, Instant.parse("2026-10-25T21:00:00Z"))) {
+            val scene = scene(instant, 47.0, 14.0, 0.0, -90.0)
+            // At night the city's own lights would mask the ring geometry; the colour keeps it apart on screen.
+            val debug = if (instant == DAY) 0 else FrameInputs.DEBUG_NO_CITY_LIGHTS
+            val with = render(scene, interior = false, homeCity = vienna, debug = debug)
+            val without = render(scene, interior = false, debug = debug)
+            save("home_city_${instant.epochSecond}", with)
+            val ray = SceneGeometry.unit(Vector3(vienna.x - scene.cameraEcefKm.x, vienna.y - scene.cameraEcefKm.y, vienna.z - scene.cameraEcefKm.z))
+            val c = scene.ecefFromCamera
+            val z = -(ray dot c.c2)
+            val (fx, fy) = scene.fovDeg(W, H)
+            val px = ((ray dot c.c0) / z / tan(Math.toRadians(fx / 2)) + 1) / 2 * W
+            val py = (1 - (ray dot c.c1) / z / tan(Math.toRadians(fy / 2))) / 2 * H
+            var cx = 0.0
+            var cy = 0.0
+            var w = 0.0
+            for (y in 0 until H step 2) for (x in 0 until W step 2) {
+                val d = luma(with, x, y) - luma(without, x, y)
+                if (d > 30) { cx += x * d; cy += y * d; w += d }
+            }
+            Log.i(TAG, "home city at $instant: predicted ($px, $py) marker centroid (${cx / w}, ${cy / w}) weight $w")
+            assertTrue("marker drawn at $instant", w > 0)
+            assertTrue("marker at the city: (${cx / w}, ${cy / w}) vs ($px, $py)", abs(cx / w - px) < 4 && abs(cy / w - py) < 4)
+        }
+        val away = scene(DAY, -40.0, -120.0, 0.0, -90.0)
+        assertTrue("no marker with the city behind the Earth", meanAbsDiff(render(away, interior = false, homeCity = vienna), render(away, interior = false)) < 0.01)
     }
 
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */

@@ -126,7 +126,10 @@ object FrameInputs {
     /** Sunlight at the camera per unit sunlight ([scene.Scene.sunLight], 0 behind the Earth); w = glass facing 0..1. */
     const val SUN_LIGHT = 68
 
-    const val COUNT = 72
+    /** Home-city ground point (ECEF km) for the wallpaper marker (P6.7); w = 1 when set, 0 when not. */
+    const val HOME_CITY = 72
+
+    const val COUNT = 76
 
     fun empty() = FloatArray(COUNT)
 }

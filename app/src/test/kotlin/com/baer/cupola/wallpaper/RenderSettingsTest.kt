@@ -8,6 +8,8 @@ import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.OrbitState
+import com.baer.cupola.orbit.frames.Frames
+import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.tle.Tle
 import java.io.File
 import java.time.Instant
@@ -32,6 +34,28 @@ class RenderSettingsTest {
         assertEquals(0.25, r.lookStrength, 1e-6)
         assertFalse(r.idleFloat)
         assertEquals(RenderSettings.BLOOM or RenderSettings.REFLECTIONS, r.effects)
+    }
+
+    /** P6.7: the home city's position comes from its id (CityEntry.id: name|country|lat|lon, three decimals). */
+    @Test
+    fun homeCityPositionComesFromItsId() {
+        assertEquals(48.209 to 16.372, Settings(homeCityId = "Vienna|AT|48.209|16.372").toRenderSettings().homeCity)
+        assertEquals(-33.869 to 151.209, Settings(homeCityId = "Sydney|AU|-33.869|151.209").toRenderSettings().homeCity)
+        assertEquals(null, Settings(homeCityId = null).toRenderSettings().homeCity)
+        assertEquals(null, Settings(homeCityId = "broken").toRenderSettings().homeCity)
+        assertEquals(null, Settings(homeCityId = "X|YY|95.0|10.0").toRenderSettings().homeCity)
+    }
+
+    /** The session hands the home city to the shader as an ECEF ground point (HOME_CITY, w = 1), or w = 0. */
+    @Test
+    fun sessionWritesTheHomeCity() {
+        val lines = File("src/main/assets/orbit/iss.tle").readLines().filter { it.isNotBlank() }
+        val orbit = OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
+        val vienna = RenderSession(orbit, { RenderSettings(homeCity = 48.209 to 16.372) }).nextFrameInputs()
+        val expected = Frames.geodeticToEcef(Geodetic(Math.toRadians(48.209), Math.toRadians(16.372), 0.0))
+        assertArrayEquals(floatArrayOf(expected.x.toFloat(), expected.y.toFloat(), expected.z.toFloat(), 1f),
+            vienna.copyOfRange(FrameInputs.HOME_CITY, FrameInputs.HOME_CITY + 4), 1e-3f)
+        assertEquals(0f, RenderSession(orbit, { RenderSettings() }).nextFrameInputs()[FrameInputs.HOME_CITY + 3])
     }
 
     @Test

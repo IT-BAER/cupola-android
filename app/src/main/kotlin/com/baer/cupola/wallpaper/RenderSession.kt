@@ -16,6 +16,7 @@ import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.OrbitState
 import com.baer.cupola.orbit.OrbitStateResult
 import com.baer.cupola.orbit.frames.Frames
+import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.sgp4.Sgp4Error
 import java.time.Instant
 
@@ -131,6 +132,13 @@ internal class RenderSession(
         val reduced = if (engineState.reducedMotion) FrameInputs.MOTION_REDUCED else 0
         val other = inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()
         inputs[FrameInputs.EFFECTS] = (other or (current.effects and FrameInputs.EFFECTS_ALL) or reduced).toFloat()
+        current.homeCity?.let { (lat, lon) ->
+            val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(lat), Math.toRadians(lon), 0.0))
+            inputs[FrameInputs.HOME_CITY] = p.x.toFloat()
+            inputs[FrameInputs.HOME_CITY + 1] = p.y.toFloat()
+            inputs[FrameInputs.HOME_CITY + 2] = p.z.toFloat()
+            inputs[FrameInputs.HOME_CITY + 3] = 1f
+        }
         Gate.applyLoad(inputs)
         lastInputs = inputs.copyOf()
         return inputs

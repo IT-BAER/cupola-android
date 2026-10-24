@@ -60,6 +60,7 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 starY;
     vec4 starZ;
     vec4 sunLight;  // xyz sunlight at the camera per unit sunlight (0 behind the Earth), w = glass facing (Scene)
+    vec4 homeCity;  // xyz home-city ground point (ECEF km), w = 1 when set (P6.7 marker)
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
@@ -129,6 +130,10 @@ const float LIGHTNING_SLOT_S = 0.2;
 const float LIGHTNING_P = 0.0015;
 const float LIGHTNING_KM = 5.0;
 const vec3 LIGHTNING = vec3(0.8, 0.85, 1.0) * 4.0e-4;
+// P6.7 home-city marker: a ring of MARKER_RING_PX radius around a dot, in physical pixels, drawn at MARKER exposed
+// brightness (the same by day and night).
+const float MARKER_RING_PX = 11.0;
+const vec3 MARKER = vec3(0.65, 0.9, 1.0) * 0.9;  // cool, apart from the warm city lights
 // P3.5 Sun glare in shader radiance per unit sunlight at the camera: a narrow and a wide bloom lobe and a broad veil
 // on the window glass, each peak / (1 + (theta / width)^2) with widths in rad (no transcendentals: full resolution).
 const float BLOOM_NARROW = 4.0;
@@ -739,7 +744,15 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
         lights += lightning(lon, lat, cover);
     }
 
-    return (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
+    vec3 radiance = (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
+    if (s.homeCity.w != 0.0) {
+        // Ground km per physical pixel from the neighbouring ground point; the marker keeps its screen size.
+        float kmPerPx = A_KM * length(dLonLatX * vec2(cos(lat), 1.0)) / stepPx.x;
+        float r = distance(pos, s.homeCity.xyz) / max(kmPerPx, 1e-6);
+        float mark = max(1.0 - smoothstep(1.0, 2.0, abs(r - MARKER_RING_PX)), 1.0 - smoothstep(2.0, 3.0, r));
+        radiance += MARKER * mark / s.iBack.w;
+    }
+    return radiance;
 }
 
 // Dust on the pane at hit (normal n, m): in DUST_P of the DUST_CELL_M cells one speck of 0.3-0.8 mm at a random

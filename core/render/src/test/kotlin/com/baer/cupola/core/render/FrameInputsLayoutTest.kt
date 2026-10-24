@@ -48,6 +48,7 @@ class FrameInputsLayoutTest {
             "StarRowY" to FrameInputs.STAR_ROW_Y,
             "StarRowZ" to FrameInputs.STAR_ROW_Z,
             "SunLight" to FrameInputs.SUN_LIGHT,
+            "HomeCity" to FrameInputs.HOME_CITY,
             "Count" to FrameInputs.COUNT,
         )
         assertEquals(kotlin, cpp)
