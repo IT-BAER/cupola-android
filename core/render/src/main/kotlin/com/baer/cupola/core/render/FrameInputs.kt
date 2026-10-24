@@ -8,6 +8,7 @@ object FrameInputs {
     /** ALU loop iterations per fragment while [LOAD] is non-zero. */
     const val LOAD_ITERATIONS = 1
 
+    /** Animation time: real seconds modulo one day, also during the preview time-lapse (lightning, aurora drift). */
     const val TIME_SECONDS = 2
 
     /** Look-around offset in degrees: yaw shifts the view horizontally, pitch vertically. */
@@ -34,6 +35,9 @@ object FrameInputs {
     const val EFFECT_DUST = 8
     const val EFFECTS_ALL = EFFECT_BLOOM or EFFECT_WINDOW_GLARE or EFFECT_REFLECTIONS or EFFECT_DUST
 
+    /** State, not a setting: the system reduces motion (animator scale 0), so nothing flashes (lightning). */
+    const val MOTION_REDUCED = 1 shl 8
+
     /** Debug: no atmosphere (bare ground and black space), for the analytic geometry checks. */
     const val DEBUG_NO_ATMOSPHERE = 1 shl 16
 
@@ -51,6 +55,12 @@ object FrameInputs {
 
     /** Debug: no moonlight on the ground and clouds. */
     const val DEBUG_NO_MOONLIGHT = 1 shl 21
+
+    /** Debug: no aurora. */
+    const val DEBUG_NO_AURORA = 1 shl 22
+
+    /** Debug: no lightning. */
+    const val DEBUG_NO_LIGHTNING = 1 shl 23
 
     /**
      * Start of the scene block, copied into the per-frame uniform buffer (std140, vec4-aligned; see

@@ -124,10 +124,13 @@ internal class RenderSession(
         val view = look.update()
         moving = view.isMoving
         val inputs = FloatArray(FrameInputs.COUNT)
-        inputs[FrameInputs.TIME_SECONDS] = (clock.nowUtcMillis() % MILLIS_PER_DAY / 1000.0).toFloat()
+        inputs[FrameInputs.TIME_SECONDS] = (System.nanoTime() / 1_000_000 % MILLIS_PER_DAY / 1000.0).toFloat()
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
         writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg)
+        if (engineState.reducedMotion) {
+            inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or FrameInputs.MOTION_REDUCED).toFloat()
+        }
         Gate.applyLoad(inputs)
         lastInputs = inputs.copyOf()
         return inputs

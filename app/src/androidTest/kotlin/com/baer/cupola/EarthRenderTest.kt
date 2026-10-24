@@ -63,9 +63,10 @@ class EarthRenderTest {
     }
 
     /** [debug] = FrameInputs.DEBUG_* bits added to the scene's effects. */
-    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true, debug: Int = 0): ByteArray {
+    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true, debug: Int = 0, animSeconds: Float = 0f): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
+        inputs[FrameInputs.TIME_SECONDS] = animSeconds
         inputs[FrameInputs.RENDER_SCALE] = renderScale
         inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or debug).toFloat()
         if (!interior) inputs[FrameInputs.INTERIOR] = 0f
@@ -469,6 +470,62 @@ class EarthRenderTest {
         save("moonlit", moonlit)
         Log.i(TAG, "full moon $instant moonlit ${meanLuma(moonlit)} without ${meanLuma(dark)}")
         assertTrue("moonlight ${meanLuma(moonlit)} vs ${meanLuma(dark)}", meanLuma(moonlit) > meanLuma(dark) + 5)
+    }
+
+    /** South of Australia (magnetic latitude about -60 deg) looking south 15 deg down: the auroral oval rises above the limb. */
+    private fun auroraScene(instant: Instant) = scene(instant, -50.0, 140.0, 180.0, -15.0)
+
+    /** P3.4: aurora over the southern oval at local midnight; none in daylight. */
+    @Test
+    fun auroraGlowsOverTheNightOval() {
+        val night = auroraScene(Instant.parse("2026-10-25T14:00:00Z"))
+        val with = render(night, interior = false)
+        val without = render(night, interior = false, debug = FrameInputs.DEBUG_NO_AURORA)
+        save("aurora", with)
+        val x = W / 2.0
+        val top = shellRow(night, x, 6378.137 + 300.0)!!.toInt()
+        val ground = horizonRow(night, x)!!.toInt()
+        fun band(img: ByteArray) = (maxOf(top - 40, 0) until ground).flatMap { y -> (0 until W step 8).map { luma(img, it, y) } }.average()
+        Log.i(TAG, "aurora band rows $top..$ground with ${band(with)} without ${band(without)}")
+        assertTrue("aurora band ${band(with)} vs ${band(without)}", band(with) > band(without) + 3)
+        val day = auroraScene(Instant.parse("2026-10-25T02:00:00Z"))
+        val dayDiff = meanAbsDiff(render(day, interior = false), render(day, interior = false, debug = FrameInputs.DEBUG_NO_AURORA))
+        assertTrue("aurora by day $dayDiff", dayDiff < 0.3)
+    }
+
+    /**
+     * P3.4: lightning flashes in thick tropical night cloud over 6 s of animation time, a few at a time; none when
+     * the system reduces motion (photosensitivity).
+     */
+    @Test
+    fun lightningFlashesInNightStormsUnlessMotionIsReduced() {
+        val scene = scene(Instant.parse("2026-10-25T22:00:00Z"), 0.0, 10.0, 0.0, -90.0)
+        val dark = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_LIGHTNING)
+        save("lightning_dark", dark)
+        var maxDiff = 0.0
+        fun flashPixels(img: ByteArray): Int {
+            var count = 0
+            for (y in 0 until H step 4) for (x in 0 until W step 4) {
+                val d = luma(img, x, y) - luma(dark, x, y)
+                if (d > maxDiff) maxDiff = d
+                if (d > 40) count++
+            }
+            return count
+        }
+        var slotsWithFlash = 0
+        var reducedFlashes = 0
+        for (k in 0 until 30) {
+            val t = 1000f + 0.2f * k + 0.05f
+            val img = render(scene, interior = false, animSeconds = t)
+            if (flashPixels(img) > 10) {
+                if (slotsWithFlash == 0) save("lightning_flash", img)
+                slotsWithFlash++
+            }
+            reducedFlashes += flashPixels(render(scene, interior = false, debug = FrameInputs.MOTION_REDUCED, animSeconds = t))
+        }
+        Log.i(TAG, "lightning slots with a flash $slotsWithFlash of 30, max diff $maxDiff, reduced motion pixels $reducedFlashes")
+        assertTrue("flashes $slotsWithFlash", slotsWithFlash in 1..25)
+        assertEquals(0, reducedFlashes)
     }
 
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */

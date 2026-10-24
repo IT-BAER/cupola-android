@@ -32,6 +32,10 @@ const int DEBUG_NO_CLOUDS = 1 << 18;
 const int DEBUG_NO_CLOUD_SHADOWS = 1 << 19;
 const int DEBUG_NO_CITY_LIGHTS = 1 << 20;
 const int DEBUG_NO_MOONLIGHT = 1 << 21;
+const int DEBUG_NO_AURORA = 1 << 22;
+const int DEBUG_NO_LIGHTNING = 1 << 23;
+// FrameInputs.MOTION_REDUCED: the system reduces motion, so nothing flashes.
+const int MOTION_REDUCED = 1 << 8;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -104,6 +108,21 @@ const float MOON_RADIUS = 0.004756;  // rad, 0.2725 deg
 const float AIRGLOW_LOW_KM = 85.0;
 const float AIRGLOW_HIGH_KM = 100.0;
 const vec3 AIRGLOW = vec3(0.45, 1.0, 0.35) * 3.0e-9;
+// Aurora: oval around the geomagnetic dipole pole (IGRF 2025: 80.8 N, 72.6 W), emitting between AURORA_LOW_KM and
+// AURORA_HIGH_KM (green OI 557.7 nm low, red OI 630 nm high), AURORA_RADIANCE per km of path at full intensity.
+const vec3 MAG_POLE = vec3(0.0478, -0.1526, 0.9871);
+const float AURORA_LOW_KM = 90.0;
+const float AURORA_HIGH_KM = 300.0;
+const vec3 AURORA_GREEN = vec3(0.25, 1.0, 0.45);
+const vec3 AURORA_RED = vec3(1.0, 0.25, 0.35);
+const float AURORA_RADIANCE = 2.5e-8;
+// Lightning: storm cells of LIGHTNING_CELL_DEG flash with LIGHTNING_P per LIGHTNING_SLOT_S slot, a glow of
+// LIGHTNING_KM radius inside the cloud.
+const float LIGHTNING_CELL_DEG = 0.25;
+const float LIGHTNING_SLOT_S = 0.2;
+const float LIGHTNING_P = 0.0015;
+const float LIGHTNING_KM = 5.0;
+const vec3 LIGHTNING = vec3(0.8, 0.85, 1.0) * 4.0e-4;
 
 // Interior atlases, faces +X, -X, +Y, -Y, +Z: first atlas row of the face slot and crop row y0, on the
 // 2048 grid (earth, cabin, emissive) and the 512 grid (ambient).
@@ -455,6 +474,89 @@ float airglowPath(vec3 dir, bool hit) {
     return hit ? ho - hi : 2.0 * (ho - hi);
 }
 
+// Integer hash (pcg3d) of a lattice point, three uniforms in [0, 1].
+vec3 hash3(vec3 p) {
+    uvec3 v = uvec3(ivec3(floor(p))) * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return vec3(v) / 4294967295.0;
+}
+
+// Lightning glow at a night ground point under thick tropical cloud: each storm cell (and its neighbours, so glows
+// cross cell edges) may flash in an animation-time slot and fades within it.
+vec3 lightning(float lonRad, float latRad, float cover) {
+    float storm = smoothstep(0.4, 0.8, cover) * (1.0 - smoothstep(radians(25.0), radians(40.0), abs(latRad)));
+    if (storm <= 0.0) return vec3(0.0);
+    vec2 g = vec2(degrees(lonRad), degrees(latRad)) / LIGHTNING_CELL_DEG;
+    float slot = floor(pc.time / LIGHTNING_SLOT_S);
+    float fade = exp(-4.0 * fract(pc.time / LIGHTNING_SLOT_S));
+    float kmPerCell = LIGHTNING_CELL_DEG * 111.2;
+    float sum = 0.0;
+    for (int j = -1; j <= 1; ++j) {
+        for (int i = -1; i <= 1; ++i) {
+            vec2 cell = floor(g) + vec2(float(i), float(j));
+            vec3 h = hash3(vec3(cell, slot));
+            if (h.x > LIGHTNING_P) continue;
+            vec2 km = (g - (cell + 0.25 + 0.5 * h.yz)) * kmPerCell * vec2(cos(latRad), 1.0);
+            sum += exp(-dot(km, km) / (2.0 * LIGHTNING_KM * LIGHTNING_KM));
+        }
+    }
+    return LIGHTNING * sum * fade * storm;
+}
+
+// Aurora emission strength at unit position u: the oval in magnetic latitude (75 deg at magnetic noon, 66 at
+// midnight), curtains that drift along it in animation time, and an activity level that changes over days.
+float auroraIntensity(vec3 u) {
+    float aml = degrees(abs(asin(clamp(dot(u, MAG_POLE), -1.0, 1.0))));
+    if (aml < 55.0) return 0.0;
+    vec3 e1 = normalize(cross(MAG_POLE, vec3(0.0, 0.0, 1.0)));
+    vec3 e2 = cross(MAG_POLE, e1);
+    vec3 sunH = s.sun.xyz - MAG_POLE * dot(s.sun.xyz, MAG_POLE);
+    vec3 uH = u - MAG_POLE * dot(u, MAG_POLE);
+    float cosMlt = dot(normalize(uH), normalize(sunH));
+    float oval = exp(-pow((aml - (70.5 + 4.5 * cosMlt)) / (2.0 + 1.5 * (1.0 - cosMlt)), 2.0));
+    float mlon = atan(dot(u, e2), dot(u, e1)) / (2.0 * PI);
+    float t = pc.time / 86400.0;  // whole tiles per day keep the drift continuous across the wrap
+    float fold = textureLod(noiseTex, vec2(mlon * 24.0 + t * 48.0, aml / 10.0 + t * 24.0), 0.0).r;
+    float activity = 0.35 + 0.65 * smoothstep(0.25, 0.75, textureLod(noiseTex, vec2(s.clouds.z / 32.0, 0.61), 0.0).g);
+    return oval * (0.25 + 1.5 * fold * fold * fold) * activity;
+}
+
+// Aurora radiance along the near part of the ray through the emitting shell (8 steps), where that air is in the
+// Earth's shadow; the camera is above the shell.
+vec3 auroraRadiance(vec3 dir) {
+    vec3 q = s.camPos.xyz * TO_SPHERE;
+    vec3 d = normalize(dir * TO_SPHERE);
+    float r = length(q);
+    float tm = -dot(q, d);
+    float b2 = r * r - tm * tm;
+    float ro = RG + AURORA_HIGH_KM;
+    float ri = RG + AURORA_LOW_KM;
+    if (tm <= 0.0 || b2 >= ro * ro) return vec3(0.0);
+    float t0 = tm - sqrt(ro * ro - b2);
+    float t1 = b2 < ri * ri ? tm - sqrt(ri * ri - b2) : tm + sqrt(ro * ro - b2);
+    vec3 mid = normalize(q + d * (0.5 * (t0 + t1)));
+    if (abs(dot(mid, MAG_POLE)) < 0.64) return vec3(0.0);  // segment middle below 40 deg magnetic latitude
+    float dt = (t1 - t0) / 8.0;
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 8; ++i) {
+        vec3 p = q + d * (t0 + (float(i) + 0.5) * dt);
+        float rp = length(p);
+        vec3 u = p / rp;
+        float dark = 1.0 - smoothstep(-0.20, -0.10, dot(u, s.sun.xyz));
+        if (dark <= 0.0) continue;
+        float h = rp - RG;
+        vec3 colour = AURORA_GREEN * exp(-pow((h - 115.0) / 25.0, 2.0)) + AURORA_RED * 0.15 * exp(-pow((h - 230.0) / 45.0, 2.0));
+        sum += colour * auroraIntensity(u) * dark;
+    }
+    return sum * dt * AURORA_RADIANCE;
+}
+
 // Linear Earth radiance at physical pixel position p; stepPx = one rendered pixel in physical pixels.
 // Texture footprints come from the neighbouring pixels' ground points, not dFdx, so callers may branch.
 vec3 earthRadiance(vec2 p, vec2 stepPx) {
@@ -467,6 +569,7 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     if (atmosphere) skyLookup(dir, hit, inscatter, viewTransmittance);
     if ((pc.effects & DEBUG_NO_INSCATTER) != 0) inscatter = vec3(0.0);
     vec3 airglow = atmosphere ? AIRGLOW * airglowPath(dir, hit) : vec3(0.0);
+    if (atmosphere && (pc.effects & DEBUG_NO_AURORA) == 0) airglow += auroraRadiance(dir);
     if (!hit) return spaceRadiance(dir, p, stepPx) * viewTransmittance + inscatter + airglow;
     bool unused;
     vec2 ll = lonLat(pos);
@@ -568,6 +671,9 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     if ((pc.effects & DEBUG_NO_CITY_LIGHTS) == 0 && muS < 0.0) {
         float night = 1.0 - smoothstep(-0.10, 0.0, muS);
         lights = pow(textureGrad(cityLights, uv, gx, gy).r, CITY_GAMMA) * CITY_LIGHT * night * (1.0 - 0.6 * cover);
+    }
+    if ((pc.effects & (DEBUG_NO_LIGHTNING | MOTION_REDUCED)) == 0 && muS < -0.05 && cover > 0.4) {
+        lights += lightning(lon, lat, cover);
     }
 
     return (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
