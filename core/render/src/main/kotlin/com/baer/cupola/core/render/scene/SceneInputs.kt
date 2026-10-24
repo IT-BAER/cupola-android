@@ -323,14 +323,18 @@ data class Scene(
     /**
      * Mean of [f] (of the Sun's cosine at the ground) over the solid angle of the visible cap as seen from the camera
      * (spherical Earth of radius a). Rings are uniform in ground angle (smooth as the terminator leaves the cap),
-     * weighted by sin(theta) dtheta/dgamma.
+     * weighted by sin(theta) dtheta/dgamma. Runs three times per frame: inline (no boxed f) and scalar in the loop, so
+     * the 512 samples allocate nothing (ART has no escape analysis to remove Vector3 temporaries).
      */
-    private fun capMean(f: (Double) -> Double): Double {
+    private inline fun capMean(f: (Double) -> Double): Double {
         val a = SceneGeometry.A_KM
         val r = cameraEcefKm.norm()
         val up = SceneGeometry.unit(cameraEcefKm)
         val e1 = SceneGeometry.unit(if (abs(up.z) < 0.9) up cross Vector3(0.0, 0.0, 1.0) else up cross Vector3(1.0, 0.0, 0.0))
         val e2 = up cross e1
+        val upSun = up dot sunDirEcef
+        val e1Sun = e1 dot sunDirEcef
+        val e2Sun = e2 dot sunDirEcef
         val capAngle = acos(a / r)
         var sum = 0.0
         var weight = 0.0
@@ -340,8 +344,8 @@ data class Scene(
             val w = sin(theta) * a * (r * cos(g) - a) / (r * r - 2 * r * a * cos(g) + a * a)
             for (j in 0 until CAP_SECTORS) {
                 val phi = 2 * Math.PI * (j + 0.5) / CAP_SECTORS
-                val ground = up * cos(g) + (e1 * cos(phi) + e2 * sin(phi)) * sin(g)
-                sum += w * f(ground dot sunDirEcef)
+                // ground . sun, ground = up cos(g) + (e1 cos(phi) + e2 sin(phi)) sin(g)
+                sum += w * f(upSun * cos(g) + (e1Sun * cos(phi) + e2Sun * sin(phi)) * sin(g))
             }
             weight += w * CAP_SECTORS
         }
