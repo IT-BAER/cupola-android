@@ -123,7 +123,10 @@ object FrameInputs {
     const val STAR_ROW_Y = 60
     const val STAR_ROW_Z = 64
 
-    const val COUNT = 68
+    /** Sunlight at the camera per unit sunlight ([scene.Scene.sunLight], 0 behind the Earth); w = glass facing 0..1. */
+    const val SUN_LIGHT = 68
+
+    const val COUNT = 72
 
     fun empty() = FloatArray(COUNT)
 }

@@ -36,6 +36,9 @@ const int DEBUG_NO_AURORA = 1 << 22;
 const int DEBUG_NO_LIGHTNING = 1 << 23;
 // FrameInputs.MOTION_REDUCED: the system reduces motion, so nothing flashes.
 const int MOTION_REDUCED = 1 << 8;
+// FrameInputs.EFFECT_* (Settings switches).
+const int EFFECT_BLOOM = 1;
+const int EFFECT_WINDOW_GLARE = 2;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -54,6 +57,7 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 starX;    // xyz rows of the ECEF-to-galactic rotation (StarFrame)
     vec4 starY;
     vec4 starZ;
+    vec4 sunLight;  // xyz sunlight at the camera per unit sunlight (0 behind the Earth), w = glass facing (Scene)
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
@@ -123,6 +127,14 @@ const float LIGHTNING_SLOT_S = 0.2;
 const float LIGHTNING_P = 0.0015;
 const float LIGHTNING_KM = 5.0;
 const vec3 LIGHTNING = vec3(0.8, 0.85, 1.0) * 4.0e-4;
+// P3.5 Sun glare in shader radiance per unit sunlight at the camera: a narrow and a wide bloom lobe and a broad veil
+// on the window glass, each peak / (1 + (theta / width)^2) with widths in rad (no transcendentals: full resolution).
+const float BLOOM_NARROW = 4.0;
+const float BLOOM_NARROW_RAD = 0.015;
+const float BLOOM_WIDE = 0.44;
+const float BLOOM_WIDE_RAD = 0.1;
+const float WINDOW_GLARE = 0.002;  // a clean pane scatters a few tenths of a percent
+const float WINDOW_GLARE_RAD = 0.6;
 
 // Interior atlases, faces +X, -X, +Y, -Y, +Z: first atlas row of the face slot and crop row y0, on the
 // 2048 grid (earth, cabin, emissive) and the 512 grid (ambient).
@@ -157,6 +169,7 @@ const float RT = ATMO_TOP_KM;
 const vec3 TO_SPHERE = vec3(1.0, 1.0, A_KM / B_KM);
 const float SUN_ILLUMINANCE = PI;
 const float SUN_RADIUS = 0.004654;  // rad
+const float SUN_DISC = 1.0 / (SUN_RADIUS * SUN_RADIUS);  // disc radiance: irradiance pi over the disc
 const vec3 RAYLEIGH_SCATTER = vec3(ATMO_RAYLEIGH_SCATTER_R, ATMO_RAYLEIGH_SCATTER_G, ATMO_RAYLEIGH_SCATTER_B);
 const vec3 OZONE_ABSORB = vec3(ATMO_OZONE_ABSORB_R, ATMO_OZONE_ABSORB_G, ATMO_OZONE_ABSORB_B);
 const int SKY_STEPS = 20;  // per segment of a view ray (MODE 3)
@@ -446,6 +459,11 @@ vec3 spaceRadiance(vec3 dir, vec2 p, vec2 stepPx) {
     dx.x -= round(dx.x);
     dy.x -= round(dy.x);
     vec3 space = textureGrad(stars, uv, dx, dy).rgb * STAR_RADIANCE;
+    float sinSun = length(cross(dir, s.sun.xyz));
+    if (dot(dir, s.sun.xyz) > 0.0 && sinSun < SUN_RADIUS) {
+        float x = sinSun / SUN_RADIUS;
+        return vec3(SUN_DISC * (1.0 - 0.6 * (1.0 - sqrt(max(1.0 - x * x, 0.0)))));
+    }
     vec3 m = s.moon.xyz;
     float c = dot(dir, m);
     if (c > cos(MOON_RADIUS * 1.05)) {
@@ -679,6 +697,38 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     return (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
 }
 
+// Sunlight reaching the camera per unit sunlight: Scene.sunLight (0 behind the Earth, limb transmittance), and 0 when
+// opaque cabin structure hides the Sun.
+vec3 sunAtCamera() {
+    if (max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) return vec3(0.0);
+    vec3 c = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
+    float a = s.iRight.w != 0.0 ? interiorAlpha(c) : 0.0;
+    return s.sunLight.xyz * (1.0 - smoothstep(0.5, OPAQUE, a));
+}
+
+// Sunlight on the outer window glass per unit sunlight: the Sun not behind the Earth and on the outer side of the
+// cupola (cabin +Z, the round window's axis; the side windows tilt outwards from it). The camera need not see the Sun.
+vec3 sunOnGlass() { return s.iRight.w != 0.0 ? s.sunLight.xyz * s.sunLight.w : vec3(0.0); }
+
+// Bloom (the Sun in sight) and window glare (sunlit glass scattering forwards) at physical pixel p (linear radiance,
+// before exposure); glass = 1 - window alpha.
+vec3 sunGlare(vec2 p, float glass) {
+    if ((pc.effects & (EFFECT_BLOOM | EFFECT_WINDOW_GLARE)) == 0 || max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) {
+        return vec3(0.0);
+    }
+    vec3 sunCam = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
+    float theta2 = 2.0 * (1.0 - dot(normalize(cameraRay(p)), sunCam));
+    vec3 glare = vec3(0.0);
+    if ((pc.effects & EFFECT_BLOOM) != 0) {
+        glare += sunAtCamera() * (BLOOM_NARROW / (1.0 + theta2 / (BLOOM_NARROW_RAD * BLOOM_NARROW_RAD)) +
+                                  BLOOM_WIDE / (1.0 + theta2 / (BLOOM_WIDE_RAD * BLOOM_WIDE_RAD)));
+    }
+    if ((pc.effects & EFFECT_WINDOW_GLARE) != 0 && glass > 0.0) {
+        glare += sunOnGlass() * WINDOW_GLARE / (1.0 + theta2 / (WINDOW_GLARE_RAD * WINDOW_GLARE_RAD)) * glass;
+    }
+    return glare;
+}
+
 void main() {
     if (MODE == 3) {
         vec3 inscatter;
@@ -712,5 +762,6 @@ void main() {
         earth = MODE == 2 ? decodeHdr(textureLod(earthImage, p / vec2(pc.extent), 0.0).rgb)
                           : earthRadiance(p, vec2(1.0)) * s.iBack.w;
     }
-    outColor = vec4(encodeSrgb(toneMap(earth * (1.0 - inside.a) + inside.rgb * s.iBack.w)), 1.0);
+    vec3 glare = sunGlare(p, 1.0 - inside.a) * s.iBack.w;
+    outColor = vec4(encodeSrgb(toneMap(earth * (1.0 - inside.a) + inside.rgb * s.iBack.w + glare)), 1.0);
 }

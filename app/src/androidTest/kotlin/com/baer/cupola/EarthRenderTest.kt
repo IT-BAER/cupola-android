@@ -22,6 +22,7 @@ import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.frames.angleTo
 import com.baer.cupola.orbit.frames.cross
 import com.baer.cupola.orbit.frames.dot
+import com.baer.cupola.orbit.frames.norm
 import com.baer.cupola.orbit.frames.plus
 import com.baer.cupola.orbit.frames.times
 import com.baer.cupola.orbit.frames.unaryMinus
@@ -63,12 +64,19 @@ class EarthRenderTest {
     }
 
     /** [debug] = FrameInputs.DEBUG_* bits added to the scene's effects. */
-    private fun render(scene: Scene, renderScale: Float = 1f, interior: Boolean = true, debug: Int = 0, animSeconds: Float = 0f): ByteArray {
+    private fun render(
+        scene: Scene,
+        renderScale: Float = 1f,
+        interior: Boolean = true,
+        debug: Int = 0,
+        animSeconds: Float = 0f,
+        effects: Int = 0, // user effects off: the analytic checks see the bare scene
+    ): ByteArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
         inputs[FrameInputs.TIME_SECONDS] = animSeconds
         inputs[FrameInputs.RENDER_SCALE] = renderScale
-        inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or debug).toFloat()
+        inputs[FrameInputs.EFFECTS] = ((inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()) or effects or debug).toFloat()
         if (!interior) inputs[FrameInputs.INTERIOR] = 0f
         return renderer.renderOffscreen(W, H, inputs)
     }
@@ -227,9 +235,9 @@ class EarthRenderTest {
             listOf(1f, 0.5f).map { Triple(RestView.DIAGONAL, it, false) }
         for ((rest, scale, interior) in configs) {
             val scene = restScene(DAY, rest)
-            repeat(GPU_WARMUP) { render(scene, scale, interior) }
+            repeat(GPU_WARMUP) { render(scene, scale, interior, effects = FrameInputs.EFFECTS_ALL) }
             val samples = (0 until GPU_SAMPLES).map {
-                render(scene, scale, interior)
+                render(scene, scale, interior, effects = FrameInputs.EFFECTS_ALL) // the default settings
                 Triple(renderer.lastGpuTimeNanos() / 1e6, renderer.lastEarthPassGpuTimeNanos() / 1e6, renderer.lastSkyPassGpuTimeNanos() / 1e6)
             }.filter { it.first >= 0 && it.second >= 0 && it.third >= 0 }
             assertTrue("no GPU timestamps", samples.isNotEmpty())
@@ -528,6 +536,72 @@ class EarthRenderTest {
         assertEquals(0, reducedFlashes)
     }
 
+    /** Camera at 420 km over the point whose zenith is [dir], looking along [dir] with a [fovDeg] field. */
+    private fun lookAlong(instant: Instant, dir: Vector3, fovDeg: Double): Scene {
+        val state = (orbit.stateAt(instant) as OrbitState).toSceneState()
+        val p = Frames.geodeticToEcef(Geodetic(asin(dir.z), atan2(dir.y, dir.x), ALT_KM))
+        return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(instant, p, dir, fovLongDeg = fovDeg))
+    }
+
+    private fun sunDir(instant: Instant) = (orbit.stateAt(instant) as OrbitState).toSceneState().sunDirEcef
+
+    /** P3.5: the Sun disc is saturated; bloom (EFFECT_BLOOM) halos it, without bloom space beside it stays black. */
+    @Test
+    fun sunDiscIsSaturatedAndBloomHalosIt() {
+        val scene = lookAlong(DAY, sunDir(DAY), 10.0)
+        val plain = render(scene, interior = false, effects = 0)
+        val bloom = render(scene, interior = false, effects = FrameInputs.EFFECT_BLOOM)
+        save("sun_bloom", bloom)
+        val radiusPx = tan(Math.toRadians(0.2666)) / tan(Math.toRadians(5.0)) * H / 2
+        fun ring(img: ByteArray) = (0 until H step 3).flatMap { y -> (0 until W step 3).mapNotNull { x ->
+            val r = sqrt((x - W / 2.0) * (x - W / 2.0) + (y - H / 2.0) * (y - H / 2.0))
+            if (r > 2 * radiusPx && r < 4 * radiusPx) luma(img, x, y) else null
+        } }.average()
+        Log.i(TAG, "sun centre ${luma(plain, W / 2, H / 2)} ring plain ${ring(plain)} bloom ${ring(bloom)} radius $radiusPx")
+        assertTrue("disc saturated: ${luma(plain, W / 2, H / 2)}", luma(plain, W / 2, H / 2) >= 250)
+        assertTrue("no halo without bloom: ${ring(plain)}", ring(plain) < 15)
+        assertTrue("bloom halo: ${ring(bloom)} vs ${ring(plain)}", ring(bloom) > ring(plain) + 30)
+    }
+
+    /** W3 eclipse: from the anti-solar point the Sun is behind the Earth: no disc and no glare. */
+    @Test
+    fun sunBehindTheEarthGivesNoGlare() {
+        val s = sunDir(DAY)
+        val state = (orbit.stateAt(DAY) as OrbitState).toSceneState()
+        val anti = Frames.geodeticToEcef(Geodetic(asin(-s.z), atan2(-s.y, -s.x), ALT_KM))
+        val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(DAY, anti, s, fovLongDeg = 60.0))
+        val all = render(scene, interior = false, effects = FrameInputs.EFFECTS_ALL)
+        val none = render(scene, interior = false, effects = 0)
+        save("sun_eclipse", all)
+        val diff = meanAbsDiff(all, none)
+        Log.i(TAG, "eclipse glare diff $diff centre ${luma(all, W / 2, H / 2)}")
+        assertTrue("glare behind the Earth: $diff", diff < 0.3)
+        assertTrue("no disc: ${luma(all, W / 2, H / 2)}", luma(all, W / 2, H / 2) < 250)
+    }
+
+    /**
+     * Window glare (EFFECT_WINDOW_GLARE): sunlit glass scatters forwards. Diagonal rest views at sunrise and sunset of
+     * one day (Sun 0-14 deg above the limb, so it lights the outer glass); none at night.
+     */
+    @Test
+    fun windowGlareHazesSunlitGlass() {
+        val instants = (0L until 24 * 30L).map { DAY.plusSeconds(120 * it) }.filter {
+            val st = (orbit.stateAt(it) as OrbitState).toSceneState()
+            val up = SceneGeometry.unit(st.positionEcefKm)
+            Math.acos(-(st.sunDirEcef dot up)) - asin(6378.137 / st.positionEcefKm.norm()) in 0.0..0.25
+        }.take(6)
+        val diffs = instants.map { instant ->
+            val scene = restScene(instant, RestView.DIAGONAL)
+            val glare = render(scene, effects = FrameInputs.EFFECT_WINDOW_GLARE)
+            if (instant == instants.first()) save("window_glare", glare)
+            meanLuma(glare) - meanLuma(render(scene, effects = 0))
+        }
+        val night = restScene(nightInstant(), RestView.DIAGONAL)
+        val nightDiff = meanAbsDiff(render(night, effects = FrameInputs.EFFECT_WINDOW_GLARE), render(night, effects = 0))
+        Log.i(TAG, "window glare at ${instants.size} sunrise/sunset views: $diffs, night $nightDiff")
+        assertTrue("window glare $diffs", diffs.isNotEmpty() && diffs.all { it > 0.5 })
+        assertTrue("window glare at night $nightDiff", nightDiff < 0.3)
+    }
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */
     @Test
     fun limbWithinTwoPixelsOfTheAnalyticHorizon() {

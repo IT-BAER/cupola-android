@@ -242,6 +242,8 @@ data class Scene(
         put(inputs, FrameInputs.STAR_ROW_X, Vector3(stars.c0.x, stars.c1.x, stars.c2.x))
         put(inputs, FrameInputs.STAR_ROW_Y, Vector3(stars.c0.y, stars.c1.y, stars.c2.y))
         put(inputs, FrameInputs.STAR_ROW_Z, Vector3(stars.c0.z, stars.c1.z, stars.c2.z))
+        put(inputs, FrameInputs.SUN_LIGHT, sunLight())
+        inputs[FrameInputs.SUN_LIGHT + 3] = glassFacing().toFloat()
     }
 
     /** [FrameInputs.SKY_UP] .. [FrameInputs.SKY_TOP_NADIR], in double. */
@@ -265,6 +267,40 @@ data class Scene(
 
     /** Mean radiance of the visible ground (shader units, albedo [EARTH_ALBEDO], no atmosphere). */
     fun earthLight(): Double = EARTH_ALBEDO * capMean { maxOf(0.0, it) }
+
+    /**
+     * Sunlight reaching the camera per unit sunlight, per shader colour channel: 0 when the Earth hides the Sun, the
+     * Chapman grazing-ray transmittance (Rayleigh and Mie of atmosphere_params.h, spherical Earth) when its ray
+     * crosses the air.
+     */
+    fun sunLight(): Vector3 {
+        val r = cameraEcefKm.norm()
+        val mu = sunDirEcef dot SceneGeometry.unit(cameraEcefKm)
+        if (mu >= 0.0) return Vector3(1.0, 1.0, 1.0)
+        val h = r * sqrt(1 - mu * mu) - Atmosphere.BOTTOM_KM
+        if (h <= 0.0) return Vector3(0.0, 0.0, 0.0)
+        if (h >= Atmosphere.TOP_KM - Atmosphere.BOTTOM_KM) return Vector3(1.0, 1.0, 1.0)
+        fun column(scaleKm: Double) = sqrt(2 * Math.PI * Atmosphere.BOTTOM_KM * scaleKm) * exp(-h / scaleKm)
+        val rayleigh = column(8.0)
+        val mie = 4.44e-3 * column(1.2)
+        return Vector3(exp(-(5.802e-3 * rayleigh + mie)), exp(-(13.558e-3 * rayleigh + mie)), exp(-(33.1e-3 * rayleigh + mie)))
+    }
+
+    /** How far the Sun stands on the cupola's outer side (cabin +Z), 0..1; 0 without the cabin. */
+    fun glassFacing(): Double {
+        val cabin = blenderFromCamera ?: return 0.0
+        val c = ecefFromCamera
+        val z = (cabin * Vector3(sunDirEcef dot c.c0, sunDirEcef dot c.c1, sunDirEcef dot c.c2)).z
+        val t = ((z + 0.3) / 0.4).coerceIn(0.0, 1.0)
+        return t * t * (3 - 2 * t)
+    }
+
+    /** Mean radiance the sunlit window glass adds to the view (earth.frag sunOnGlass); 0 with window glare off. */
+    fun glassGlare(): Double {
+        if (effects and FrameInputs.EFFECT_WINDOW_GLARE == 0) return 0.0
+        val t = sunLight()
+        return GLASS_GLARE_MEAN * (0.2126 * t.x + 0.7152 * t.y + 0.0722 * t.z) * glassFacing()
+    }
 
     /** Mean radiance (luma) of the sunlit air in front of the visible ground: [airlight] averaged like [earthLight]. */
     fun airLight(): Double = capMean(::airlight)
@@ -316,6 +352,9 @@ data class Scene(
          * ([Exposure.NIGHT_FLOOR]), which would leave a full-Moon night as dark as a moonless one.
          */
         const val MOON_GAIN = 20.0
+
+        /** earth.frag WINDOW_GLARE averaged over the forward lobe and the glass share of a view. */
+        const val GLASS_GLARE_MEAN = 0.002
         private const val CAP_RINGS = 16
         private const val CAP_SECTORS = 32
 

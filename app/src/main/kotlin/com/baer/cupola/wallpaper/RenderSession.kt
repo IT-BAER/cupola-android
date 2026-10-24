@@ -128,9 +128,9 @@ internal class RenderSession(
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
         writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg)
-        if (engineState.reducedMotion) {
-            inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or FrameInputs.MOTION_REDUCED).toFloat()
-        }
+        val reduced = if (engineState.reducedMotion) FrameInputs.MOTION_REDUCED else 0
+        val other = inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()
+        inputs[FrameInputs.EFFECTS] = (other or (current.effects and FrameInputs.EFFECTS_ALL) or reduced).toFloat()
         Gate.applyLoad(inputs)
         lastInputs = inputs.copyOf()
         return inputs
@@ -182,9 +182,11 @@ internal class RenderSession(
     private var lastGoodState: OrbitState? = null
 
     /** The preview time-lapses through day and night in seconds, faster than any adaptation: it shows steady exposure. */
-    private fun adapted(scene: Scene) = scene.copy(
-        exposure = if (engineState.preview) Exposure.steady(scene) else exposure.update(Exposure.steady(scene), System.nanoTime()),
-    )
+    private fun adapted(base: Scene): Scene {
+        val scene = base.copy(effects = (base.effects and FrameInputs.EFFECTS_ALL.inv()) or (settings().effects and FrameInputs.EFFECTS_ALL))
+        val steady = Exposure.steady(scene)
+        return scene.copy(exposure = if (engineState.preview) steady else exposure.update(steady, System.nanoTime()))
+    }
 
     fun applyMoving(scheduler: FrameScheduler) {
         scheduledMoving = moving

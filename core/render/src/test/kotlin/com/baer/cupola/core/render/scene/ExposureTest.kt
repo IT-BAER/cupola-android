@@ -1,5 +1,6 @@
 package com.baer.cupola.core.render.scene
 
+import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.orbit.sgp4.Vector3
 import java.time.Instant
 import kotlin.math.abs
@@ -32,6 +33,23 @@ class ExposureTest {
     }
 
     private fun log2(x: Double) = ln(x) / ln(2.0)
+
+    /**
+     * Sunrise from the cupola: the ground below is in night (Sun zenith 101 deg there), but the Sun stands 8 deg above
+     * the limb on the cupola's outer side (cabin +Z, here the camera z axis), lighting the window glass. With window
+     * glare on, the exposure follows the sunlit glass instead of the night floor; off, or without the cabin, it does not.
+     */
+    @Test
+    fun sunlitGlassLowersTheSunriseExposure() {
+        val sunrise = scene(101.0).copy(blenderFromCamera = Mat3.IDENTITY, sunDirEcef = SceneGeometry.unit(Vector3(-0.196, 0.0, 0.98)))
+        val lit = Exposure.steady(sunrise)
+        val off = Exposure.steady(sunrise.copy(effects = FrameInputs.EFFECTS_ALL and FrameInputs.EFFECT_WINDOW_GLARE.inv()))
+        val noCabin = Exposure.steady(sunrise.copy(blenderFromCamera = null))
+        assertTrue("lit $lit off $off", lit < off * 0.5)
+        assertEquals(off, noCabin, off * 1e-9)
+        val behindEarth = sunrise.copy(sunDirEcef = SceneGeometry.unit(Vector3(-0.5, 0.0, 0.8)))
+        assertEquals("Sun below the limb", Exposure.steady(behindEarth.copy(effects = 0)), Exposure.steady(behindEarth), 1e-9)
+    }
 
     @Test
     fun earthLightIsTheMeanSunCosineOverTheVisibleCap() {

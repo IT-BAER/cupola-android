@@ -21,7 +21,7 @@ object Exposure {
     const val NIGHT_FLOOR = 2.5e-5
 
     fun luminance(scene: Scene): Double =
-        scene.earthLight() + scene.airLight() + Scene.EARTH_ALBEDO * 0.5 * scene.moonLight() + NIGHT_FLOOR
+        scene.earthLight() + scene.airLight() + Scene.EARTH_ALBEDO * 0.5 * scene.moonLight() + scene.glassGlare() + NIGHT_FLOOR
 
     fun steady(scene: Scene): Double = (KEY / luminance(scene)).coerceIn(MIN, MAX)
 }

@@ -27,6 +27,16 @@ class RenderSessionAnimationTest {
 
     private fun FloatArray.effects() = this[FrameInputs.EFFECTS].toInt()
 
+    /** ST4-ST7: the Settings effect switches reach the shader's EFFECTS bits. */
+    @Test
+    fun settingsEffectsReachTheShader() {
+        val only = RenderSettings(effects = RenderSettings.BLOOM or RenderSettings.DUST)
+        val inputs = RenderSession(orbit, { only }, { orbit.epoch.toEpochMilli() + 3_600_000 })
+            .apply { apply(EngineState(visible = true), FrameScheduler()) }.nextFrameInputs()
+        val all = FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_WINDOW_GLARE or FrameInputs.EFFECT_REFLECTIONS or FrameInputs.EFFECT_DUST
+        assertEquals(FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_DUST, inputs.effects() and all)
+    }
+
     @Test
     fun reducedMotionReachesTheShader() {
         assertTrue(session(EngineState(visible = true, reducedMotion = true)).nextFrameInputs().effects() and FrameInputs.MOTION_REDUCED != 0)
