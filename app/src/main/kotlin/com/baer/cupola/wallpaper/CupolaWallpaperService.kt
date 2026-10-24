@@ -21,6 +21,7 @@ import android.util.Log
 import android.view.SurfaceHolder
 import android.view.ViewConfiguration
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.concurrent.Executors
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -52,6 +53,30 @@ class CupolaWallpaperService : WallpaperService() {
         private var state = EngineState()
         private var attached = false
         private var countedVisible = false
+
+        // Wallpaper colours from a small render of the last frame (F15); main thread except the render itself.
+        private val paletteExecutor = Executors.newSingleThreadExecutor()
+        private var palette: FramePalette? = null
+        private val paletteTick = object : Runnable {
+            override fun run() {
+                val inputs = session.lastFrameInputs()
+                if (inputs != null) {
+                    paletteExecutor.execute {
+                        val pixels = runCatching { renderer.renderOffscreen(PALETTE_W, PALETTE_H, inputs) }.getOrNull()
+                            ?: return@execute
+                        val next = FramePalette.of(pixels, PALETTE_W, PALETTE_H)
+                        mainHandler.post {
+                            if (next != palette) {
+                                palette = next
+                                Log.i(LOG_TAG, "colors #%06x #%06x #%06x".format(next.primary, next.secondary, next.tertiary))
+                                notifyColorsChanged()
+                            }
+                        }
+                    }
+                }
+                mainHandler.postDelayed(this, PALETTE_REFRESH_MS)
+            }
+        }
 
         init {
             val opened = host.openSession()
@@ -120,6 +145,8 @@ class CupolaWallpaperService : WallpaperService() {
             }
             pushState()
             syncSensor()
+            mainHandler.removeCallbacks(paletteTick)
+            if (visible) mainHandler.postDelayed(paletteTick, PALETTE_FIRST_MS)
         }
 
         override fun onOffsetsChanged(
@@ -145,8 +172,16 @@ class CupolaWallpaperService : WallpaperService() {
             logWallpaperFlags()
         }
 
-        // Fixed palette until P3 can sample the real frame.
-        override fun onComputeColors(): WallpaperColors = WallpaperColors(
+        // The fixed palette stands in until the first frame has been sampled.
+        override fun onComputeColors(): WallpaperColors = palette?.let {
+            WallpaperColors(
+                Color.valueOf(OPAQUE or it.primary),
+                Color.valueOf(OPAQUE or it.secondary),
+                Color.valueOf(OPAQUE or it.tertiary),
+                (if (it.supportsDarkText) WallpaperColors.HINT_SUPPORTS_DARK_TEXT else 0) or
+                    (if (it.supportsDarkTheme) WallpaperColors.HINT_SUPPORTS_DARK_THEME else 0),
+            )
+        } ?: WallpaperColors(
             Color.valueOf(DEEP_SPACE_BLUE),
             Color.valueOf(EARTH_BLUE),
             null,
@@ -155,6 +190,8 @@ class CupolaWallpaperService : WallpaperService() {
 
         override fun onDestroy() {
             mainHandler.removeCallbacks(tapTick)
+            mainHandler.removeCallbacks(paletteTick)
+            paletteExecutor.shutdownNow()
             unregisterReceiver(powerSaveReceiver)
             sensor.stop()
             if (attached) {
@@ -193,5 +230,12 @@ class CupolaWallpaperService : WallpaperService() {
     private companion object {
         const val DEEP_SPACE_BLUE = 0xFF050B1F.toInt()
         const val EARTH_BLUE = 0xFF2E6FD8.toInt()
+        const val OPAQUE = 0xFF000000.toInt()
+
+        /** Palette render size (the screen's aspect, about 6300 pixels) and timing. */
+        const val PALETTE_W = 54
+        const val PALETTE_H = 117
+        const val PALETTE_FIRST_MS = 1_000L
+        const val PALETTE_REFRESH_MS = 15 * 60_000L
     }
 }
