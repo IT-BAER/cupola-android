@@ -28,6 +28,8 @@ layout(push_constant) uniform Push {
 // FrameInputs.DEBUG_* bits.
 const int DEBUG_NO_ATMOSPHERE = 1 << 16;
 const int DEBUG_NO_INSCATTER = 1 << 17;
+const int DEBUG_NO_CLOUDS = 1 << 18;
+const int DEBUG_NO_CLOUD_SHADOWS = 1 << 19;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -42,10 +44,12 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 iBack;    // xyz camera back in the interior frame, w = linear exposure
     vec4 skyUp;    // xyz radial up of the camera in the ellipsoid-scaled space, w = nadir angle of the horizon
     vec4 skyAxis;  // xyz the Sun's azimuth axis (perpendicular to skyUp), w = nadir angle of the atmosphere top
+    vec4 clouds;   // CloudFlow: x, y flow phases A and B (cycle + fraction), z days
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
 layout(set = 0, binding = 2) uniform sampler2DArray monthlyColour;
+layout(set = 0, binding = 3) uniform sampler2D cloudMap;
 layout(set = 0, binding = 5) uniform sampler2D terrainNormal;
 layout(set = 0, binding = 7) uniform sampler2D waterMask;
 layout(set = 0, binding = 8) uniform sampler2D interiorEarth;
@@ -57,6 +61,7 @@ layout(set = 0, binding = 12) uniform sampler2D earthImage;  // MODE 2: the scal
 layout(set = 0, binding = 13) uniform sampler2D transmittanceLut;
 layout(set = 0, binding = 14) uniform sampler2D multiScatterLut;
 layout(set = 0, binding = 15) uniform sampler2D irradianceLut;
+layout(set = 0, binding = 16) uniform sampler2D noiseTex;  // tiling fBm, 4 independent channels (REPEAT)
 layout(set = 0, binding = 17) uniform sampler2D skyInscatter;
 layout(set = 0, binding = 18) uniform sampler2D skyTransmittance;
 
@@ -74,6 +79,12 @@ const vec3 OCEAN_ALBEDO = vec3(0.010, 0.022, 0.050);
 // Ocean slope variance (Cox-Munk, about 7 m/s wind) for the Beckmann glint lobe; water F0.
 const float GLINT_M2 = 0.04;
 const float WATER_F0 = 0.02;
+// P3.2 clouds: one cloud layer (tops at CLOUD_ALT_KM), flow-map advection with FLOW_PERIOD_H phases (CloudFlow),
+// CLOUD_SHADOW of the direct sunlight removed under full cover.
+const float CLOUD_ALT_KM = 6.0;
+const float CLOUD_ALBEDO = 0.85;
+const float FLOW_PERIOD_H = 6.0;
+const float CLOUD_SHADOW = 0.75;
 
 // Interior atlases, faces +X, -X, +Y, -Y, +Z: first atlas row of the face slot and crop row y0, on the
 // 2048 grid (earth, cabin, emissive) and the 512 grid (ambient).
@@ -352,6 +363,36 @@ vec2 lonLat(vec3 pos) {
     return vec2(atan(pos.y, pos.x), asin(clamp(n.z, -1.0, 1.0)));
 }
 
+// Zonal wind in m/s (east positive) by latitude: trade easterlies, westerlies, polar easterlies.
+float zonalWind(float latRad) {
+    float a = abs(degrees(latRad));
+    return -6.0 + 16.0 * smoothstep(20.0, 35.0, a) - 13.0 * smoothstep(55.0, 70.0, a);
+}
+
+// Map uv shift after `hours` of the wind field that `cycle` seeds (zonal profile plus noise, about 1000 km scale).
+// uv.x grows eastwards, uv.y southwards.
+vec2 flowShift(vec2 uv, float latRad, float cycle, float hours) {
+    vec2 seed = fract(vec2(0.618034, 0.414214) * cycle);
+    vec2 n = textureLod(noiseTex, vec2(uv.x * 4.0, uv.y * 1.6) + seed, 0.0).rg * 2.0 - 1.0;
+    vec2 km = vec2(zonalWind(latRad) + 5.0 * n.x, 3.0 * n.y) * (hours * 3.6);  // m/s x h = 3.6 km
+    return vec2(km.x / (2.0 * PI * A_KM * max(cos(latRad), 0.2)), -km.y / (2.0 * LAT_MAX * A_KM));
+}
+
+// Cloud cover 0..1 at map uv: the Blue Marble 2002 map advected in two flow phases half a period apart (each fades
+// out where it restarts), thinned or thickened over days by a slowly moving low-frequency field.
+float cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
+    if (abs(latRad) > LAT_MAX) return 0.0;
+    float fa = fract(s.clouds.x);
+    float fb = fract(s.clouds.y);
+    vec2 ua = uv - flowShift(uv, latRad, floor(s.clouds.x), fa * FLOW_PERIOD_H);
+    vec2 ub = uv - flowShift(uv, latRad, floor(s.clouds.y), fb * FLOW_PERIOD_H);
+    float c = mix(textureGrad(cloudMap, ub, gx, gy).r, textureGrad(cloudMap, ua, gx, gy).r, 1.0 - abs(2.0 * fa - 1.0));
+    float d = textureLod(noiseTex, vec2(uv.x, uv.y * 0.4) + s.clouds.z * vec2(1.0 / 64.0, 1.0 / 128.0), 0.0).b;
+    float thin = max(d - 0.5, 0.0) * 0.5;
+    float thick = max(0.5 - d, 0.0) * 0.6;
+    return clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0);
+}
+
 // Linear Earth radiance at physical pixel position p; stepPx = one rendered pixel in physical pixels.
 // Texture footprints come from the neighbouring pixels' ground points, not dFdx, so callers may branch.
 vec3 earthRadiance(vec2 p, vec2 stepPx) {
@@ -418,7 +459,20 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     float daylight = smoothstep(-0.02, 0.04, muS);
     vec3 sun = atmosphere ? sunlight(RG, muS) : vec3(daylight);
     vec3 sky = atmosphere ? skyIrradiance(muS) : vec3(0.0);
-    vec3 diffuse = albedo * (max(dot(relief, l), 0.0) * sun + sky);
+
+    // Clouds and their shadows: the shadow is the cover where the ray to the Sun crosses the cloud layer.
+    bool clouds = (pc.effects & DEBUG_NO_CLOUDS) == 0;
+    float cover = clouds ? cloudCover(uv, lat, gx, gy) : 0.0;
+    float shadow = 1.0;
+    if (clouds && (pc.effects & DEBUG_NO_CLOUD_SHADOWS) == 0 && muS > 0.0) {
+        vec2 toSun = vec2(dot(l, east), dot(l, north));
+        float horizontal = length(toSun);
+        vec2 km = horizontal > 1e-4 ? toSun / horizontal * CLOUD_ALT_KM * min(horizontal / max(muS, 0.05), 20.0)
+                                    : vec2(0.0);
+        vec2 suv = uv + vec2(km.x / (2.0 * PI * A_KM * max(cos(lat), 0.2)), -km.y / (2.0 * LAT_MAX * A_KM));
+        shadow = 1.0 - CLOUD_SHADOW * cloudCover(suv, lat + km.y / A_KM, gx, gy);
+    }
+    vec3 diffuse = albedo * (max(dot(relief, l), 0.0) * sun * shadow + sky);
 
     // Sun glint: Beckmann lobe on the flat sea surface, Schlick Fresnel; radiance with irradiance pi.
     vec3 h = normalize(l + v);
@@ -427,9 +481,15 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     float beckmann = exp((nh2 - 1.0) / (GLINT_M2 * nh2)) / (PI * GLINT_M2 * nh2 * nh2);
     float fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
     float nv = max(dot(n, v), 1e-3);
-    vec3 glint = water * fresnel * beckmann * PI / (4.0 * nv) * sun * step(0.0, muS);
+    vec3 glint = water * fresnel * beckmann * PI / (4.0 * nv) * sun * step(0.0, muS) * shadow;
 
-    return (diffuse + glint) * viewTransmittance + inscatter;
+    // Cloud tops: sunlit until the Sun sets below their own (higher) horizon, plus the ground's sky light.
+    float rc = RG + CLOUD_ALT_KM;
+    float muHc = -sqrt(max(1.0 - (RG / rc) * (RG / rc), 0.0));
+    vec3 cloudSun = atmosphere ? sunlight(rc, muS) : vec3(daylight);
+    vec3 cloud = CLOUD_ALBEDO * (clamp((muS - muHc) / (1.0 - muHc), 0.0, 1.0) * cloudSun + sky);
+
+    return mix(diffuse + glint, cloud, cover) * viewTransmittance + inscatter;
 }
 
 void main() {

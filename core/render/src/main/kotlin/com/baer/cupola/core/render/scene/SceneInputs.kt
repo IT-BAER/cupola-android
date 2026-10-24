@@ -234,6 +234,10 @@ data class Scene(
         inputs[FrameInputs.EXPOSURE] = (exposure ?: Exposure.steady(this)).toFloat()
         inputs[FrameInputs.EFFECTS] = effects.toFloat()
         writeSkyFrame(inputs)
+        val clouds = CloudFlow.of(instant)
+        inputs[FrameInputs.CLOUD_FLOW] = clouds.phaseA
+        inputs[FrameInputs.CLOUD_FLOW + 1] = clouds.phaseB
+        inputs[FrameInputs.CLOUD_FLOW + 2] = clouds.days
     }
 
     /** [FrameInputs.SKY_UP] .. [FrameInputs.SKY_TOP_NADIR], in double. */

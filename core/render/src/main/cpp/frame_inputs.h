@@ -35,5 +35,6 @@ constexpr int kSkyUp = 44;
 constexpr int kSkyHorizonNadir = 47;
 constexpr int kSkySunAxis = 48;
 constexpr int kSkyTopNadir = 51;
-constexpr int kCount = 52;
+constexpr int kCloudFlow = 52;
+constexpr int kCount = 56;
 }  // namespace cupola::inputs

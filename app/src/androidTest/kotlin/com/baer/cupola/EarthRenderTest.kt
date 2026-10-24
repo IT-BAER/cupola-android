@@ -266,6 +266,84 @@ class EarthRenderTest {
         assertTrue("colour, not grey: rgb $r $g $b", maxOf(abs(r - g), abs(g - b), abs(r - b)) > 8.0)
     }
 
+    /** Gulf of Guinea at nadir with the Sun high: the ITCZ cloud band crosses the view. */
+    private fun cloudScene() = scene(DAY, 0.0, 10.0, 0.0, -90.0)
+
+    /** P3.2: clouds cover part of a sunlit view, look white, and only add light. */
+    @Test
+    fun cloudsCoverPartOfTheDayEarthInWhite() {
+        val clear = render(cloudScene(), interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        val cloudy = render(cloudScene(), interior = false)
+        save("clouds_day", cloudy)
+        var cloudPx = 0
+        var n = 0
+        var r = 0.0
+        var g = 0.0
+        var b = 0.0
+        for (y in 0 until H step 6) for (x in 0 until W step 6) {
+            n++
+            if (luma(cloudy, x, y) - luma(clear, x, y) > 20) {
+                cloudPx++
+                val i = at(x, y)
+                r += ch(cloudy, i); g += ch(cloudy, i + 1); b += ch(cloudy, i + 2)
+            }
+        }
+        val fraction = cloudPx.toDouble() / n
+        Log.i(TAG, "clouds fraction $fraction rgb ${r / cloudPx} ${g / cloudPx} ${b / cloudPx}")
+        assertTrue("cloud fraction $fraction", fraction in 0.05..0.95)
+        val spread = (maxOf(r, g, b) - minOf(r, g, b)) / maxOf(r, g, b)
+        assertTrue("clouds white, not tinted: rgb $r $g $b", spread < 0.15)
+        assertTrue("clouds add light", meanLuma(cloudy) > meanLuma(clear) + 5)
+    }
+
+    /** Clouds drift: a minute changes almost nothing, six hours (one flow period) change the field clearly. */
+    @Test
+    fun cloudsMoveSmoothlyAndChangeOverHours() {
+        val base = cloudScene()
+        fun at(seconds: Long) = render(base.copy(instant = DAY.plusSeconds(seconds)), interior = false)
+        val a = at(0)
+        val minute = meanAbsDiff(a, at(60))
+        val hours = meanAbsDiff(a, at(6 * 3600))
+        Log.i(TAG, "cloud change 1 min $minute, 6 h $hours")
+        assertTrue("1 min changes little: $minute", minute < 1.5)
+        assertTrue("6 h change clearly: $hours vs $minute", hours > 3.0 && hours > 4 * minute)
+    }
+
+    /**
+     * At low sun (north India, Sun zenith 61 deg) cloud shadows darken the view, also on clear ground beside the
+     * clouds; most darkening lies under thin cloud, which its own shadow shows through. A35 24 Oct: mean -1.89 luma,
+     * 1209 darkened samples on clear ground (of 70200).
+     */
+    @Test
+    fun cloudShadowsDarkenClearGroundAtLowSun() {
+        val (sLat, sLon) = subsolar(DAY)
+        val scene = scene(DAY, 30.0, 75.0, 0.0, -90.0)
+        val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        val noShadow = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUD_SHADOWS)
+        val full = render(scene, interior = false)
+        save("clouds_low_sun", full)
+        var darkened = 0
+        var darkenedClear = 0
+        for (y in 0 until H step 6) for (x in 0 until W step 6) {
+            if (luma(full, x, y) < luma(noShadow, x, y) - 4) {
+                darkened++
+                if (luma(noShadow, x, y) - luma(clear, x, y) < 10) darkenedClear++
+            }
+        }
+        Log.i(TAG, "low sun (subsolar $sLat $sLon): shadowed samples $darkened, on clear ground $darkenedClear")
+        assertTrue("shadows darken the view: ${meanLuma(full)} vs ${meanLuma(noShadow)}", meanLuma(full) < meanLuma(noShadow) - 1.0)
+        assertTrue("shadows on clear ground: $darkenedClear of $darkened", darkenedClear > 500)
+    }
+
+    /** Without moonlight (R3) night clouds get no sunlight: the night side stays as dark as without clouds. */
+    @Test
+    fun nightCloudsGetNoSunlight() {
+        val scene = restScene(nightInstant(), RestView.NADIR)
+        val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        val cloudy = render(scene, interior = false)
+        assertTrue("night ${meanLuma(cloudy)} vs ${meanLuma(clear)}", meanLuma(cloudy) < meanLuma(clear) + 1.0)
+    }
+
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */
     @Test
     fun limbWithinTwoPixelsOfTheAnalyticHorizon() {
@@ -413,7 +491,7 @@ class EarthRenderTest {
         val (lat, lon) = subsolar(GLINT)
         // ISS 6 degrees west of the subsolar point over the open Pacific: the specular point sits between.
         val scene = scene(GLINT, lat, lon - 6.0, 0.0, -90.0)
-        val img = render(scene)
+        val img = render(scene, debug = FrameInputs.DEBUG_NO_CLOUDS)
         save("glint", img)
         val analytic = specularPixel(scene)
         assertNotNull("specular point not in view", analytic)
@@ -444,7 +522,8 @@ class EarthRenderTest {
     @Test
     fun terminatorCrossesTheFrameCentre() {
         val (_, lon) = subsolar(GLINT)
-        val img = render(terminatorScene(lon), debug = FrameInputs.DEBUG_NO_ATMOSPHERE)
+        // Ground terminator: cloud tops (higher) stay lit a little longer.
+        val img = render(terminatorScene(lon), debug = FrameInputs.DEBUG_NO_ATMOSPHERE or FrameInputs.DEBUG_NO_CLOUDS)
         save("terminator", img)
         // Day above the centre row, night below: compare 200-row bands either side of a 200-row margin.
         fun band(y0: Int) = (y0 until y0 + 200 step 4).flatMap { y -> (0 until W step 4).map { x -> luma(img, x, y) } }.average()
@@ -462,7 +541,7 @@ class EarthRenderTest {
      */
     @Test
     fun openOceanIsUniform() {
-        val img = render(scene(DAY, 0.0, -20.0, 0.0, -90.0))
+        val img = render(scene(DAY, 0.0, -20.0, 0.0, -90.0), debug = FrameInputs.DEBUG_NO_CLOUDS)
         save("ocean", img)
         var sum = 0.0
         var n = 0
@@ -616,6 +695,15 @@ class EarthRenderTest {
         var n = 0
         for (y in 0 until H step 4) for (x in 0 until W step 4) {
             sum += luma(img, x, y); n++
+        }
+        return sum / n
+    }
+
+    private fun meanAbsDiff(a: ByteArray, b: ByteArray): Double {
+        var sum = 0.0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            sum += abs(luma(a, x, y) - luma(b, x, y)); n++
         }
         return sum / n
     }

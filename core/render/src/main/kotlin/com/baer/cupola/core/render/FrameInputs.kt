@@ -40,6 +40,12 @@ object FrameInputs {
     /** Debug: atmosphere without its airlight (inscatter): ground light through the sun and view transmittance only. */
     const val DEBUG_NO_INSCATTER = 1 shl 17
 
+    /** Debug: no clouds (and so no cloud shadows). */
+    const val DEBUG_NO_CLOUDS = 1 shl 18
+
+    /** Debug: clouds without their shadows on the ground. */
+    const val DEBUG_NO_CLOUD_SHADOWS = 1 shl 19
+
     /**
      * Start of the scene block, copied into the per-frame uniform buffer (std140, vec4-aligned; see
      * `earth.frag`). Written by `scene.Scene.write`. Directions are ECEF unit vectors, positions ECEF km.
@@ -93,7 +99,10 @@ object FrameInputs {
     const val SKY_SUN_AXIS = 48
     const val SKY_TOP_NADIR = 51
 
-    const val COUNT = 52
+    /** Cloud time ([scene.CloudFlow]): flow phases A and B (cycle + fraction) and days; the fourth float is unused. */
+    const val CLOUD_FLOW = 52
+
+    const val COUNT = 56
 
     fun empty() = FloatArray(COUNT)
 }
