@@ -46,6 +46,8 @@
     <string name="about_privacy">No data collected, no network access.</string>
     <string name="about_nasa">Based on NASA 3D model and imagery; not endorsed by NASA.</string>
     <string name="about_credits">Credits</string>
+    <string name="about_privacy_policy">Privacy policy</string>
+    <string name="about_support">Support and feedback</string>
     <string name="nav_credits">Credits</string>
     <string name="nav_about">About and privacy</string>
     <string name="credits_orbit_data">Orbit data: US Space Force via CelesTrak</string>

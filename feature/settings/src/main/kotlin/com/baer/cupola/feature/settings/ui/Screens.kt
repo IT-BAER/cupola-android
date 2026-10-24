@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.baer.cupola.feature.settings.AppInfo
@@ -97,11 +98,17 @@ fun CreditsScreen(credits: Credits?) {
 
 @Composable
 fun AboutScreen(appInfo: AppInfo, onCredits: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
     ScreenColumn(R.string.about_title, Modifier.verticalScroll(rememberScrollState())) {
         Text(stringResource(R.string.about_version, appInfo.versionName))
         Text(stringResource(R.string.about_orbit), Modifier.padding(top = 12.dp))
         Text(stringResource(R.string.about_privacy), Modifier.padding(top = 12.dp))
         Text(stringResource(R.string.about_nasa), Modifier.padding(top = 12.dp))
         TextButton(onClick = onCredits) { Text(stringResource(R.string.about_credits)) }
+        TextButton(onClick = { uriHandler.openUri(PRIVACY_URL) }) { Text(stringResource(R.string.about_privacy_policy)) }
+        TextButton(onClick = { uriHandler.openUri(SUPPORT_URL) }) { Text(stringResource(R.string.about_support)) }
     }
 }
+
+private const val PRIVACY_URL = "https://it-baer.github.io/cupola-android/privacy"
+private const val SUPPORT_URL = "https://github.com/IT-BAER/cupola-android/issues"

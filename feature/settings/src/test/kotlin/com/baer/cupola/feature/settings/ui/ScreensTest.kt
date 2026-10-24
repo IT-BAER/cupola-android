@@ -16,6 +16,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import com.baer.cupola.feature.settings.HomeCitySearchUiState
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -307,5 +310,22 @@ class ScreensTest {
         rule.onNodeWithText("Version 1.2.3").assertIsDisplayed()
         rule.onNodeWithText("No data collected, no network access.").assertIsDisplayed()
         rule.onNodeWithText("realistic ISS orbit", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun aboutLinksOpenPrivacyPolicyAndSupport() {
+        val opened = mutableListOf<String>()
+        val uriHandler = object : UriHandler {
+            override fun openUri(uri: String) { opened += uri }
+        }
+        rule.setContent {
+            CompositionLocalProvider(LocalUriHandler provides uriHandler) { AboutScreen(AppInfo("1.2.3"), onCredits = {}) }
+        }
+        rule.onNodeWithText("Privacy policy").performScrollTo().performClick()
+        rule.onNodeWithText("Support and feedback").performScrollTo().performClick()
+        assertEquals(
+            listOf("https://it-baer.github.io/cupola-android/privacy", "https://github.com/IT-BAER/cupola-android/issues"),
+            opened,
+        )
     }
 }
