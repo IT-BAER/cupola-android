@@ -162,9 +162,10 @@ const float EMISSIVE_GAIN = 1.0;
 const float AMBIENT_GAIN = 0.02;
 const float STATIC_SCALE = 2.0e-4;
 // Earthlight gains over the mean Earth radiance (Scene.earthLight): the Earthlight layer, and the uniform fill
-// (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the P4.7 day photo.
-const float EARTHLIGHT_GAIN = 18.0;
-const float EARTH_FILL_GAIN = 6.0;
+// (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the Earth-lit photos
+// iss022e066972 / iss029e043374 (EarthRenderTest.dayCabinToneMatchesTheEarthLitPhotos).
+const float EARTHLIGHT_GAIN = 7.5;
+const float EARTH_FILL_GAIN = 1.25;
 // P4.5 glass (tools/blender/build_cupola.py, cabin frame in m): the eye EYE_TO_GLASS below the round top pane at
 // TOP_GLASS_Z (radius TOP_PANE_R), seen within TOP_WINDOW_COS of +Z; six side panes on facets tilted FACET_TILT from the top plane at
 // 60 deg steps, HEX_APOTHEM from the axis at Z_TOP, the pane SIDE_DEPTH outwards. GLASS_F0: the pane stack's normal
