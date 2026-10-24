@@ -39,6 +39,8 @@ const int MOTION_REDUCED = 1 << 8;
 // FrameInputs.EFFECT_* (Settings switches).
 const int EFFECT_BLOOM = 1;
 const int EFFECT_WINDOW_GLARE = 2;
+const int EFFECT_REFLECTIONS = 4;
+const int EFFECT_DUST = 8;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -158,6 +160,20 @@ const float STATIC_SCALE = 2.0e-4;
 // (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the P4.7 day photo.
 const float EARTHLIGHT_GAIN = 18.0;
 const float EARTH_FILL_GAIN = 6.0;
+// P4.5 glass (tools/blender/build_cupola.py, cabin frame in m): the eye at EYE_Z on the axis; the round top pane at
+// TOP_GLASS_Z, seen within TOP_WINDOW_COS of +Z; six side panes on facets tilted FACET_TILT from the top plane at
+// 60 deg steps, HEX_APOTHEM from the axis at Z_TOP, the pane SIDE_DEPTH outwards. GLASS_F0: the pane stack's normal
+// reflectance; DUST: specks' forward scatter per unit sunlight on the glass.
+const float EYE_Z = 0.70;
+const float TOP_GLASS_Z = 1.4405;
+const float TOP_WINDOW_COS = 0.9026;
+const float FACET_TILT = 1.02189;
+const float HEX_APOTHEM = 0.52;
+const float Z_TOP = 1.3405;
+const float SIDE_DEPTH = 0.06;
+const float GLASS_F0 = 0.08;
+const float DUST = 0.03;
+
 // Above this window alpha the interior hides the Earth completely.
 const float OPAQUE = 0.999;
 
@@ -247,11 +263,11 @@ float interiorAlpha(vec3 c) {
     return textureLod(interiorEarth, atlasUv(size, uv, 2048.0, SLOT_2048[f], Y0_2048[f]), 0.0).a;
 }
 
-// Interior radiance (linear, rgb) and window alpha (1 = interior surface, 0 = view through a window).
-vec4 interior(vec3 c) {
-    if (s.iRight.w == 0.0) return vec4(0.0);
+// Interior radiance (linear, rgb) and window alpha (1 = interior surface, 0 = view through a window) along the
+// cabin-frame direction d.
+vec4 interiorAt(vec3 d) {
     vec2 uv;
-    int f = cubeFace(interiorRay(c), uv);
+    int f = cubeFace(d, uv);
     if (f == 5) return vec4(0.0, 0.0, 0.0, 1.0);  // -Z (towards the hatch) is never visible
     vec2 a = atlasUv(vec2(textureSize(interiorEarth, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
     vec4 earth = textureLod(interiorEarth, a, 0.0);
@@ -262,6 +278,35 @@ vec4 interior(vec3 c) {
     vec3 earthlit = earth.rgb * (SCALE_EARTH * EARTHLIGHT_GAIN) + ambient * EARTH_FILL_GAIN;
     return vec4(earthlit * s.iUp.w + cabin * STATIC_SCALE, earth.a);
 }
+
+// interiorAt for the camera-space ray c; nothing when the interior is off.
+vec4 interior(vec3 c) { return s.iRight.w == 0.0 ? vec4(0.0) : interiorAt(interiorRay(c)); }
+
+// The cabin's own light along the cabin-frame direction d (static cabin and emissive layers, as in interiorAt); the
+// window reflections use it, since the Earthlit cabin is lost against the bright Earth by day.
+vec3 cabinLightAt(vec3 d) {
+    vec2 uv;
+    int f = cubeFace(d, uv);
+    if (f == 5) return vec3(0.0);
+    vec2 a = atlasUv(vec2(textureSize(interiorCabin, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
+    return (textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN) +
+            textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN)) * STATIC_SCALE;
+}
+
+// Outward normal (cabin frame) of the pane the unit cabin-frame ray d looks through, and the ray's point on it (m).
+vec3 pane(vec3 d, out vec3 hit) {
+    vec3 eye = vec3(0.0, 0.0, EYE_Z);
+    if (d.z > TOP_WINDOW_COS) {
+        hit = eye + d * ((TOP_GLASS_Z - EYE_Z) / d.z);
+        return vec3(0.0, 0.0, 1.0);
+    }
+    float a = round(atan(d.y, d.x) / (PI / 3.0)) * (PI / 3.0);
+    vec3 n = vec3(sin(FACET_TILT) * cos(a), sin(FACET_TILT) * sin(a), cos(FACET_TILT));
+    float plane = dot(n, vec3(HEX_APOTHEM * cos(a), HEX_APOTHEM * sin(a), Z_TOP)) + SIDE_DEPTH;
+    hit = eye + d * ((plane - dot(n, eye)) / max(dot(n, d), 1e-3));
+    return n;
+}
+
 
 // Bruneton 2017 mapping between [0, 1] and the texel centres of an n-texel axis.
 float texcoordFromUnit(float x, float n) { return 0.5 / n + x * (1.0 - 1.0 / n); }
@@ -697,36 +742,69 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     return (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
 }
 
-// Sunlight reaching the camera per unit sunlight: Scene.sunLight (0 behind the Earth, limb transmittance), and 0 when
-// opaque cabin structure hides the Sun.
-vec3 sunAtCamera() {
-    if (max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) return vec3(0.0);
-    vec3 c = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
-    float a = s.iRight.w != 0.0 ? interiorAlpha(c) : 0.0;
-    return s.sunLight.xyz * (1.0 - smoothstep(0.5, OPAQUE, a));
+// Dust on the pane at hit (normal n, m): in DUST_P of the DUST_CELL_M cells one speck of 0.3-0.8 mm at a random
+// spot; 0..1.
+const float DUST_CELL_M = 0.003;
+const float DUST_P = 0.15;
+float dustAt(vec3 hit, vec3 n) {
+    vec3 u = abs(n.z) > 0.99 ? vec3(1.0, 0.0, 0.0) : normalize(vec3(-n.y, n.x, 0.0));
+    vec2 q = vec2(dot(hit, u), dot(hit, cross(n, u))) / DUST_CELL_M;
+    vec2 cell = floor(q);
+    vec3 h = hash3(vec3(cell, 7.0));
+    float speck = 0.0;
+    if (h.x < DUST_P) {
+        float radius = (0.15 + 0.25 * h.x / DUST_P) * 0.001 / DUST_CELL_M;
+        speck = 1.0 - smoothstep(0.3 * radius, radius, length(q - cell - 0.2 - 0.6 * h.yz));
+    }
+    return speck;
 }
 
+// How far opaque cabin structure leaves the Sun open to the camera, 0..1 (one value per frame: the Earth pass writes
+// it into its target's alpha for the composite).
+float sunOpen() {
+    if (s.iRight.w == 0.0) return 1.0;
+    vec3 c = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
+    return 1.0 - smoothstep(0.5, OPAQUE, interiorAlpha(c));
+}
 // Sunlight on the outer window glass per unit sunlight: the Sun not behind the Earth and on the outer side of the
 // cupola (cabin +Z, the round window's axis; the side windows tilt outwards from it). The camera need not see the Sun.
 vec3 sunOnGlass() { return s.iRight.w != 0.0 ? s.sunLight.xyz * s.sunLight.w : vec3(0.0); }
 
-// Bloom (the Sun in sight) and window glare (sunlit glass scattering forwards) at physical pixel p (linear radiance,
-// before exposure); glass = 1 - window alpha.
-vec3 sunGlare(vec2 p, float glass) {
-    if ((pc.effects & (EFFECT_BLOOM | EFFECT_WINDOW_GLARE)) == 0 || max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) {
+// Squared angle (rad^2) between the camera ray at physical pixel p and the Sun.
+float sunAngle2(vec2 p) {
+    vec3 sunCam = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
+    return 2.0 * (1.0 - dot(normalize(cameraRay(p)), sunCam));
+}
+
+// Bloom of the Sun in sight at physical pixel p (linear radiance before exposure); open = sunOpen().
+vec3 bloom(vec2 p, float open) {
+    if ((pc.effects & EFFECT_BLOOM) == 0 || open <= 0.0 || max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) {
         return vec3(0.0);
     }
-    vec3 sunCam = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
-    float theta2 = 2.0 * (1.0 - dot(normalize(cameraRay(p)), sunCam));
-    vec3 glare = vec3(0.0);
-    if ((pc.effects & EFFECT_BLOOM) != 0) {
-        glare += sunAtCamera() * (BLOOM_NARROW / (1.0 + theta2 / (BLOOM_NARROW_RAD * BLOOM_NARROW_RAD)) +
-                                  BLOOM_WIDE / (1.0 + theta2 / (BLOOM_WIDE_RAD * BLOOM_WIDE_RAD)));
+    float theta2 = sunAngle2(p);
+    return s.sunLight.xyz * open * (BLOOM_NARROW / (1.0 + theta2 / (BLOOM_NARROW_RAD * BLOOM_NARROW_RAD)) +
+                                    BLOOM_WIDE / (1.0 + theta2 / (BLOOM_WIDE_RAD * BLOOM_WIDE_RAD)));
+}
+
+// What the window glass does to the exposed Earth radiance at physical pixel p: cabin reflections (Fresnel), and the
+// forward scatter of sunlit glass (window glare) and its dust. Runs where the Earth shows (the scaled Earth pass).
+vec3 throughGlass(vec2 p, vec3 earth) {
+    if (s.iRight.w == 0.0 || (pc.effects & (EFFECT_REFLECTIONS | EFFECT_WINDOW_GLARE | EFFECT_DUST)) == 0) return earth;
+    vec3 d = normalize(interiorRay(cameraRay(p)));
+    vec3 hit;
+    vec3 n = pane(d, hit);
+    if ((pc.effects & EFFECT_REFLECTIONS) != 0) {
+        float fresnel = GLASS_F0 + (1.0 - GLASS_F0) * pow(1.0 - abs(dot(d, n)), 5.0);
+        earth = mix(earth, cabinLightAt(reflect(d, n)) * s.iBack.w, fresnel);
     }
-    if ((pc.effects & EFFECT_WINDOW_GLARE) != 0 && glass > 0.0) {
-        glare += sunOnGlass() * WINDOW_GLARE / (1.0 + theta2 / (WINDOW_GLARE_RAD * WINDOW_GLARE_RAD)) * glass;
+    vec3 lit = sunOnGlass();
+    if ((pc.effects & (EFFECT_WINDOW_GLARE | EFFECT_DUST)) != 0 && max(lit.r, max(lit.g, lit.b)) > 0.0) {
+        float scatter = 0.0;
+        if ((pc.effects & EFFECT_WINDOW_GLARE) != 0) scatter += WINDOW_GLARE;
+        if ((pc.effects & EFFECT_DUST) != 0) scatter += DUST * dustAt(hit, n);
+        earth += lit * scatter / (1.0 + sunAngle2(p) / (WINDOW_GLARE_RAD * WINDOW_GLARE_RAD)) * s.iBack.w;
     }
-    return glare;
+    return earth;
 }
 
 void main() {
@@ -739,29 +817,36 @@ void main() {
         return;
     }
     if (MODE == 1) {
-        // Scaled target: skip texels whose whole bilinear footprint (one target texel around) is interior.
+        // Scaled target: skip texels whose whole bilinear footprint (one target texel around) is interior. Alpha
+        // carries sunOpen() to the composite.
         vec2 stepPx = 1.0 / pc.earthScale;
         vec2 p = gl_FragCoord.xy * stepPx;
+        float open = sunOpen();
         if (s.iRight.w != 0.0) {
             float a = min(min(interiorAlpha(cameraRay(p + vec2(-stepPx.x, -stepPx.y))),
                               interiorAlpha(cameraRay(p + vec2(stepPx.x, -stepPx.y)))),
                           min(interiorAlpha(cameraRay(p + vec2(-stepPx.x, stepPx.y))),
                               interiorAlpha(cameraRay(p + vec2(stepPx.x, stepPx.y)))));
             if (a > OPAQUE) {
-                outColor = vec4(0.0, 0.0, 0.0, 1.0);
+                outColor = vec4(0.0, 0.0, 0.0, open);
                 return;
             }
         }
-        outColor = vec4(encodeHdr(earthRadiance(p, stepPx) * s.iBack.w), 1.0);  // sRGB attachment
+        outColor = vec4(encodeHdr(throughGlass(p, earthRadiance(p, stepPx) * s.iBack.w)), open);  // sRGB attachment
         return;
     }
     vec2 p = gl_FragCoord.xy;
     vec4 inside = interior(cameraRay(p));
     vec3 earth = vec3(0.0);
-    if (inside.a <= OPAQUE) {
-        earth = MODE == 2 ? decodeHdr(textureLod(earthImage, p / vec2(pc.extent), 0.0).rgb)
-                          : earthRadiance(p, vec2(1.0)) * s.iBack.w;
+    float open;
+    if (MODE == 2) {
+        vec4 scaled = textureLod(earthImage, p / vec2(pc.extent), 0.0);
+        if (inside.a <= OPAQUE) earth = decodeHdr(scaled.rgb);
+        open = scaled.a;
+    } else {
+        if (inside.a <= OPAQUE) earth = throughGlass(p, earthRadiance(p, vec2(1.0)) * s.iBack.w);
+        open = sunOpen();
     }
-    vec3 glare = sunGlare(p, 1.0 - inside.a) * s.iBack.w;
+    vec3 glare = bloom(p, open) * s.iBack.w;
     outColor = vec4(encodeSrgb(toneMap(earth * (1.0 - inside.a) + inside.rgb * s.iBack.w + glare)), 1.0);
 }

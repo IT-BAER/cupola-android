@@ -602,6 +602,50 @@ class EarthRenderTest {
         assertTrue("window glare $diffs", diffs.isNotEmpty() && diffs.all { it > 0.5 })
         assertTrue("window glare at night $nightDiff", nightDiff < 0.3)
     }
+    /** P4.5 reflections (EFFECT_REFLECTIONS): at night the lit cabin (laptop, LEDs) shows in the dark window glass. */
+    @Test
+    fun reflectionsShowTheCabinInNightGlass() {
+        val scene = restScene(nightInstant(), RestView.DIAGONAL)
+        val on = render(scene, effects = FrameInputs.EFFECT_REFLECTIONS)
+        val off = render(scene, effects = 0)
+        save("reflections_night", on)
+        var brighter = 0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            n++
+            if (luma(on, x, y) > luma(off, x, y) + 8) brighter++
+        }
+        Log.i(TAG, "night reflections: mean +${meanLuma(on) - meanLuma(off)}, brighter samples $brighter of $n")
+        assertTrue("reflections add light: ${meanLuma(on)} vs ${meanLuma(off)}", meanLuma(on) > meanLuma(off) + 0.2)
+        assertTrue("reflected detail: $brighter", brighter > 50)
+    }
+
+    /** P4.5 dust (EFFECT_DUST): sparse bright specks on sunlit glass at sunrise; none at night. */
+    @Test
+    fun dustSparklesOnSunlitGlass() {
+        val instant = (0L until 24 * 30L).map { DAY.plusSeconds(120 * it) }.first {
+            val st = (orbit.stateAt(it) as OrbitState).toSceneState()
+            val up = SceneGeometry.unit(st.positionEcefKm)
+            Math.acos(-(st.sunDirEcef dot up)) - asin(6378.137 / st.positionEcefKm.norm()) in 0.0..0.25
+        }
+        val scene = restScene(instant, RestView.DIAGONAL)
+        val on = render(scene, effects = FrameInputs.EFFECT_DUST)
+        val off = render(scene, effects = 0)
+        save("dust", on)
+        var specks = 0
+        var n = 0
+        for (y in 0 until H step 2) for (x in 0 until W step 2) {
+            n++
+            if (luma(on, x, y) > luma(off, x, y) + 12) specks++
+        }
+        val night = restScene(nightInstant(), RestView.DIAGONAL)
+        val nightDiff = meanAbsDiff(render(night, effects = FrameInputs.EFFECT_DUST), render(night, effects = 0))
+        Log.i(TAG, "dust at $instant: speck samples $specks of $n, night $nightDiff")
+        assertTrue("dust specks $specks", specks > 200)
+        assertTrue("dust is sparse: $specks of $n", specks < n / 10)
+        assertTrue("dust at night $nightDiff", nightDiff < 0.3)
+    }
+
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */
     @Test
     fun limbWithinTwoPixelsOfTheAnalyticHorizon() {
