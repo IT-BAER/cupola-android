@@ -46,6 +46,12 @@ object FrameInputs {
     /** Debug: clouds without their shadows on the ground. */
     const val DEBUG_NO_CLOUD_SHADOWS = 1 shl 19
 
+    /** Debug: no city lights on the night side. */
+    const val DEBUG_NO_CITY_LIGHTS = 1 shl 20
+
+    /** Debug: no moonlight on the ground and clouds. */
+    const val DEBUG_NO_MOONLIGHT = 1 shl 21
+
     /**
      * Start of the scene block, copied into the per-frame uniform buffer (std140, vec4-aligned; see
      * `earth.frag`). Written by `scene.Scene.write`. Directions are ECEF unit vectors, positions ECEF km.
@@ -102,7 +108,12 @@ object FrameInputs {
     /** Cloud time ([scene.CloudFlow]): flow phases A and B (cycle + fraction) and days; the fourth float is unused. */
     const val CLOUD_FLOW = 52
 
-    const val COUNT = 56
+    /** Rows of the ECEF-to-galactic rotation ([scene.StarFrame]) for the stars map; each row's fourth float is unused. */
+    const val STAR_ROW_X = 56
+    const val STAR_ROW_Y = 60
+    const val STAR_ROW_Z = 64
+
+    const val COUNT = 68
 
     fun empty() = FloatArray(COUNT)
 }

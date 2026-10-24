@@ -44,6 +44,9 @@ class FrameInputsLayoutTest {
             "SkySunAxis" to FrameInputs.SKY_SUN_AXIS,
             "SkyTopNadir" to FrameInputs.SKY_TOP_NADIR,
             "CloudFlow" to FrameInputs.CLOUD_FLOW,
+            "StarRowX" to FrameInputs.STAR_ROW_X,
+            "StarRowY" to FrameInputs.STAR_ROW_Y,
+            "StarRowZ" to FrameInputs.STAR_ROW_Z,
             "Count" to FrameInputs.COUNT,
         )
         assertEquals(kotlin, cpp)

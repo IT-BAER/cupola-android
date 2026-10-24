@@ -238,6 +238,10 @@ data class Scene(
         inputs[FrameInputs.CLOUD_FLOW] = clouds.phaseA
         inputs[FrameInputs.CLOUD_FLOW + 1] = clouds.phaseB
         inputs[FrameInputs.CLOUD_FLOW + 2] = clouds.days
+        val stars = StarFrame.galacticFromEcef(instant)
+        put(inputs, FrameInputs.STAR_ROW_X, Vector3(stars.c0.x, stars.c1.x, stars.c2.x))
+        put(inputs, FrameInputs.STAR_ROW_Y, Vector3(stars.c0.y, stars.c1.y, stars.c2.y))
+        put(inputs, FrameInputs.STAR_ROW_Z, Vector3(stars.c0.z, stars.c1.z, stars.c2.z))
     }
 
     /** [FrameInputs.SKY_UP] .. [FrameInputs.SKY_TOP_NADIR], in double. */
@@ -295,16 +299,23 @@ data class Scene(
 
     /**
      * Lunar irradiance relative to the Sun's: full Moon [MOON_FULL] times the visual phase law
-     * 10^(-0.4 (0.026 i + 4e-9 i^4)), i = phase angle in degrees (Sun at infinity, so cos i = -sun . moon).
+     * 10^(-0.4 (0.026 i + 4e-9 i^4)), i = phase angle in degrees (Sun at infinity, so cos i = -sun . moon), times
+     * [MOON_GAIN].
      */
     fun moonLight(): Double {
         val i = Math.toDegrees(acos((-(sunDirEcef dot moonDirEcef)).coerceIn(-1.0, 1.0)))
-        return MOON_FULL * 10.0.pow(-0.4 * (0.026 * i + 4e-9 * i * i * i * i))
+        return MOON_FULL * MOON_GAIN * 10.0.pow(-0.4 * (0.026 * i + 4e-9 * i * i * i * i))
     }
 
     companion object {
         const val EARTH_ALBEDO = 0.3
         const val MOON_FULL = 2.5e-6
+
+        /**
+         * Moonlit ground and clouds as a long exposure shows them: true full-Moon light on the ground is 1/30 of the night floor
+         * ([Exposure.NIGHT_FLOOR]), which would leave a full-Moon night as dark as a moonless one.
+         */
+        const val MOON_GAIN = 20.0
         private const val CAP_RINGS = 16
         private const val CAP_SECTORS = 32
 

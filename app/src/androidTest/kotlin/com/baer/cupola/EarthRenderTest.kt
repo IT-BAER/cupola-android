@@ -335,13 +335,140 @@ class EarthRenderTest {
         assertTrue("shadows on clear ground: $darkenedClear of $darkened", darkenedClear > 500)
     }
 
-    /** Without moonlight (R3) night clouds get no sunlight: the night side stays as dark as without clouds. */
+    /** Night clouds get no sunlight: without moonlight the night side stays as dark as without clouds. */
     @Test
     fun nightCloudsGetNoSunlight() {
         val scene = restScene(nightInstant(), RestView.NADIR)
-        val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
-        val cloudy = render(scene, interior = false)
+        val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_MOONLIGHT)
+        val cloudy = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_MOONLIGHT)
         assertTrue("night ${meanLuma(cloudy)} vs ${meanLuma(clear)}", meanLuma(cloudy) < meanLuma(clear) + 1.0)
+    }
+
+    /** Europe at 22:00 local time, nadir. */
+    private fun europeNight() = scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, -90.0)
+
+    /** P3.4: city lights (warm, bright points) on the night side. */
+    @Test
+    fun cityLightsShowOnTheNightSide() {
+        val lit = render(europeNight(), interior = false)
+        val dark = render(europeNight(), interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
+        save("night_europe", lit)
+        var warm = 0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            n++
+            val i = at(x, y)
+            if (luma(lit, x, y) > 60 && ch(lit, i) > ch(lit, i + 2) + 10) warm++
+        }
+        Log.i(TAG, "night europe warm lights ${warm.toDouble() / n} mean ${meanLuma(lit)} vs ${meanLuma(dark)}")
+        assertTrue("warm light fraction ${warm.toDouble() / n}", warm.toDouble() / n > 0.003)
+        assertTrue("lights add light", meanLuma(lit) > meanLuma(dark) + 1.0)
+    }
+
+    /** City lights are off in daylight: the sunlit Nile valley looks the same with and without them. */
+    @Test
+    fun cityLightsAreOffInDaylight() {
+        val scene = scene(DAY, 25.0, 32.0, 0.0, -90.0)
+        val diff = meanAbsDiff(render(scene, interior = false), render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS))
+        assertTrue("day diff $diff", diff < 0.3)
+    }
+
+    /** Stars and the Milky Way fill night space (looking 20 deg up), and vanish at day exposure. */
+    @Test
+    fun starsShowInNightSpaceOnly() {
+        fun points(img: ByteArray): Int {
+            var count = 0
+            for (y in 2 until H - 2 step 2) for (x in 2 until W - 2 step 2) {
+                val l = luma(img, x, y)
+                if (l > 60 && l > luma(img, x - 2, y) + 25 && l > luma(img, x + 2, y) + 25 &&
+                    l > luma(img, x, y - 2) + 25 && l > luma(img, x, y + 2) + 25
+                ) count++
+            }
+            return count
+        }
+        val night = render(scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, 20.0), interior = false)
+        val day = render(scene(DAY, 25.0, 32.0, 0.0, 20.0), interior = false)
+        save("stars_night", night)
+        Log.i(TAG, "star points night ${points(night)} day ${points(day)}")
+        assertTrue("night stars ${points(night)}", points(night) > 40)
+        assertTrue("day stars ${points(day)}", points(day) == 0)
+    }
+
+    /**
+     * W3: the Moon at the zenith of its sub-lunar point, 2 deg field: a disc of the right size whose lit share matches
+     * the phase (1 + cos i) / 2 within 0.12.
+     */
+    @Test
+    fun moonDiscShowsItsPhase() {
+        for (instant in listOf(DAY, DAY.plusSeconds(6 * 86_400L), DAY.plusSeconds(12 * 86_400L))) {
+            val state = (orbit.stateAt(instant) as OrbitState).toSceneState()
+            val m = state.moonDirEcef
+            val lat = Math.toDegrees(asin(m.z))
+            val lon = Math.toDegrees(atan2(m.y, m.x))
+            val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(lat), Math.toRadians(lon), ALT_KM))
+            val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(instant, p, m, fovLongDeg = 2.0))
+            val img = render(scene, interior = false)
+            val radiusPx = tan(Math.toRadians(0.2725)) / tan(Math.toRadians(1.0)) * H / 2
+            var disc = 0
+            var lit = 0
+            val ring = mutableListOf<Double>()
+            val background = mutableListOf<Double>()
+            for (y in 0 until H step 3) for (x in 0 until W step 3) {
+                val r = sqrt((x - W / 2.0) * (x - W / 2.0) + (y - H / 2.0) * (y - H / 2.0))
+                if (r < radiusPx * 0.9) {
+                    disc++
+                    if (luma(img, x, y) > 60) lit++
+                }
+                // The 2 deg field magnifies the star map to a dim glow: the ring just outside matches the sky beyond.
+                if (r > radiusPx * 1.15 && r < radiusPx * 1.4) ring += luma(img, x, y)
+                if (r > radiusPx * 1.6 && r < radiusPx * 2.2) background += luma(img, x, y)
+            }
+            assertTrue("disc edge: ring ${ring.average()} vs sky ${background.average()}", ring.average() < background.average() + 15)
+            val cosI = -(state.sunDirEcef dot m)
+            val expected = (1 + cosI) / 2
+            Log.i(TAG, "moon $instant lit ${lit.toDouble() / disc} expected $expected radius $radiusPx")
+            if (expected > 0.05) assertEquals("lit share at $instant", expected, lit.toDouble() / disc, 0.12)
+        }
+    }
+
+    /** The airglow shell (85-100 km): a green line above the night limb, brighter than the space above it. */
+    @Test
+    fun airglowLinesTheNightLimb() {
+        val scene = scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, -15.0)
+        val img = render(scene, interior = false)
+        save("airglow", img)
+        val x = W / 2.0
+        val ground = horizonRow(scene, x)!!
+        val top = shellRow(scene, x, 6378.137 + 100.0)!!
+        var g = 0.0
+        var r = 0.0
+        var lumaBand = 0.0
+        var n = 0
+        for (y in top.toInt() + 1 until ground.toInt() - 1) for (xx in W / 2 - 100 until W / 2 + 100 step 4) {
+            val i = at(xx, y)
+            r += ch(img, i); g += ch(img, i + 1); lumaBand += luma(img, xx, y); n++
+        }
+        val above = (top.toInt() - 60 until top.toInt() - 30).flatMap { y -> (W / 2 - 100 until W / 2 + 100 step 4).map { luma(img, it, y) } }.average()
+        Log.i(TAG, "airglow rows ${top}..$ground r ${r / n} g ${g / n} luma ${lumaBand / n} above $above")
+        assertTrue("green ${g / n} vs red ${r / n}", g > 1.3 * r)
+        assertTrue("brighter than space above: ${lumaBand / n} vs $above", lumaBand / n > above + 5)
+    }
+
+    /** Moonlight lights the night ground and clouds: at full Moon, nadir under the Moon. */
+    @Test
+    fun fullMoonLightsTheNightSide() {
+        val instant = (0L until 30L).map { DAY.plusSeconds(it * 86_400L) }.maxBy {
+            val st = (orbit.stateAt(it) as OrbitState).toSceneState()
+            -(st.sunDirEcef dot st.moonDirEcef)
+        }
+        val state = (orbit.stateAt(instant) as OrbitState).toSceneState()
+        val m = state.moonDirEcef
+        val scene = scene(instant, Math.toDegrees(asin(m.z)), Math.toDegrees(atan2(m.y, m.x)), 0.0, -90.0)
+        val moonlit = render(scene, interior = false)
+        val dark = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_MOONLIGHT)
+        save("moonlit", moonlit)
+        Log.i(TAG, "full moon $instant moonlit ${meanLuma(moonlit)} without ${meanLuma(dark)}")
+        assertTrue("moonlight ${meanLuma(moonlit)} vs ${meanLuma(dark)}", meanLuma(moonlit) > meanLuma(dark) + 5)
     }
 
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */

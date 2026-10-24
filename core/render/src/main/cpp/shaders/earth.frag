@@ -30,6 +30,8 @@ const int DEBUG_NO_ATMOSPHERE = 1 << 16;
 const int DEBUG_NO_INSCATTER = 1 << 17;
 const int DEBUG_NO_CLOUDS = 1 << 18;
 const int DEBUG_NO_CLOUD_SHADOWS = 1 << 19;
+const int DEBUG_NO_CITY_LIGHTS = 1 << 20;
+const int DEBUG_NO_MOONLIGHT = 1 << 21;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -45,12 +47,17 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 skyUp;    // xyz radial up of the camera in the ellipsoid-scaled space, w = nadir angle of the horizon
     vec4 skyAxis;  // xyz the Sun's azimuth axis (perpendicular to skyUp), w = nadir angle of the atmosphere top
     vec4 clouds;   // CloudFlow: x, y flow phases A and B (cycle + fraction), z days
+    vec4 starX;    // xyz rows of the ECEF-to-galactic rotation (StarFrame)
+    vec4 starY;
+    vec4 starZ;
 } s;
 
 layout(set = 0, binding = 1) uniform sampler2DArray dayDetail;
 layout(set = 0, binding = 2) uniform sampler2DArray monthlyColour;
 layout(set = 0, binding = 3) uniform sampler2D cloudMap;
+layout(set = 0, binding = 4) uniform sampler2D cityLights;
 layout(set = 0, binding = 5) uniform sampler2D terrainNormal;
+layout(set = 0, binding = 6) uniform sampler2D stars;
 layout(set = 0, binding = 7) uniform sampler2D waterMask;
 layout(set = 0, binding = 8) uniform sampler2D interiorEarth;
 layout(set = 0, binding = 9) uniform sampler2D interiorCabin;
@@ -85,6 +92,18 @@ const float CLOUD_ALT_KM = 6.0;
 const float CLOUD_ALBEDO = 0.85;
 const float FLOW_PERIOD_H = 6.0;
 const float CLOUD_SHADOW = 0.75;
+// P3.4 night side, in shader radiance (night exposure about 1.4e4, Exposure.NIGHT_FLOOR): city light per texel value 1
+// in a sodium / warm LED colour (texel^CITY_GAMMA keeps the cores and drops the dim ASTC block noise around sparse
+// lights), star map radiance per texel value 1, the Moon's albedo and angular radius, and the
+// airglow shell (OI 557.7 nm) between AIRGLOW_LOW_KM and AIRGLOW_HIGH_KM with its radiance per km of path.
+const vec3 CITY_LIGHT = vec3(1.0, 0.72, 0.42) * 1.5e-4;
+const float CITY_GAMMA = 1.5;
+const float STAR_RADIANCE = 6.0e-5;
+const float MOON_ALBEDO = 0.12;
+const float MOON_RADIUS = 0.004756;  // rad, 0.2725 deg
+const float AIRGLOW_LOW_KM = 85.0;
+const float AIRGLOW_HIGH_KM = 100.0;
+const vec3 AIRGLOW = vec3(0.45, 1.0, 0.35) * 3.0e-9;
 
 // Interior atlases, faces +X, -X, +Y, -Y, +Z: first atlas row of the face slot and crop row y0, on the
 // 2048 grid (earth, cabin, emissive) and the 512 grid (ambient).
@@ -393,6 +412,49 @@ float cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
     return clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0);
 }
 
+// Stars map coordinate of an ECEF direction (galactic plate carree, l increasing to the left).
+vec2 starUv(vec3 dir) {
+    vec3 g = vec3(dot(s.starX.xyz, dir), dot(s.starY.xyz, dir), dot(s.starZ.xyz, dir));
+    return vec2(0.5 - atan(g.y, g.x) / (2.0 * PI), 0.5 - asin(clamp(g.z, -1.0, 1.0)) / PI);
+}
+
+// Space behind the atmosphere along dir: stars and the Milky Way, and the Moon disc with its phase (it hides the
+// stars behind it). stepPx as in earthRadiance.
+vec3 spaceRadiance(vec3 dir, vec2 p, vec2 stepPx) {
+    vec2 uv = starUv(dir);
+    vec2 dx = starUv(ecefRay(cameraRay(p + vec2(stepPx.x, 0.0)))) - uv;
+    vec2 dy = starUv(ecefRay(cameraRay(p + vec2(0.0, stepPx.y)))) - uv;
+    dx.x -= round(dx.x);
+    dy.x -= round(dy.x);
+    vec3 space = textureGrad(stars, uv, dx, dy).rgb * STAR_RADIANCE;
+    vec3 m = s.moon.xyz;
+    float c = dot(dir, m);
+    if (c > cos(MOON_RADIUS * 1.05)) {
+        // Sphere normal under the ray (towards the viewer), lit by the Sun; soft one-pixel edge.
+        vec3 o = (dir - m * c) / sin(MOON_RADIUS);
+        float o2 = dot(o, o);
+        vec3 n = o - m * sqrt(max(1.0 - o2, 0.0));
+        float edge = 1.0 - smoothstep(0.96, 1.0, sqrt(o2));
+        space = mix(space, vec3(MOON_ALBEDO * max(dot(normalize(n), s.sun.xyz), 0.0)), edge);
+    }
+    return space;
+}
+
+// Path (km) of the ray through the airglow shell, up to the ground if it hits; the camera is above the shell.
+float airglowPath(vec3 dir, bool hit) {
+    vec3 q = s.camPos.xyz * TO_SPHERE;
+    vec3 d = normalize(dir * TO_SPHERE);
+    float r = length(q);
+    float tm = -dot(q, d);
+    float b2 = r * r - tm * tm;
+    float ro = RG + AIRGLOW_HIGH_KM;
+    float ri = RG + AIRGLOW_LOW_KM;
+    if (tm <= 0.0 || b2 >= ro * ro) return 0.0;
+    float ho = sqrt(ro * ro - b2);
+    float hi = b2 < ri * ri ? sqrt(ri * ri - b2) : 0.0;
+    return hit ? ho - hi : 2.0 * (ho - hi);
+}
+
 // Linear Earth radiance at physical pixel position p; stepPx = one rendered pixel in physical pixels.
 // Texture footprints come from the neighbouring pixels' ground points, not dFdx, so callers may branch.
 vec3 earthRadiance(vec2 p, vec2 stepPx) {
@@ -404,7 +466,8 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 viewTransmittance = vec3(1.0);
     if (atmosphere) skyLookup(dir, hit, inscatter, viewTransmittance);
     if ((pc.effects & DEBUG_NO_INSCATTER) != 0) inscatter = vec3(0.0);
-    if (!hit) return inscatter;
+    vec3 airglow = atmosphere ? AIRGLOW * airglowPath(dir, hit) : vec3(0.0);
+    if (!hit) return spaceRadiance(dir, p, stepPx) * viewTransmittance + inscatter + airglow;
     bool unused;
     vec2 ll = lonLat(pos);
     vec2 llx = lonLat(castEarth(ecefRay(cameraRay(p + vec2(stepPx.x, 0.0))), unused));
@@ -489,7 +552,25 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 cloudSun = atmosphere ? sunlight(rc, muS) : vec3(daylight);
     vec3 cloud = CLOUD_ALBEDO * (clamp((muS - muHc) / (1.0 - muHc), 0.0, 1.0) * cloudSun + sky);
 
-    return mix(diffuse + glint, cloud, cover) * viewTransmittance + inscatter;
+    // Moonlight on the ground and the cloud tops (Scene.moonLight, relative to the Sun), through the same air.
+    float moonLight = (pc.effects & DEBUG_NO_MOONLIGHT) == 0 ? s.moon.w : 0.0;
+    if (moonLight > 0.0) {
+        vec3 m = s.moon.xyz;
+        float muM = dot(n, m);
+        vec3 moonGround = atmosphere ? sunlight(RG, muM) : vec3(step(0.0, muM));
+        vec3 moonCloud = atmosphere ? sunlight(rc, muM) : vec3(step(muHc, muM));
+        diffuse += albedo * max(dot(relief, m), 0.0) * moonGround * moonLight * shadow;
+        cloud += CLOUD_ALBEDO * clamp((muM - muHc) / (1.0 - muHc), 0.0, 1.0) * moonCloud * moonLight;
+    }
+
+    // City lights from civil twilight on, glowing dimmer through clouds.
+    vec3 lights = vec3(0.0);
+    if ((pc.effects & DEBUG_NO_CITY_LIGHTS) == 0 && muS < 0.0) {
+        float night = 1.0 - smoothstep(-0.10, 0.0, muS);
+        lights = pow(textureGrad(cityLights, uv, gx, gy).r, CITY_GAMMA) * CITY_LIGHT * night * (1.0 - 0.6 * cover);
+    }
+
+    return (mix(diffuse + glint, cloud, cover) + lights) * viewTransmittance + inscatter + airglow;
 }
 
 void main() {
