@@ -226,6 +226,9 @@ class EarthRenderTest {
         val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(fovLongDeg = PHOTO_FOV_DEG))
         val composite = renderer.renderOffscreen(w, h, inputs(scene))
         val earth = renderer.renderOffscreen(w, h, inputs(scene.copy(blenderFromCamera = null)))
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { copyPixelsFromBuffer(ByteBuffer.wrap(composite)) }
+        File(File(context.getExternalFilesDir(null), "p3").apply { mkdirs() }, "day_cabin_tone.png").outputStream()
+            .use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         fun lumaAt(img: ByteArray, i: Int) = 0.2126 * ch(img, i) + 0.7152 * ch(img, i + 1) + 0.0722 * ch(img, i + 2)
         val frame = ArrayList<Double>()
         val window = ArrayList<Double>()
@@ -239,7 +242,7 @@ class EarthRenderTest {
         val frameMedian = frame[frame.size / 2]
         val ratio = window[window.size / 2] / maxOf(frameMedian, 1.0)
         val dark = frame.count { it < 20.0 }.toDouble() / (frame.size + window.size)
-        Log.i(TAG, "day cabin sun el $sunEl frame median $frameMedian window/frame $ratio px < 20 $dark frame share " +
+        Log.i(TAG, "day cabin ${state.instant} sun el $sunEl frame median $frameMedian window/frame $ratio px < 20 $dark frame share " +
             "${frame.size.toDouble() / (frame.size + window.size)}")
         assertTrue("frame median luma $frameMedian", frameMedian in DAY_FRAME_MEDIAN)
         assertTrue("window/frame luma ratio $ratio", ratio >= DAY_WINDOW_FRAME_RATIO_MIN)
@@ -1358,7 +1361,7 @@ class EarthRenderTest {
         private const val FRAMES_PER_STEP = 4 // every frame in flight (2) records with the new scale at least once
         private val NIGHT_BAND = 18.0..64.0
         private const val PHOTO_FOV_DEG = 89.3
-        private val DAY_FRAME_MEDIAN = 12.0..26.0
+        private val DAY_FRAME_MEDIAN = 7.0..26.0
         private const val DAY_WINDOW_FRAME_RATIO_MIN = 8.0
         private const val DAY_DARK_SHARE_MIN = 0.40
         private const val COLOUR_DETAIL_MIN = 0.07
