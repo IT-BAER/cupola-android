@@ -1,8 +1,12 @@
 package com.baer.cupola.wallpaper
 
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.core.render.scene.Exposure
 import com.baer.cupola.core.render.scene.FrameScheduler
+import com.baer.cupola.core.render.scene.SceneInputs
+import com.baer.cupola.core.render.scene.toSceneState
 import com.baer.cupola.orbit.OrbitModel
+import com.baer.cupola.orbit.OrbitState
 import com.baer.cupola.orbit.tle.Tle
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -27,6 +31,27 @@ class RenderSessionAnimationTest {
     fun reducedMotionReachesTheShader() {
         assertTrue(session(EngineState(visible = true, reducedMotion = true)).nextFrameInputs().effects() and FrameInputs.MOTION_REDUCED != 0)
         assertEquals(0, session(EngineState(visible = true)).nextFrameInputs().effects() and FrameInputs.MOTION_REDUCED)
+    }
+
+    /**
+     * F26: the preview crosses day and night every few seconds; a 4 s exposure lag in wall time blew the day out
+     * after each night. In preview the exposure is the scene's steady value, also right after a terminator crossing.
+     */
+    @Test
+    fun previewExposureFollowsTheTimeLapseWithoutLag() {
+        // 30 s of orbit before the ISS enters the Earth's shadow; 0.4 s of preview is about 90 s of orbit.
+        val entry = generateSequence(orbit.epoch.plusSeconds(3600)) { it.plusSeconds(5) }.zipWithNext().first { (a, b) ->
+            (orbit.stateAt(a) as OrbitState).sunlitFraction > 0.99 && (orbit.stateAt(b) as OrbitState).sunlitFraction < 0.99
+        }.first
+        val start = entry.minusSeconds(30).toEpochMilli()
+        val preview = RenderSession(orbit, { RenderSettings() }, { start }).apply { apply(EngineState(visible = true, preview = true), FrameScheduler()) }
+        preview.nextFrameInputs()
+        Thread.sleep(400)
+        val inputs = preview.nextFrameInputs()
+        val instant = preview.lastScene!!.instant
+        check(instant.isAfter(entry.plusSeconds(30))) { "preview did not cross the terminator: $instant" }
+        val steady = Exposure.steady(SceneInputs.build((orbit.stateAt(instant) as OrbitState).toSceneState(), RenderSettings().rest, 0.0, 0.0))
+        assertEquals(steady, inputs[FrameInputs.EXPOSURE].toDouble(), steady * 1e-3)
     }
 
     /** The preview time-lapses the orbit (about 220x); animation time (lightning, aurora) stays real time. */

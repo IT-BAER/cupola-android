@@ -181,7 +181,10 @@ internal class RenderSession(
 
     private var lastGoodState: OrbitState? = null
 
-    private fun adapted(scene: Scene) = scene.copy(exposure = exposure.update(Exposure.steady(scene), System.nanoTime()))
+    /** The preview time-lapses through day and night in seconds, faster than any adaptation: it shows steady exposure. */
+    private fun adapted(scene: Scene) = scene.copy(
+        exposure = if (engineState.preview) Exposure.steady(scene) else exposure.update(Exposure.steady(scene), System.nanoTime()),
+    )
 
     fun applyMoving(scheduler: FrameScheduler) {
         scheduledMoving = moving
