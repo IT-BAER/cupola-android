@@ -145,15 +145,15 @@ const float WINDOW_GLARE_RAD = 0.6;
 
 // Interior atlases, faces +X, -X, +Y, -Y, +Z: first atlas row of the face slot and crop row y0, on the
 // 2048 grid (earth, cabin, emissive) and the 512 grid (ambient).
-const float SLOT_2048[5] = float[](0.0, 1824.0, 2976.0, 4800.0, 5952.0);
-const float Y0_2048[5] = float[](311.0, 925.0, 301.0, 922.0, 0.0);
-const float SLOT_512[5] = float[](0.0, 456.0, 744.0, 1200.0, 1488.0);
-const float Y0_512[5] = float[](77.0, 231.0, 75.0, 230.0, 0.0);
-// Bake manifest `scale` per layer (r3): linear radiance = decoded texel x scale.
-const float SCALE_EARTH = 0.37785929441452026;
-const float SCALE_CABIN = 5.627439498901367;
-const float SCALE_EMISSIVE = 4.801466941833496;
-const float SCALE_AMBIENT = 0.3945154845714569;
+const float SLOT_2048[5] = float[](0.0, 1440.0, 2592.0, 4032.0, 5184.0);
+const float Y0_2048[5] = float[](670.0, 925.0, 692.0, 922.0, 0.0);
+const float SLOT_512[5] = float[](0.0, 360.0, 648.0, 1008.0, 1296.0);
+const float Y0_512[5] = float[](167.0, 231.0, 173.0, 230.0, 0.0);
+// Bake manifest `scale` per layer (eye 1.55 m from the nadir pane): linear radiance = decoded texel x scale.
+const float SCALE_EARTH = 0.2255852371454239;
+const float SCALE_CABIN = 3.568661689758301;
+const float SCALE_EMISSIVE = 4.80310583114624;
+const float SCALE_AMBIENT = 0.279502272605896;
 // Static light mix of the P4.7 review (cabin light at 5 % of its built strength, laptop and LEDs at built
 // strength, decision 26, a dim fill), scaled by STATIC_SCALE so the night interior keeps its photo median at
 // the night exposure (Exposure.KEY / NIGHT_FLOOR); by day it is negligible next to the Earthlight.
@@ -161,17 +161,23 @@ const float CABIN_GAIN = 0.05;
 const float EMISSIVE_GAIN = 1.0;
 const float AMBIENT_GAIN = 0.02;
 const float STATIC_SCALE = 2.0e-4;
+// Node 3 behind the eye (towards -Z, no baked face), as the window reflections see it: its lit cabin as a uniform
+// radiance in cabin-layer units (same gains as the cabin layer): a lit mid-grey wall, warm white like L_Cabin.
+const vec3 NODE3_CABIN = vec3(1.0, 0.92, 0.82);
 // Earthlight gains over the mean Earth radiance (Scene.earthLight): the Earthlight layer, and the uniform fill
-// (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the P4.7 day photo.
-const float EARTHLIGHT_GAIN = 18.0;
-const float EARTH_FILL_GAIN = 6.0;
-// P4.5 glass (tools/blender/build_cupola.py, cabin frame in m): the eye at EYE_Z on the axis; the round top pane at
-// TOP_GLASS_Z, seen within TOP_WINDOW_COS of +Z; six side panes on facets tilted FACET_TILT from the top plane at
+// (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the Earth-lit photos
+// iss022e066972 / iss029e043374 (EarthRenderTest.dayCabinToneMatchesTheEarthLitPhotos).
+const float EARTHLIGHT_GAIN = 6.5;
+const float EARTH_FILL_GAIN = 1.0;
+// P4.5 glass (tools/blender/build_cupola.py, cabin frame in m): the eye EYE_TO_GLASS below the round top pane at
+// TOP_GLASS_Z (radius TOP_PANE_R), seen within TOP_WINDOW_COS of +Z; six side panes on facets tilted FACET_TILT from the top plane at
 // 60 deg steps, HEX_APOTHEM from the axis at Z_TOP, the pane SIDE_DEPTH outwards. GLASS_F0: the pane stack's normal
 // reflectance; DUST: specks' forward scatter per unit sunlight on the glass.
-const float EYE_Z = 0.70;
 const float TOP_GLASS_Z = 1.4405;
-const float TOP_WINDOW_COS = 0.9026;
+const float TOP_PANE_R = 0.353;
+const float EYE_TO_GLASS = 1.55;
+const float EYE_Z = TOP_GLASS_Z - EYE_TO_GLASS;
+const float TOP_WINDOW_COS = EYE_TO_GLASS / sqrt(EYE_TO_GLASS * EYE_TO_GLASS + TOP_PANE_R * TOP_PANE_R);
 const float FACET_TILT = 1.02189;
 const float HEX_APOTHEM = 0.52;
 const float Z_TOP = 1.3405;
@@ -290,7 +296,7 @@ vec4 interior(vec3 c) { return s.iRight.w == 0.0 ? vec4(0.0) : interiorAt(interi
 vec3 cabinLightAt(vec3 d) {
     vec2 uv;
     int f = cubeFace(d, uv);
-    if (f == 5) return vec3(0.0);
+    if (f == 5) return NODE3_CABIN * (CABIN_GAIN * STATIC_SCALE);
     vec2 a = atlasUv(vec2(textureSize(interiorCabin, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
     return (textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN) +
             textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN)) * STATIC_SCALE;

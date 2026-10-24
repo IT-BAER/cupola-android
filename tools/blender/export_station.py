@@ -27,7 +27,7 @@ GLB = os.path.join(ROOT, "local", "sources", "igoal", "International Space Stati
 CUPOLA_BLEND = os.path.join(ROOT, "local", "blender", "cupola.blend")
 REGION_JSON = os.path.join(ROOT, "local", "blender", "visible_region.json")
 
-EYE = Vector((0.0, 0.0, 0.70))  # build_cupola.py EYE (decision 22), Cupola frame, metres
+EYE = Vector((0.0, 0.0, -0.10947))  # build_cupola.py EYE (decision 22), Cupola frame, metres
 INCH = 0.0254                   # IGOAL mesh data is in SSREF inches
 YAW_DEG = 30.0                  # IGOAL window facets sit at 30 + 60k deg from ISS velocity, build_cupola at 60k
 KIND_STATIC, KIND_ALPHA, KIND_BETA, KIND_GAMMA = 0, 1, 2, 3

@@ -109,7 +109,7 @@ class SceneInputsTest {
         assertVec(ecefFromBlender * Vector3(0.0, 0.0, 1.0), -nadir.ecefFromCamera.c2, 1e-9)
         assertVec(ecefFromBlender * Vector3(cos(Math.PI / 6), sin(Math.PI / 6), 0.0), nadir.ecefFromCamera.c1, 1e-9)
         val diag = SceneInputs.build(s, RestView.DIAGONAL, 0.0, 0.0)
-        assertVec(ecefFromBlender * Vector3(0.5163663029670715, 0.298124223947525, 0.8027999997138977), -diag.ecefFromCamera.c2, 1e-6)
+        assertVec(ecefFromBlender * Vector3(0.2896074950695038, 0.16720491647720337, 0.9424277544021606), -diag.ecefFromCamera.c2, 1e-6)
     }
 
     @Test

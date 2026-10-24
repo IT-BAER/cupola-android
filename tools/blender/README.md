@@ -7,6 +7,9 @@ All scripts run headless in Blender 5.2 from the repository root:
 `build_cupola.py` builds the Cupola interior from scratch (decision 23) into an empty scene and saves
 `local/blender/cupola.blend`: window frames and glass, shell, open shutters, bolts, handrails,
 laptop, photo cameras, cables, clutter, cabin light and the rest-view camera at the fixed eye point.
+The eye sits `EYE_TO_GLASS` = 1.55 m below the nadir pane (measured in iss022e066972 and iss029e043374,
+12 mm DX lens: 1.52-1.58 m), at z = -0.10947, behind the hatch plane in the CBM passage; `build_passage`
+models the hatch rim, the CBM flange and bolts, the Node 3 side ring and a closed dark Node 3 volume.
 Each part has its own collection for the light-layer bakes in P4.4. Materials are procedural only.
 The build is deterministic. `--out PATH` writes elsewhere; `--top-aperture M` overrides the top
 window diameter, used only to produce a deliberately wrong build for the red check.
@@ -26,9 +29,10 @@ landscape) and at tablet and foldable aspects, turned by yaw +-26 deg (20 look-a
 + 2 float) about the camera's up axis and pitch +-22 deg about its right axis. It prints per face the
 2048 px crop rectangle (16 px padding) and the cost in full-face equivalents, for a world-aligned cube
 and for the best cube orientation of a random search, and writes `local/blender/visible_region.json`
-(key `rest_views` holds both view matrices). Measured 18 October 2026: 5 faces (+X, -X, +Y, -Y, +Z),
-3.80 face-equivalents for the world-aligned cube (all aspects), about 19.5 MiB against 15.4 MiB
-planned; the best rotation found saves 0.10 face-equivalents. `-Z` (towards the hatch) is never visible.
+(key `rest_views` holds both view matrices). Measured 24 October 2026 (eye 1.55 m from the nadir pane):
+5 faces (+X, -X, +Y, -Y, +Z), 3.43 face-equivalents for the world-aligned cube (all aspects), about
+17.6 MiB against 15.4 MiB planned; the best rotation found saves 0.05 face-equivalents. `-Z` is never
+visible (the widest view ray is 107 deg from +Z).
 
 `render_preview.py [BLEND] [--samples N] [--out DIR]` renders the rest view and the poses matching
 iss035e010551, iss038e013587 (10.5 mm equisolid fisheye) and iss073e0025760 with Cycles (GPU when
@@ -83,7 +87,7 @@ interior) and `hist.json`: mean and 5/50/95th percentiles of sRGB-encoded lumina
 whole frame and inside the render's interior mask (the photo is only approximately aligned).
 
 `bake_panorama.py [BLEND] [--samples N] [--seed N] [--out DIR] [--faces +X,-Y] [--crop X0 Y0 X1 Y1]`
-(plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, 0.70) with
+(plan P4.4) path-traces the relightable interior panorama (decision 22) from EYE (0, 0, -0.10947) (checked against Cam_Rest) with
 Cycles (OptiX, else CUDA, else CPU; the device is printed and stored) into four light layers, denoises
 each with OpenImageDenoise (compositor Denoise node, albedo + normal, HDR, CPU) and writes, under
 `local/blender/bake/`: `exr/<layer>_<face>.exr` (float32, linear, denoised), `ldr/<layer>_<face>.png`
@@ -143,9 +147,9 @@ Cupola frame c = Rz(+30 deg) . (-9.83854) . (w - w0), w0 = centre of the IGOAL C
 Without the yaw, c is SSREF: +X velocity, +Y starboard, +Z nadir (right-handed). The IGOAL window facets sit at
 30 + 60k deg from the velocity, `build_cupola.py` windows at 60k deg, so the yaw makes them coincide (measured max
 deviation 0.11 deg). Consequence: ISS velocity points at azimuth +30 deg in the Cupola frame, not +X; a renderer that
-assumes +X = velocity must rotate its LVLH frame by +30 deg about Z (nadir rest view up = forward). The eye (0, 0, 0.70)
-is 0.70 m above the hatch plane on the Cupola axis. Only nadir-side parts are visible: the eye is above the lower window
-edge, so nothing at -Z shows.
+assumes +X = velocity must rotate its LVLH frame by +30 deg about Z (nadir rest view up = forward). `station.mesh`
+was exported from the earlier eye (0, 0, 0.70); `EYE` is now (0, 0, -0.10947), 0.11 m behind the hatch plane, and the
+export needs a re-run. Only nadir-side parts are visible: the eye is below the windows, so nothing at -Z shows.
 
 Visibility: rays from the eye over the P4.3 envelope (both rest views, five aspects, yaw +-26, pitch +-22) through the
 seven glass meshes, first hit on the IGOAL meshes (Cupola and `*Logo*` meshes excluded). Rotating assemblies (SARJ alpha,

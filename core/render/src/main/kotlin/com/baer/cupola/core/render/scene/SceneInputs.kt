@@ -54,9 +54,9 @@ enum class RestView(val blenderFromCamera: Mat3) {
     /** Cam_Rest: the diagonal view out of a side window and the nadir window. */
     DIAGONAL(
         Mat3.rows(
-            doubleArrayOf(-0.6952452063560486, -0.5, -0.5163663029670715),
-            doubleArrayOf(-0.40140005946159363, 0.8660253882408142, -0.298124223947525),
-            doubleArrayOf(0.5962485074996948, -4.775557727043633e-10, -0.8027999997138977),
+            doubleArrayOf(-0.8161664605140686, -0.5, -0.2896074950695038),
+            doubleArrayOf(-0.4712138772010803, 0.8660255074501038, -0.16720491647720337),
+            doubleArrayOf(0.3344099521636963, 1.677832983659755e-08, -0.9424277544021606),
         ),
     ),
 

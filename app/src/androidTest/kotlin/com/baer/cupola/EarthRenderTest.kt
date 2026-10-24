@@ -124,13 +124,13 @@ class EarthRenderTest {
     }
 
     /**
-     * Interior panorama at a fixed pose: the camera looks 12 deg beside the laptop screen on the -X face (its bright
-     * emissive centre at texel (604, 1274), P4.4 controller check); the screen's bright centroid lands within 25 px of
+     * Interior panorama at a fixed pose: the camera looks 12 deg beside the laptop screen on the +Z face (its bright
+     * emissive centre at texel (462, 797) of the bake); the screen's bright centroid lands within 25 px of
      * the pixel the contract predicts. ISS in shadow so the screen is the brightest feature.
      */
     @Test
     fun interiorLaptopScreenLandsOnItsPredictedPixel() {
-        val laptop = SceneGeometry.unit(Vector3(-1.0, 2 * 604.5 / 2048 - 1, 2 * 1274.5 / 2048 - 1))
+        val laptop = SceneGeometry.unit(Vector3(2 * 462.5 / 2048 - 1, 2 * 797.5 / 2048 - 1, 1.0))
         val down = Vector3(0.0, 0.0, 1.0) // Blender +Z = nadir
         val side = SceneGeometry.unit(laptop cross down)
         val forward = SceneGeometry.unit(laptop * cos(Math.toRadians(12.0)) + side * sin(Math.toRadians(12.0)))
@@ -211,24 +211,42 @@ class EarthRenderTest {
     }
 
     /**
-     * Day interior brightness: median luma of the pixels where the interior covers the Earth (composite differs from
-     * the Earth-only render by > 2 levels), DIAGONAL rest view; not below the P3.1 level [DAY_INTERIOR_MEDIAN_MIN].
+     * Day cabin tone against the Earth-lit photos iss022e066972 / iss029e043374 (12 mm DX = [PHOTO_FOV_DEG], nadir
+     * view, frame luma 21 / 7, window/frame 9.0 / 27.3, 53 % / 68 % of pixels below luma 20): NADIR rest view with
+     * the interior at the photo lens, landscape 1464 x 1000, ISS over sunlit ground with the Sun about 45 deg high.
+     * Frame = pixels the interior changes (composite vs Earth-only by > 2 levels), window = the rest.
      */
     @Test
-    fun dayInteriorIsNotDarkerThanP31() {
-        for (rest in RestView.entries) {
-            val scene = restScene(DAY, rest)
-            val composite = render(scene, 0.6f)
-            val earth = render(scene.copy(blenderFromCamera = null), 0.6f)
-            val inside = ArrayList<Double>()
-            for (y in 0 until H step 4) for (x in 0 until W step 4) {
-                if (abs(luma(composite, x, y) - luma(earth, x, y)) > 2.0) inside += luma(composite, x, y)
-            }
-            inside.sort()
-            val median = inside[inside.size / 2]
-            Log.i(TAG, "day interior $rest median luma $median of ${inside.size} samples, frame mean ${meanLuma(composite)}")
-            if (rest == RestView.DIAGONAL) assertTrue("day interior median $median", median >= DAY_INTERIOR_MEDIAN_MIN)
+    fun dayCabinToneMatchesTheEarthLitPhotos() {
+        val w = 1464
+        val h = 1000
+        val state = (-120L..120L).map { DAY.plusSeconds(30 * it) }.map { (orbit.stateAt(it) as OrbitState).toSceneState() }
+            .minBy { abs(Math.toDegrees(asin(SceneGeometry.unit(it.positionEcefKm) dot it.sunDirEcef)) - 45.0) }
+        val sunEl = Math.toDegrees(asin(SceneGeometry.unit(state.positionEcefKm) dot state.sunDirEcef))
+        val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(fovLongDeg = PHOTO_FOV_DEG))
+        val composite = renderer.renderOffscreen(w, h, inputs(scene))
+        val earth = renderer.renderOffscreen(w, h, inputs(scene.copy(blenderFromCamera = null)))
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { copyPixelsFromBuffer(ByteBuffer.wrap(composite)) }
+        File(File(context.getExternalFilesDir(null), "p3").apply { mkdirs() }, "day_cabin_tone.png").outputStream()
+            .use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        fun lumaAt(img: ByteArray, i: Int) = 0.2126 * ch(img, i) + 0.7152 * ch(img, i + 1) + 0.0722 * ch(img, i + 2)
+        val frame = ArrayList<Double>()
+        val window = ArrayList<Double>()
+        for (y in 0 until h step 2) for (x in 0 until w step 2) {
+            val i = (y * w + x) * 4
+            val c = lumaAt(composite, i)
+            if (abs(c - lumaAt(earth, i)) > 2.0) frame += c else window += c
         }
+        frame.sort()
+        window.sort()
+        val frameMedian = frame[frame.size / 2]
+        val ratio = window[window.size / 2] / maxOf(frameMedian, 1.0)
+        val dark = frame.count { it < 20.0 }.toDouble() / (frame.size + window.size)
+        Log.i(TAG, "day cabin ${state.instant} sun el $sunEl frame median $frameMedian window/frame $ratio px < 20 $dark frame share " +
+            "${frame.size.toDouble() / (frame.size + window.size)}")
+        assertTrue("frame median luma $frameMedian", frameMedian in DAY_FRAME_MEDIAN)
+        assertTrue("window/frame luma ratio $ratio", ratio >= DAY_WINDOW_FRAME_RATIO_MIN)
+        assertTrue("share of px below luma 20: $dark", dark >= DAY_DARK_SHARE_MIN)
     }
 
     /** The scaled Earth pass composites to nearly the full-resolution frame (mean |luma difference| < 3 levels). */
@@ -1342,7 +1360,10 @@ class EarthRenderTest {
         private const val SURFACE_ID = 9_001 // apart from the wallpaper sessions (RendererHost ids from 1)
         private const val FRAMES_PER_STEP = 4 // every frame in flight (2) records with the new scale at least once
         private val NIGHT_BAND = 18.0..64.0
-        private const val DAY_INTERIOR_MEDIAN_MIN = 27.0
+        private const val PHOTO_FOV_DEG = 89.3
+        private val DAY_FRAME_MEDIAN = 7.0..26.0
+        private const val DAY_WINDOW_FRAME_RATIO_MIN = 8.0
+        private const val DAY_DARK_SHARE_MIN = 0.40
         private const val COLOUR_DETAIL_MIN = 0.07
 private const val STAR_PEAK_TOLERANCE = 6.0
 
