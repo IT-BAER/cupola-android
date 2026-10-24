@@ -3,8 +3,9 @@ package com.baer.cupola
 import android.os.Debug
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.TextureInfo
+import com.baer.cupola.wallpaper.RendererHostEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,16 +19,24 @@ import org.junit.runner.RunWith
 class EarthpackLoadTest {
     @Test
     fun everyTextureLoadsFromTheDeviceSliceWithinTheHeapBudget() {
-        val assets = InstrumentationRegistry.getInstrumentation().targetContext.assets
-        NativeRenderer().use { renderer ->
-            // Play picks the slice from the GL ASTC extensions; the renderer needs Vulkan ASTC LDR to match.
-            val expected = if (renderer.deviceInfo().astcLdr) ASTC else ETC2
-            val before = javaHeapKb()
-            val loaded = expected.keys.associateWith { renderer.loadTextureInfo(assets, "textures/$it.ktx2") }
-            val growthKb = javaHeapKb() - before
-            println("EarthpackLoadTest java heap before=$before kB growth=$growthKb kB")
-            assertEquals(expected, loaded)
-            assertTrue("Java heap grew by $growthKb kB, limit 10 MiB", growthKb <= 10 * 1024)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val assets = context.assets
+        // The live wallpaper may already run in this process; a second renderer would rebind the render thread.
+        val host = EntryPointAccessors.fromApplication(context, RendererHostEntryPoint::class.java).rendererHost()
+        val renderer = host.acquire()
+        try {
+            renderer.holdDevice().use {
+                // Play picks the slice from the GL ASTC extensions; the renderer needs Vulkan ASTC LDR to match.
+                val expected = if (renderer.deviceInfo().astcLdr) ASTC else ETC2
+                val before = javaHeapKb()
+                val loaded = expected.keys.associateWith { renderer.loadTextureInfo(assets, "textures/$it.ktx2") }
+                val growthKb = javaHeapKb() - before
+                println("EarthpackLoadTest java heap before=$before kB growth=$growthKb kB")
+                assertEquals(expected, loaded)
+                assertTrue("Java heap grew by $growthKb kB, limit 10 MiB", growthKb <= 10 * 1024)
+            }
+        } finally {
+            host.release()
         }
     }
 

@@ -14,6 +14,7 @@ public:
     static bool wanted(const float* inputs);
 
     // (Re)creates the target for this full (physical) extent and scale; waits for the queue before replacing it.
+    // The render pass and pipeline do not depend on the extent and are kept (a rebuild stalls Mali ~200 ms).
     VkResult ensure(Device& device, VkExtent2D full, float scale);
     void destroy(VkDevice dev);
     // Records the Earth pass; `push` is the full-resolution frame's push block.
@@ -22,6 +23,8 @@ public:
     VkImageView view = VK_NULL_HANDLE;
 
 private:
+    void destroyTarget(VkDevice dev);
+
     VkImage image_ = VK_NULL_HANDLE;
     VkDeviceMemory memory_ = VK_NULL_HANDLE;
     VkRenderPass renderPass_ = VK_NULL_HANDLE;

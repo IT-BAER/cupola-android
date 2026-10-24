@@ -76,7 +76,7 @@ class LookAroundControllerTest {
         val o = run(2.2)
         assertEquals(0.0, o.yawDeg, 0.1)
         assertEquals(0.0, o.pitchDeg, 0.1)
-        assertFalse(o.isMoving)
+        assertFalse("still once the 0.5 s moving hold ends", run(0.5).isMoving)
     }
 
     @Test fun motionDuringSpringCancelsReturn() {
@@ -166,6 +166,28 @@ class LookAroundControllerTest {
             c.setOrientation(deg(if (i % 2 == 0) 0.3 else -0.3), deg(-89.3), base + i * sampleNs)
         }
         assertEquals(0, movingAfterSettle)
+    }
+
+    /**
+     * Frames follow the flag as the scheduler does (60 fps moving, 15 fps still). A slow drift whose view speed
+     * hovers at the moving threshold must not alternate 60 and 15 fps frame by frame (A35 trace: 16/66 ms judder).
+     */
+    @Test fun slowDriftAtTheThresholdDoesNotFlap() {
+        start()
+        var moving = false
+        var restarts = 0
+        var yaw = 0.0
+        val end = now + 6_000_000_000L
+        while (now < end) {
+            val dt = if (moving) frameNs else 66_666_667L
+            now += dt
+            yaw += 0.21 * (1.0 + 0.3 * kotlin.math.sin(now / 1e8)) * dt / 1e9 // 0.21 deg/s +-30 %
+            c.setOrientation(deg(yaw), 0.0)
+            val o = c.update()
+            if (o.isMoving && !moving) restarts++
+            moving = o.isMoving
+        }
+        assertTrue("restarts $restarts", restarts <= 2)
     }
 
     @Test fun isMovingWhileSpringUnsettled() {

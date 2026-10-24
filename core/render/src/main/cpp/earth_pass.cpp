@@ -63,7 +63,7 @@ VkResult EarthPass::ensure(Device& device, VkExtent2D full, float scale) {
     VkDevice dev = device.device;
     if (image_ != VK_NULL_HANDLE) {
         VK_TRY(vkQueueWaitIdle(device.queue));
-        destroy(dev);
+        destroyTarget(dev);
     }
     full_ = full;
     scale_ = scale;
@@ -91,7 +91,7 @@ VkResult EarthPass::ensure(Device& device, VkExtent2D full, float scale) {
     viewInfo.format = kFormat;
     viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &view));
-    VK_TRY(createRenderPass(dev, &renderPass_));
+    if (renderPass_ == VK_NULL_HANDLE) VK_TRY(createRenderPass(dev, &renderPass_));
     VkFramebufferCreateInfo fbInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fbInfo.renderPass = renderPass_;
     fbInfo.attachmentCount = 1;
@@ -100,16 +100,25 @@ VkResult EarthPass::ensure(Device& device, VkExtent2D full, float scale) {
     fbInfo.height = extent_.height;
     fbInfo.layers = 1;
     VK_TRY(vkCreateFramebuffer(dev, &fbInfo, nullptr, &framebuffer_));
+    if (pipeline_ != VK_NULL_HANDLE) return VK_SUCCESS;
     return device.createPipeline(renderPass_, true, &pipeline_, kEarthModeScaled);
 }
 
-void EarthPass::destroy(VkDevice dev) {
-    vkDestroyPipeline(dev, pipeline_, nullptr);
+void EarthPass::destroyTarget(VkDevice dev) {
     vkDestroyFramebuffer(dev, framebuffer_, nullptr);
-    vkDestroyRenderPass(dev, renderPass_, nullptr);
     vkDestroyImageView(dev, view, nullptr);
     vkDestroyImage(dev, image_, nullptr);
     vkFreeMemory(dev, memory_, nullptr);
+    framebuffer_ = VK_NULL_HANDLE;
+    view = VK_NULL_HANDLE;
+    image_ = VK_NULL_HANDLE;
+    memory_ = VK_NULL_HANDLE;
+}
+
+void EarthPass::destroy(VkDevice dev) {
+    destroyTarget(dev);
+    vkDestroyPipeline(dev, pipeline_, nullptr);
+    vkDestroyRenderPass(dev, renderPass_, nullptr);
     *this = EarthPass{};
 }
 

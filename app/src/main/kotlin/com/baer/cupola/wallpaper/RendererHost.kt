@@ -52,7 +52,7 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context, set
     @Volatile private var renderer: NativeRenderer? = null
 
     // Render thread only.
-    private val governor = QualityGovernor(QUALITY_STEPS, QUALITY_STEPS - 1, clockNs = System::nanoTime) { from, to ->
+    private val governor = QualityGovernor(QUALITY_STEPS, QUALITY_STEPS - 1, clockNs = { governedFrameNanos }) { from, to ->
         Gate.onGovernorStep(from, to, RENDER_SCALES[to], lastGpuNanos, thermal.current())
     }
     private var governedFrameNanos = Long.MIN_VALUE

@@ -40,6 +40,7 @@ class LookAroundController(private val clockNs: () -> Long) {
     private var smoothYaw = 0.0
     private var smoothPitch = 0.0
     private var moving = false
+    private var lastFastNs = NONE
 
     /** Marks the reference to be recaptured from the next orientation sample. */
     fun onVisible() {
@@ -133,7 +134,8 @@ class LookAroundController(private val clockNs: () -> Long) {
         val dp = (lookPitch - smoothPitch) * a
         smoothYaw += dy
         smoothPitch += dp
-        moving = springMoving || hypot(dy, dp) / dtS > MOVING_DEG_PER_S
+        if (hypot(dy, dp) / dtS > MOVING_DEG_PER_S) lastFastNs = now
+        moving = springMoving || (lastFastNs != NONE && now - lastFastNs < MOVING_HOLD_NS)
     }
 
     /**
@@ -162,6 +164,9 @@ class LookAroundController(private val clockNs: () -> Long) {
         const val STILL_NS = 1_000_000_000L
         const val STILL_DEG_PER_S = 0.5
         const val MOVING_DEG_PER_S = 0.2
+
+        /** Moving holds this long after the last fast frame, so a drift at the threshold keeps one frame rate. */
+        const val MOVING_HOLD_NS = 500_000_000L
         const val LIMIT_DEG = 20.0
         const val PAN_RANGE_DEG = 8.0
         const val TAU_S = 0.08
