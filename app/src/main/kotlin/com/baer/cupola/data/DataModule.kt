@@ -17,10 +17,14 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.io.File
+import java.time.Duration
+import java.time.Instant
 import javax.inject.Singleton
+import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -37,8 +41,33 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun tleRepository(@ApplicationContext context: Context): TleRepository =
-        AssetTleRepository { path -> context.assets.open(path) }
+    fun orbitRepository(@ApplicationContext context: Context): OrbitRepository {
+        fun asset(path: String) = context.assets.open(path).use { it.readBytes().decodeToString() }
+        return OrbitRepository(
+            bundled = { asset("orbit/iss.tle") to asset("orbit/iss.json") },
+            store = orbitStore(context),
+            now = Instant::now,
+        )
+    }
+
+    @Provides
+    @Singleton
+    fun tleRepository(orbits: OrbitRepository): TleRepository = orbits
+
+    @Provides
+    @Singleton
+    fun orbitUpdater(@ApplicationContext context: Context, orbits: OrbitRepository, settings: SettingsRepository): OrbitUpdater =
+        OrbitUpdater(
+            http = UrlConnectionGet(),
+            repository = orbits,
+            store = orbitStore(context),
+            enabled = { settings.settings.first().onlineOrbitUpdates },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            now = Instant::now,
+            jitter = { Duration.ofMinutes(Random.nextLong(OrbitUpdater.MAX_JITTER.toMinutes())) },
+        )
+
+    private fun orbitStore(context: Context) = DownloadedOrbitStore(File(context.filesDir, "orbit"))
 
     @Provides
     @Singleton

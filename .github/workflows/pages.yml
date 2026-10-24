@@ -1,0 +1,85 @@
+name: Pages
+
+# Publishes docs/ plus a current ISS TLE (orbit/iss.tle + iss.json), which the app downloads at most daily.
+# CelesTrak policy: one download per GP update (every 2 h), stop on any non-200; so one fetch per run, no retry.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Gradle configures :app, which needs the Android SDK even for :tools:tle:run.
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Copy docs
+        run: |
+          mkdir -p _site
+          cp -R docs/. _site/
+
+      # The tool validates checksums, catalogue, inclination and epoch age and writes nothing on failure.
+      # On any failure (non-200, 403, missing entry, validation) the published files go out again unchanged;
+      # without published files the site carries no orbit/ and the app keeps its own data.
+      - name: Fetch the ISS TLE once
+        run: |
+          if ./gradlew :tools:tle:run --args="fetch --out _site/orbit" 2>&1 | tee fetch.log; [ "${PIPESTATUS[0]}" -eq 0 ]; then
+            echo "Published a fresh TLE: $(sed -n 2p _site/orbit/iss.tle)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          rm -rf _site/orbit
+          mkdir -p prev
+          base=https://it-baer.github.io/cupola-android/orbit
+          if curl -fsS --max-time 30 -o prev/iss.tle "$base/iss.tle" && curl -fsS --max-time 30 -o prev/iss.json "$base/iss.json"; then
+            mkdir -p _site/orbit
+            cp prev/iss.tle prev/iss.json _site/orbit/
+            echo "TLE fetch failed; re-published the current mirror files unchanged." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "TLE fetch failed and no mirror files are published yet; site has no orbit data." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo '```'
+            grep -v -e '^$' -e '^Picked up' fetch.log | tail -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

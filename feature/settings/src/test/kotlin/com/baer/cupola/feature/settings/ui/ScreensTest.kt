@@ -35,6 +35,8 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -134,6 +136,15 @@ class ScreensTest {
         rule.onNodeWithText("Straight down").performScrollTo().performClick()
         assertEquals(false, bloom)
         assertEquals(RestDirection.NADIR, rest)
+    }
+
+    @Test
+    fun onlineOrbitUpdatesSwitchWritesTheSetting() {
+        val repo = FakeSettingsRepository()
+        host(repo)
+        rule.onNodeWithText("Update orbit data online").performScrollTo().assertIsOn().performClick()
+        rule.waitUntil { kotlinx.coroutines.runBlocking { !repo.settings.first().onlineOrbitUpdates } }
+        rule.onNodeWithText("Update orbit data online").assertIsOff()
     }
 
     @Test
@@ -308,7 +319,7 @@ class ScreensTest {
         host()
         rule.onNodeWithText("About and privacy").performScrollTo().performClick()
         rule.onNodeWithText("Version 1.2.3").assertIsDisplayed()
-        rule.onNodeWithText("No data collected, no network access.").assertIsDisplayed()
+        rule.onNodeWithText("No personal data collected. The only download is public ISS orbit data, which you can turn off.").assertIsDisplayed()
         rule.onNodeWithText("realistic ISS orbit", substring = true).assertIsDisplayed()
     }
 

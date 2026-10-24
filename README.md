@@ -3,8 +3,8 @@
 ![Cupola - the Earth through the ISS Cupola windows](docs/images/banner.jpg)
 
 An Android live wallpaper that shows the Earth from inside the Cupola, the seven-window observation module of the
-International Space Station, on a realistic orbit computed on the phone. Everything runs on the device; the app has
-no internet permission.
+International Space Station, on a realistic orbit computed on the phone. Everything runs on the device; the only
+network use is a daily download of public ISS orbit data, which can be turned off.
 
 <p align="center">
   <a href="https://play.google.com/store/apps/details?id=com.baer.cupola">
@@ -40,9 +40,11 @@ Cupola is a paid app with a single one-time purchase on Google Play: no subscrip
 
 ## Privacy
 
-Cupola is offline and tracker-free.
+Cupola is tracker-free.
 
-- No internet permission, no account, no analytics, no crash reporters, no advertising
+- No account, no analytics, no crash reporters, no advertising
+- At most once a day, while the wallpaper is visible, it downloads the public ISS orbit data (`iss.tle`, `iss.json`)
+  from this project's GitHub Pages site; "Update orbit data online" in the settings turns this off
 - No runtime permissions; the motion sensor is read only while the wallpaper is visible
 - Settings and the home city stay in the app's private storage; cloud backup and device transfer are off
 

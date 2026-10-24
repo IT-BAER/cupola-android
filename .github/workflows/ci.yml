@@ -40,12 +40,12 @@ jobs:
           ctest --test-dir build/host-tests --output-on-failure
 
       # Independent of the Gradle guard: the packaged release APK must declare no permission
-      # outside the allowlist (plan rule 3).
+      # outside the allowlist (plan rule 3, plus INTERNET for the orbit data download).
       - name: apkanalyzer permission check
         run: |
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
           perms=$(apkanalyzer manifest permissions "$apk")
-          found=$(printf '%s\n' "$perms" | grep -v -x -e 'com.baer.cupola.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION' -e '' || true)
+          found=$(printf '%s\n' "$perms" | grep -v -x -e 'android.permission.INTERNET' -e 'com.baer.cupola.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION' -e '' || true)
           if [ -n "$found" ]; then
             echo "Forbidden permissions in $apk:"
             echo "$found"

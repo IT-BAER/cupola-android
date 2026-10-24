@@ -20,6 +20,8 @@
     <string name="home_city_search_label">Search a city</string>
     <string name="home_city_no_results">No city found</string>
     <string name="home_city_selected">Selected</string>
+    <string name="orbit_data">Orbit data</string>
+    <string name="orbit_online_updates">Update orbit data online</string>
     <string name="info_title">ISS now</string>
     <string name="info_open">More about the ISS</string>
     <string name="info_loading">Calculating</string>
@@ -43,7 +45,7 @@
     <string name="about_title">About and privacy</string>
     <string name="about_version">Version %1$s</string>
     <string name="about_orbit">Cupola shows the Earth through the ISS Cupola windows on a realistic ISS orbit calculated on your device.</string>
-    <string name="about_privacy">No data collected, no network access.</string>
+    <string name="about_privacy">No personal data collected. The only download is public ISS orbit data, which you can turn off.</string>
     <string name="about_nasa">Based on NASA 3D model and imagery; not endorsed by NASA.</string>
     <string name="about_credits">Credits</string>
     <string name="about_privacy_policy">Privacy policy</string>

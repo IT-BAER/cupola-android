@@ -65,6 +65,7 @@ data class SettingsActions(
     val onSetWallpaper: () -> Unit,
     val onShare: () -> Unit,
     val onReset: () -> Unit,
+    val onOnlineOrbitUpdates: (Boolean) -> Unit = {},
 )
 
 object SettingsTags {
@@ -139,6 +140,9 @@ fun SettingsScreen(
                 // The row's description already speaks the value; TalkBack would read it twice otherwise.
                 Text(homeCity, Modifier.semantics { hideFromAccessibility() })
             }
+
+            Section(R.string.orbit_data)
+            SwitchRow(R.string.orbit_online_updates, s.onlineOrbitUpdates, actions.onOnlineOrbitUpdates)
 
             HorizontalDivider()
             Section(R.string.info_title)

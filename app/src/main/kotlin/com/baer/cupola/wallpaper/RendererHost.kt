@@ -6,9 +6,9 @@ import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.platform.ThermalHeadroomSource
 import com.baer.cupola.core.render.scene.FrameScheduler
 import com.baer.cupola.core.render.scene.QualityGovernor
+import com.baer.cupola.data.OrbitRepository
 import com.baer.cupola.feature.settings.SettingsRepository
 import com.baer.cupola.orbit.OrbitModel
-import com.baer.cupola.orbit.tle.Tle
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,10 +37,13 @@ internal interface RendererHostEntryPoint {
  * Settings are observed for the life of the process; a change redraws every session once.
  */
 @Singleton
-class RendererHost @Inject constructor(@ApplicationContext context: Context, settingsRepository: SettingsRepository) {
+class RendererHost @Inject constructor(
+    @ApplicationContext context: Context,
+    settingsRepository: SettingsRepository,
+    private val orbits: OrbitRepository,
+) {
     private val thermal = ThermalHeadroomSource.create(context)
     private val assets = context.assets
-    private val orbit: OrbitModel by lazy { loadOrbit(context) }
     private val sessions = ConcurrentHashMap<Int, RenderSession>()
     private val nextId = AtomicInteger()
     private val shared = RefCounted(
@@ -79,11 +82,11 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context, set
     internal fun release() = shared.release()
 
     /** A session not bound to a surface (one-shot offscreen renders). */
-    internal fun detachedSession() = RenderSession(orbit, ::settings)
+    internal fun detachedSession() = RenderSession(::orbit, ::settings)
 
     internal fun openSession(): Pair<Int, RenderSession> {
         val id = nextId.incrementAndGet()
-        return id to RenderSession(orbit, ::settings).also { sessions[id] = it; Gate.opened(id, it) }
+        return id to RenderSession(::orbit, ::settings).also { sessions[id] = it; Gate.opened(id, it) }
     }
 
     internal fun closeSession(id: Int) {
@@ -100,6 +103,9 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context, set
             thermal.stop()
         }
     }
+
+    /** The newest valid orbit (bundled or downloaded); a volatile read after the first load. */
+    private fun orbit(): OrbitModel = orbits.current().model
 
     private fun inputsFor(surfaceId: Int, frameTimeNanos: Long): FloatArray? {
         val session = sessions[surfaceId] ?: return null
@@ -120,12 +126,6 @@ class RendererHost @Inject constructor(@ApplicationContext context: Context, set
     }
 
     private companion object {
-        /** The bundled TLE (`assets/orbit/iss.tle`: name line, line 1, line 2), refreshed per feature release (P7). */
-        fun loadOrbit(context: Context): OrbitModel {
-            val lines = context.assets.open("orbit/iss.tle").bufferedReader().use { it.readLines() }.filter { it.isNotBlank() }
-            return OrbitModel(Tle.parse(lines[lines.size - 2], lines[lines.size - 1]))
-        }
-
         /** Earth render scale per governor step; the default (highest) step is 0.6. */
         val RENDER_SCALES = floatArrayOf(0.4f, 0.5f, 0.6f)
         val QUALITY_STEPS = RENDER_SCALES.size

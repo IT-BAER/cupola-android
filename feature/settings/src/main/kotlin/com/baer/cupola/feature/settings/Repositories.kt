@@ -19,6 +19,7 @@ interface SettingsRepository {
     suspend fun setReflections(value: Boolean)
     suspend fun setDust(value: Boolean)
     suspend fun setHomeCity(id: String?)
+    suspend fun setOnlineOrbitUpdates(value: Boolean)
 }
 
 interface TleRepository {

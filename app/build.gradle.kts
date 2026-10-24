@@ -120,8 +120,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
 }
 
-// The app ships without INTERNET or any runtime permission (design decisions 12 and 35).
-// Only library-internal signature permissions of this app may appear in the merged manifest.
+// The app ships without any runtime permission (design decisions 12 and 35). INTERNET serves the orbit data
+// download only; besides it, only library-internal signature permissions of this app may appear.
 abstract class CheckManifestPermissions : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -157,7 +157,7 @@ androidComponents {
         val variantName = variant.name.replaceFirstChar { it.uppercase() }
         val guard = tasks.register<CheckManifestPermissions>("check${variantName}ManifestPermissions") {
             mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
-            allowed.set(variant.applicationId.map { setOf("$it.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION") })
+            allowed.set(variant.applicationId.map { setOf("android.permission.INTERNET", "$it.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION") })
             report.set(layout.buildDirectory.file("reports/manifest-permissions/${variant.name}.txt"))
         }
         tasks.named { it == "assemble$variantName" || it == "check" }.configureEach { dependsOn(guard) }

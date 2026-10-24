@@ -78,6 +78,14 @@ class DataStoreSettingsRepositoryTest {
     }
 
     @Test
+    fun onlineOrbitUpdatesDefaultOnAndPersistOff() = runBlocking {
+        val r = repo()
+        assertEquals(true, r.settings.first().onlineOrbitUpdates)
+        r.setOnlineOrbitUpdates(false)
+        assertEquals(false, r.settings.first().onlineOrbitUpdates)
+    }
+
+    @Test
     fun strengthIsClampedAndHomeCityCanBeCleared() = runBlocking {
         val r = repo()
         r.setLookAroundStrength(3f)

@@ -51,8 +51,9 @@ class SettingsViewModel @Inject constructor(
     fun setReflections(value: Boolean) = launch { repository.setReflections(value) }
     fun setDust(value: Boolean) = launch { repository.setDust(value) }
     fun clearHomeCity() = launch { repository.setHomeCity(null) }
+    fun setOnlineOrbitUpdates(value: Boolean) = launch { repository.setOnlineOrbitUpdates(value) }
 
-    /** View and effect settings back to [Settings] defaults; the home city is user data and stays. */
+    /** View and effect settings back to [Settings] defaults; the home city and the download choice stay. */
     fun resetToDefaults() = launch {
         val d = Settings()
         repository.setRestDirection(d.restDirection)

@@ -20,6 +20,7 @@ import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.ViewConfiguration
+import com.baer.cupola.data.OrbitUpdater
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.Executors
 import javax.inject.Inject
@@ -27,6 +28,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class CupolaWallpaperService : WallpaperService() {
     @Inject lateinit var host: RendererHost
+    @Inject lateinit var orbitUpdater: OrbitUpdater
 
     override fun onCreateEngine(): Engine = CupolaEngine()
 
@@ -142,6 +144,7 @@ class CupolaWallpaperService : WallpaperService() {
             if (visible != countedVisible) {
                 countedVisible = visible
                 host.engineVisible(visible)
+                orbitUpdater.onVisibilityChanged(visible)
             }
             pushState()
             syncSensor()

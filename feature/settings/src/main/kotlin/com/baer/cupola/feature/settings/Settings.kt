@@ -4,7 +4,10 @@ import java.time.Instant
 
 enum class RestDirection { DIAGONAL, NADIR }
 
-/** User settings (design decision 19). [homeCityId] is a [CityEntry.id], null when no home city is set. */
+/**
+ * User settings (design decision 19). [homeCityId] is a [CityEntry.id], null when no home city is set.
+ * [onlineOrbitUpdates] allows the daily orbit data download from the project's GitHub Pages mirror.
+ */
 data class Settings(
     val restDirection: RestDirection = RestDirection.NADIR,
     /** 0 = no look-around, 1 = full. */
@@ -15,6 +18,7 @@ data class Settings(
     val reflections: Boolean = true,
     val dust: Boolean = true,
     val homeCityId: String? = null,
+    val onlineOrbitUpdates: Boolean = true,
 )
 
 /** Metadata of the bundled orbit data (`assets/orbit/iss.json`); [retired] is the decision 38 flag. */

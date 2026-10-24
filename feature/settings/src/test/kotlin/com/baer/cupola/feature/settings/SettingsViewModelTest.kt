@@ -66,6 +66,23 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun onlineOrbitUpdatesToggleSurvivesReset() = runTest {
+        val vm = SettingsViewModel(FakeSettingsRepository(), FakeCityRepository())
+        vm.uiState.test {
+            var s = awaitItem()
+            while (!s.loaded) s = awaitItem()
+            assertEquals(true, s.settings.onlineOrbitUpdates)
+            vm.setOnlineOrbitUpdates(false)
+            while (s.settings.onlineOrbitUpdates) s = awaitItem()
+            vm.setDust(false)
+            while (s.settings.dust) s = awaitItem()
+            vm.resetToDefaults()
+            while (!s.settings.dust) s = awaitItem()
+            assertFalse(s.settings.onlineOrbitUpdates)
+        }
+    }
+
+    @Test
     fun homeCityIsResolvedFromItsId() = runTest {
         val cities = FakeCityRepository(listOf(VIENNA, GRAZ))
         val repo = FakeSettingsRepository(Settings(homeCityId = CityEntry(GRAZ).id))

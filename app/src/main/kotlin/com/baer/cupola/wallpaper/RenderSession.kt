@@ -45,16 +45,24 @@ internal data class SceneDump(
 )
 
 /**
- * Per-engine scene state. Everything except [surface] is touched on the render thread only. [settings] returns the
- * latest snapshot and is read once per frame.
+ * Per-engine scene state. Everything except [surface] is touched on the render thread only. [settings] and [orbit]
+ * return the latest snapshot and are read once per frame, so a new TLE reaches a running session on its next frame.
  */
 internal class RenderSession(
-    private val orbit: OrbitModel,
+    private val orbit: () -> OrbitModel,
     private val settings: () -> RenderSettings = { RenderSettings() },
     utcMillis: () -> Long = System::currentTimeMillis,
 ) {
+    /** A fixed orbit (tests and one-shot renders). */
+    constructor(
+        orbit: OrbitModel,
+        settings: () -> RenderSettings = { RenderSettings() },
+        utcMillis: () -> Long = System::currentTimeMillis,
+    ) : this({ orbit }, settings, utcMillis)
+
     private val look = LookAroundController(System::nanoTime)
-    private val clock = PreviewClock(System::nanoTime, utcMillis, orbit.meanMotionRevPerDay)
+    // The preview lapse rate keeps the mean motion of the session's first orbit; it barely changes between TLEs.
+    private val clock = PreviewClock(System::nanoTime, utcMillis, orbit().meanMotionRevPerDay)
     private val exposure = AutoExposure()
     private var orbitFailureLogged = false
     private var wasVisible = false
@@ -163,6 +171,7 @@ internal class RenderSession(
             }
         }
         val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
+        val orbit = orbit()
         val result = if (Gate.orbitFault()) OrbitStateResult.Failure(Sgp4Error.DECAYED) else orbit.stateAt(instant)
         var source = when {
             override?.instant != null -> "override"

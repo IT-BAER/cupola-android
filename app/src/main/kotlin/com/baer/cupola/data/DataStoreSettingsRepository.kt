@@ -28,6 +28,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
             reflections = p[REFLECTIONS] ?: defaults.reflections,
             dust = p[DUST] ?: defaults.dust,
             homeCityId = p[HOME_CITY],
+            onlineOrbitUpdates = p[ONLINE_ORBIT] ?: defaults.onlineOrbitUpdates,
         )
     }
 
@@ -39,6 +40,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
     override suspend fun setReflections(value: Boolean) = put { it[REFLECTIONS] = value }
     override suspend fun setDust(value: Boolean) = put { it[DUST] = value }
     override suspend fun setHomeCity(id: String?) = put { if (id == null) it.remove(HOME_CITY) else it[HOME_CITY] = id }
+    override suspend fun setOnlineOrbitUpdates(value: Boolean) = put { it[ONLINE_ORBIT] = value }
 
     /** A failed write (storage full, I/O error) keeps the stored value; callers run in viewModelScope without a handler. */
     private suspend fun put(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
@@ -58,5 +60,6 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
         val REFLECTIONS = booleanPreferencesKey("effect_reflections")
         val DUST = booleanPreferencesKey("effect_dust")
         val HOME_CITY = stringPreferencesKey("home_city_id")
+        val ONLINE_ORBIT = booleanPreferencesKey("online_orbit_updates")
     }
 }

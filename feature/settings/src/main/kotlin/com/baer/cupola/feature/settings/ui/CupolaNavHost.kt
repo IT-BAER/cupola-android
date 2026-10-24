@@ -75,6 +75,7 @@ fun CupolaNavHost(
                             onSetWallpaper = onSetWallpaper,
                             onShare = onShare,
                             onReset = settings::resetToDefaults,
+                            onOnlineOrbitUpdates = settings::setOnlineOrbitUpdates,
                         ),
                     )
                 }
