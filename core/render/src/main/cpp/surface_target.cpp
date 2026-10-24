@@ -283,11 +283,13 @@ VkResult SurfaceTarget::drawFrame() {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_TRY_OR_DIE(vkBeginCommandBuffer(frame.cmd, &begin));
     VkPipeline pipeline = !earth ? pipeline_ : scaled ? compositePipeline_ : earthPipeline_;
+    // After acquire: a frame that returns early must not mark the LUT as rendered.
+    const bool sky = earth && skyPass_.key.stale(inputs_);
     device_->recordFrame(frame.cmd, renderPass_, framebuffers_[imageIndex], pipeline,
                          earth ? frame.scene.set : VK_NULL_HANDLE, extent_,
                          makePushConstants(inputs_, extent_, rotation_), queries_,
                          frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet,
-                         earth ? &skyPass_ : nullptr, frame.scene.skySet);
+                         sky ? &skyPass_ : nullptr, frame.scene.skySet);
     VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
