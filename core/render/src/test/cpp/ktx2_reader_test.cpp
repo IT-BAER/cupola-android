@@ -272,10 +272,10 @@ constexpr RealTexture kRealTextures[] = {
     {"city_lights", Format::kAstc8x8Srgb, 8192, 3277, 14, Format::kEtc2R8G8B8Srgb, 4096, 1638, 13, 0},
     {"terrain_normal", Format::kAstc6x6Unorm, 4096, 1638, 13, Format::kEtc2R8G8B8A8Unorm, 2048, 819, 12, 0},
     {"stars", Format::kAstc6x6Srgb, 4096, 2048, 13, Format::kEtc2R8G8B8Srgb, 2048, 1024, 12, 0},
-    {"interior_earth", Format::kAstc6x6Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8A8Srgb, 1024, 4032, 1, 0},
-    {"interior_cabin", Format::kAstc8x8Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8Srgb, 1024, 4032, 1, 0},
-    {"interior_emissive", Format::kAstc8x8Srgb, 2048, 8064, 1, Format::kEtc2R8G8B8Srgb, 1024, 4032, 1, 0},
-    {"interior_ambient", Format::kAstc8x8Srgb, 512, 2016, 1, Format::kEtc2R8G8B8Srgb, 256, 1008, 1, 0},
+    {"interior_earth", Format::kAstc6x6Srgb, 2048, 7296, 1, Format::kEtc2R8G8B8A8Srgb, 1024, 3648, 1, 0},
+    {"interior_cabin", Format::kAstc8x8Srgb, 2048, 7296, 1, Format::kEtc2R8G8B8Srgb, 1024, 3648, 1, 0},
+    {"interior_emissive", Format::kAstc8x8Srgb, 2048, 7296, 1, Format::kEtc2R8G8B8Srgb, 1024, 3648, 1, 0},
+    {"interior_ambient", Format::kAstc8x8Srgb, 512, 1824, 1, Format::kEtc2R8G8B8Srgb, 256, 912, 1, 0},
 };
 
 // Reads only header + level index, like the loader does.

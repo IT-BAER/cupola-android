@@ -68,10 +68,10 @@ class EarthpackLoadTest {
             "terrain_normal" to ok(ASTC_6X6_UNORM, 4096, 1638, 1, 13),
             "stars" to ok(ASTC_6X6_SRGB, 4096, 2048, 1, 13),
             "water_mask" to ok(ASTC_8X8_UNORM, 4096, 1638, 1, 13),
-            "interior_earth" to ok(ASTC_6X6_SRGB, 2048, 8064, 1, 1),
-            "interior_cabin" to ok(ASTC_8X8_SRGB, 2048, 8064, 1, 1),
-            "interior_emissive" to ok(ASTC_8X8_SRGB, 2048, 8064, 1, 1),
-            "interior_ambient" to ok(ASTC_8X8_SRGB, 512, 2016, 1, 1),
+            "interior_earth" to ok(ASTC_6X6_SRGB, 2048, 7296, 1, 1),
+            "interior_cabin" to ok(ASTC_8X8_SRGB, 2048, 7296, 1, 1),
+            "interior_emissive" to ok(ASTC_8X8_SRGB, 2048, 7296, 1, 1),
+            "interior_ambient" to ok(ASTC_8X8_SRGB, 512, 1824, 1, 1),
         )
         val ETC2 = mapOf(
             "day_detail" to ok(ETC2_RGB_SRGB, 2048, 1638, 8, 12),
@@ -81,10 +81,10 @@ class EarthpackLoadTest {
             "terrain_normal" to ok(ETC2_RGBA_UNORM, 2048, 819, 1, 12),
             "stars" to ok(ETC2_RGB_SRGB, 2048, 1024, 1, 12),
             "water_mask" to ok(ETC2_RGB_UNORM, 2048, 819, 1, 12),
-            "interior_earth" to ok(ETC2_RGBA_SRGB, 1024, 4032, 1, 1),
-            "interior_cabin" to ok(ETC2_RGB_SRGB, 1024, 4032, 1, 1),
-            "interior_emissive" to ok(ETC2_RGB_SRGB, 1024, 4032, 1, 1),
-            "interior_ambient" to ok(ETC2_RGB_SRGB, 256, 1008, 1, 1),
+            "interior_earth" to ok(ETC2_RGBA_SRGB, 1024, 3648, 1, 1),
+            "interior_cabin" to ok(ETC2_RGB_SRGB, 1024, 3648, 1, 1),
+            "interior_emissive" to ok(ETC2_RGB_SRGB, 1024, 3648, 1, 1),
+            "interior_ambient" to ok(ETC2_RGB_SRGB, 256, 912, 1, 1),
         )
     }
 }
