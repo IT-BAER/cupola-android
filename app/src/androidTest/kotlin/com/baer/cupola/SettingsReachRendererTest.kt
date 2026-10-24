@@ -6,6 +6,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.data.DataModule
 import com.baer.cupola.data.DataStoreSettingsRepository
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.wallpaper.RendererHost
@@ -27,7 +28,7 @@ class SettingsReachRendererTest {
         val store = PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) { file }
         val repository = DataStoreSettingsRepository(store)
         repository.setRestDirection(RestDirection.DIAGONAL)
-        val host = RendererHost(context, repository)
+        val host = RendererHost(context, repository, DataModule.orbitRepository(context))
         val (id, session) = host.openSession()
         try {
             val back = { session.nextFrameInputs()[FrameInputs.CAMERA_BACK + 2] }
