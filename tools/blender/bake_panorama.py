@@ -21,7 +21,7 @@ import OpenImageIO as oiio
 from mathutils import Matrix, Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EYE = (0.0, 0.0, 0.70)  # build_cupola.py EYE (decision 22)
+EYE = (0.0, 0.0, -0.10947)  # build_cupola.py EYE (decision 22); setup_scene checks it against Cam_Rest
 EARTH_R_KM, ISS_ALT_KM = 6371.0, 420.0
 EARTH_HALF_DEG = math.degrees(math.asin(EARTH_R_KM / (EARTH_R_KM + ISS_ALT_KM)))
 FACE_N, AMB_N = 2048, 512
@@ -182,6 +182,9 @@ def make_world(name, kind):
 
 def setup_scene(a, tmp_dir):
     bpy.ops.wm.open_mainfile(filepath=a["blend"])
+    eye = bpy.data.objects["Cam_Rest"].matrix_world.translation
+    if (eye - Vector(EYE)).length > 1e-4:
+        raise SystemExit("EYE %s differs from Cam_Rest at %s" % (EYE, tuple(eye)))
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     device = pick_device(scene)

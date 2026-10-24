@@ -39,6 +39,11 @@ Z_BASE = 0.30              # hatch ring plane, estimated from iss035e010551
 SKIRT_H = 0.55             # vertical wall height, estimated from iss035e010551 / iss073e0025760
 Z_TOP = Z_BASE + SKIRT_H + FACET_LEN * math.sin(FACET_TILT)
 HATCH_R = 0.64             # CBM passage ~1.27 m (published CBM hatch size, approximated round)
+# Node 3 side of the CBM (below the hatch plane z = 0): passage ring PASSAGE_R down to PASSAGE_Z, then the dark
+# Node 3 port edge and a closed volume behind it, so every ray from the eye ends on a surface. Estimated.
+PASSAGE_R, PASSAGE_Z = 0.68, -0.45
+NODE3_R, NODE3_Z = 1.3, -1.2
+CBM_BOLTS = 16             # powered bolts of the CBM ring (published count)
 TOP_DEPTH = 0.10           # top window tunnel to inner pane, estimated from iss035e010551
 SIDE_DEPTH = 0.06          # side window tunnel, estimated from iss073e0025760
 TOP_RING_IN, TOP_RING_OUT, TOP_RING_H = 0.365, 0.47, 0.015  # raised bolt ring, est. iss038e013587
@@ -47,16 +52,20 @@ SIDE_BOLT_OFFSET, SIDE_BOLT_STEP = 0.035, 0.08
 SHUTTER_OPEN_DEG = 130.0   # exterior shutters open, est. iss038e013587 (seen at window edges)
 # Stepped window bezels (offset outside the clear aperture d, depth w toward the pane, material:
 # 0 frame, 1 gasket, 2 bezel metal), shape est. iss050e033912. Top: d <= TOP_RING_IN - aperture radius.
-# Walls black anodized, ledges bare-metal satin (the thin bright lines in the photos).
-SIDE_BEZEL = [(0.024, 0.0, 0), (0.016, 0.005, 2), (0.016, 0.016, 0), (0.010, 0.018, 2), (0.010, 0.030, 0),
-              (0.004, 0.032, 2), (0.004, 0.042, 0), (0.0, 0.044, 2), (0.0, 0.06, 1)]
-TOP_BEZEL = [(0.012, 0.0, 0), (0.012, 0.03, 0), (0.008, 0.032, 2), (0.008, 0.06, 0), (0.004, 0.062, 2),
+# Walls and ledges black anodized; only the innermost ledge at the aperture is bare-metal satin (the thin
+# bright line in iss022e066972 / iss029e043374, where the bezel ring reads near-black).
+SIDE_BEZEL = [(0.024, 0.0, 0), (0.016, 0.005, 0), (0.016, 0.016, 0), (0.010, 0.018, 0), (0.010, 0.030, 0),
+              (0.004, 0.032, 0), (0.004, 0.042, 0), (0.0, 0.044, 2), (0.0, 0.06, 1)]
+TOP_BEZEL = [(0.012, 0.0, 0), (0.012, 0.03, 0), (0.008, 0.032, 0), (0.008, 0.06, 0), (0.004, 0.062, 0),
              (0.004, 0.078, 0), (0.0, 0.08, 2), (0.0, 0.1, 1)]
 DETAIL_SEED = 4207         # random.Random seed for the small hardware scatter (deterministic)
 CIRCLE_SEG = 96
 FILLET_SEG = 8             # even: the arc midpoint is a vertex (used by measure_apertures.py)
 
-EYE = Vector((0.0, 0.0, 0.70))  # fixed eye point (decision 22), estimated head position
+# Fixed eye point (decision 22): EYE_TO_GLASS from the nadir pane, measured in iss022e066972 / iss029e043374
+# (12 mm DX, Hough radius of the clear aperture: 1.52-1.58 m). It lies behind the hatch plane, in the CBM passage.
+EYE_TO_GLASS = 1.55
+EYE = Vector((0.0, 0.0, Z_TOP + TOP_DEPTH - EYE_TO_GLASS))
 REST_TARGET_R = 0.55            # rest view aims at this radius on the glass plane toward a mullion
 REST_ROLL_DEG = 0.0             # diagonal composition like the ESA clip (decision 9)
 REST_LENS_MM = 14.0
@@ -579,6 +588,8 @@ def build(top_d):
                bevel=0.0015)
     principled("M_Gasket", (0.6, 0.13, 0.04), rough=0.5, noise=(80.0, 0.4, 0.62), cvar=0.15)
     principled("M_Bolt", (0.6, 0.6, 0.62), metal=1.0, rough=0.3, noise=(300.0, 0.22, 0.45), bevel=0.0008)
+    # Window and plate fasteners: dark satin heads (the photos show no bright bolt rings).
+    principled("M_BoltSatin", (0.12, 0.12, 0.125), metal=1.0, rough=0.45, noise=(300.0, 0.38, 0.55), bevel=0.0008)
     # Blue anodized handrails (dyed oxide over aluminium): saturated, partly diffuse.
     principled("M_Handrail", (0.04, 0.3, 0.75), metal=0.6, rough=0.3, noise=(30.0, 0.22, 0.42), cvar=0.15,
                bevel=0.002, wear=((0.55, 0.56, 0.58), 1.0, 0.3))
@@ -670,7 +681,7 @@ def build(top_d):
         g.build({"cupola_aperture": "side_%d" % k})
 
     # Shell: vertical skirt, hatch ring, hatch tunnel, Node 3 cap.
-    sh = Part("Shell", "Shell", ["M_ShellGrey"])
+    sh = Part("Shell", "Shell", ["M_ShellGrey", "M_BoltBlack", "M_PanelGrey"])
     top_l = hex_corners(A2, Z_FB)
     bot_l = hex_corners(A2, Z_BASE)
     sh.strip(top_l, bot_l)
@@ -678,8 +689,7 @@ def build(top_d):
     sh.strip([(q.x, q.y, Z_BASE) for q in inner], [(q.x, q.y, Z_BASE) for q in outer])
     hc = circle(HATCH_R)
     sh.strip([(x, y, Z_BASE) for x, y in hc], [(x, y, 0.0) for x, y in hc])
-    sh.face([(x, y, -0.5) for x, y in reversed(circle(1.0, 32))])
-    sh.strip([(x, y, 0.0) for x, y in hc[::3]], [(x * 1.0 / HATCH_R, y / HATCH_R, -0.5) for x, y in hc[::3]])
+    build_passage(sh)
     sh.build()
 
     # Exterior shutters (open), hinged at the outer edge of each window.
@@ -710,7 +720,7 @@ def build(top_d):
 
     # Bolts: top ring and around each side window. Seeded variation: hex rotation and height, socket
     # caps, black-oxide heads, empty holes (iss050e033912 shows mixed fasteners).
-    bo = Part("Bolts", "Bolts", ["M_Bolt", "M_BoltBlack"])
+    bo = Part("Bolts", "Bolts", ["M_BoltSatin", "M_BoltBlack"])
     rb = random.Random(DETAIL_SEED + 1)
 
     def bolt(p, out, r, h):
@@ -1028,7 +1038,7 @@ def build_clutter(rng):
 def build_mullion_detail(rng):
     """Mullion rails with cap screws, orange window tags, Velcro and label-like plain patches,
     shutter crank knobs, small brackets, top-plate fittings (iss050e033912, iss038e013587)."""
-    hw = Part("Hardware", "Hardware", ["M_FrameBlack", "M_Bolt", "M_Tag", "M_Velcro", "M_VelcroBlack",
+    hw = Part("Hardware", "Hardware", ["M_FrameBlack", "M_BoltSatin", "M_Tag", "M_Velcro", "M_VelcroBlack",
                                        "M_PatchWhite", "M_Plastic", "M_Connector", "M_PatchYellow", "M_PatchGrey"])
     corners = ccw(side_corners())
     m, h = SIDE_MARGIN_TOP, SIDE_H
@@ -1091,6 +1101,28 @@ def build_mullion_detail(rng):
         p = Vector((0.455 * math.cos(a), 0.455 * math.sin(a), rz - 0.001))
         hw.box((0.012, 0.03, 0.0006), place(p, (0, 0, -1), (math.cos(a), math.sin(a), 0)), mat=2)
     hw.build()
+
+
+def build_passage(sh):
+    """CBM passage seen around the image border from the eye: rounded hatch rim at Z_BASE, interface flange with
+    the CBM bolts at z = 0, the Node 3 side ring with capture latches, the dark Node 3 port edge and a closed
+    volume behind it (shape estimated; nothing here is in the photos' field)."""
+    rim = [(x, y, Z_BASE - 0.012) for x, y in circle(HATCH_R - 0.01, 24)]
+    sh.tube(rim, 0.014, mat=0, seg=8, closed=True, sub=4)
+    sh.strip([(x, y, 0.0) for x, y in circle(HATCH_R)], [(x, y, 0.0) for x, y in circle(PASSAGE_R)])
+    pc = circle(PASSAGE_R)
+    sh.strip([(x, y, 0.0) for x, y in pc], [(x, y, PASSAGE_Z) for x, y in pc])
+    nc = circle(NODE3_R)
+    sh.strip([(x, y, PASSAGE_Z) for x, y in pc], [(x, y, PASSAGE_Z) for x, y in nc])
+    sh.strip([(x, y, PASSAGE_Z) for x, y in nc], [(x, y, NODE3_Z) for x, y in nc])
+    sh.face([(x, y, NODE3_Z) for x, y in reversed(nc)])
+    for x, y in circle((HATCH_R + PASSAGE_R) / 2.0, CBM_BOLTS, phase=math.pi / CBM_BOLTS):
+        sh.cyl((x, y, 0.0), (x, y, -0.012), 0.008, mat=1, seg=6)
+    for k in range(4):
+        a = math.radians(45.0 + 90.0 * k)
+        r = Vector((math.cos(a), math.sin(a), 0.0))
+        sh.box((0.05, 0.12, 0.04), place(r * (PASSAGE_R - 0.02) + Vector((0, 0, -0.2)), -r, (0, 0, 1)), mat=2,
+               bevel=0.004)
 
 
 def wall_point(k, t, z, d):
@@ -1204,10 +1236,10 @@ def build_walls(rng):
         wp.patch(size[0] * 0.3, size[1] * 0.3, mb @ Matrix.Translation((0.03, 0, size[2] / 2 + 0.002)), 3, rng)
     wp.build()
     led.build()
-    # Corrugated flex hose from the hatch tunnel up to wall 3, as in iss035e010551.
+    # Corrugated flex hose from Node 3 through the hatch tunnel up to wall 3, as in iss035e010551.
     ho = Part("Hose", "Shell", ["M_Hose", "M_Plastic"])
     a = math.radians(205.0)
-    pts = [Vector((0.58 * math.cos(a), 0.58 * math.sin(a), 0.0)),
+    pts = [Vector((0.6 * math.cos(a), 0.6 * math.sin(a), PASSAGE_Z + 0.1)),
            Vector((0.6 * math.cos(a), 0.6 * math.sin(a), 0.22)),
            wall_point(3, 0.3, 0.38, 0.12), wall_point(3, 0.28, 0.5, 0.1)]
     q, tg = ho.tube(pts, 0.022, seg=12, sub=24, rib=0.08)
