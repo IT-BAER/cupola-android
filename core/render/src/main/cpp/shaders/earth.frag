@@ -205,8 +205,6 @@ vec2 logicalPixel(vec2 p) {
     return p;
 }
 
-float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-
 // Wraps a longitude difference into [-pi, pi], so derivatives stay small across 180 deg.
 float wrapDelta(float d) { return d - 2.0 * PI * round(d / (2.0 * PI)); }
 
@@ -708,8 +706,8 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 month0 = textureGrad(monthlyColour, vec3(uv, s.up.w), gx, gy).rgb;
     vec3 month1 = textureGrad(monthlyColour, vec3(uv, s.back.w), gx, gy).rgb;
     vec3 july = textureGrad(monthlyColour, vec3(uv, JULY_LAYER), gx, gy).rgb;
-    float detailRatio = clamp(luminance(detail) / max(luminance(july), 1e-3), 0.25, 4.0);
-    vec3 albedo = mix(month0, month1, s.right.w) * detailRatio;
+    // day_detail is the July layer at full resolution: month / July is the low-frequency seasonal tint per channel.
+    vec3 albedo = detail * clamp(mix(month0, month1, s.right.w) / max(july, vec3(1e-3)), 0.25, 4.0);
 
     vec2 nxy = textureGrad(terrainNormal, uv, gx, gy).ga * 2.0 - 1.0;
     float water = textureGrad(waterMask, uv, gx, gy).r;

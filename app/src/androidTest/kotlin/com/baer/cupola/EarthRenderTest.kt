@@ -42,6 +42,7 @@ import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.ln
 import kotlin.math.sin
 import kotlin.math.tan
 import kotlin.math.sqrt
@@ -386,6 +387,50 @@ class EarthRenderTest {
         Log.i(TAG, "day nadir mean luma $mean sd $sd rgb $r $g $b")
         assertTrue("contrast sd $sd", sd > 10.0)
         assertTrue("colour, not grey: rgb $r $g $b", maxOf(abs(r - g), abs(g - b), abs(r - b)) > 8.0)
+    }
+
+    /**
+     * Upper Rhine at nadir, bare ground (no atmosphere, clouds or interior): colour carries detail at the day-detail
+     * scale (3.5 x 5.3 px per texel here), not only at the monthly map's 28 x 42 px. Over 4 px the chromaticity of the
+     * exposed linear colour (lighting is one scalar per pixel, so it cancels) steps by more than 0.07 of the ln-luma
+     * step, which day_detail sets in both. A35 24 Oct: 0.040 with colour from the monthly map, 0.124 from day_detail.
+     */
+    @Test
+    fun groundColourHasDayDetailResolution() {
+        val img = render(scene(DAY, 48.5, 7.8, 0.0, -90.0), interior = false,
+            debug = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_ATMOSPHERE)
+        save("colour_detail", img)
+        // (r / sum, b / sum, ln luma) of 2 x 2 block means; null where a channel clips or the pixel is dark.
+        fun colour(x: Int, y: Int): Triple<Double, Double, Double>? {
+            var r = 0.0
+            var g = 0.0
+            var b = 0.0
+            for (dy in 0..1) for (dx in 0..1) {
+                val i = at(x + dx, y + dy)
+                if (maxOf(ch(img, i), ch(img, i + 1), ch(img, i + 2)) >= 254) return null
+                r += linear(img, i); g += linear(img, i + 1); b += linear(img, i + 2)
+            }
+            val sum = r + g + b
+            return if (sum < 0.02) null else Triple(r / sum, b / sum, ln(0.2126 * r + 0.7152 * g + 0.0722 * b))
+        }
+        // Mean chromaticity step and mean ln-luma step between samples d px apart.
+        fun steps(d: Int): Pair<Double, Double> {
+            var chroma = 0.0
+            var luma = 0.0
+            var n = 0
+            for (y in 200 until H - 200 - d step 16) for (x in 0 until W - 2 - d step 16) {
+                val c = colour(x, y) ?: continue
+                for (o in listOf(colour(x + d, y), colour(x, y + d))) {
+                    if (o == null) continue
+                    chroma += abs(o.first - c.first) + abs(o.second - c.second); luma += abs(o.third - c.third); n++
+                }
+            }
+            return chroma / n to luma / n
+        }
+        val all = listOf(2, 4, 8, 24, 64).associateWith { steps(it) }
+        val (chroma4, luma4) = all[4]!!
+        Log.i(TAG, "colour detail steps (chroma, ln luma) $all, chroma/luma at 4 px ${chroma4 / luma4}")
+        assertTrue("chroma step $chroma4 vs ln luma step $luma4 at 4 px", chroma4 > COLOUR_DETAIL_MIN * luma4)
     }
 
     /** Gulf of Guinea at nadir with the Sun high: the ITCZ cloud band crosses the view. */
@@ -1234,17 +1279,18 @@ class EarthRenderTest {
     private fun luma(img: ByteArray, x: Int, y: Int) =
         at(x, y).let { 0.2126 * ch(img, it) + 0.7152 * ch(img, it + 1) + 0.0722 * ch(img, it + 2) }
 
-    /** Exposed linear luma before the tone map: sRGB decode, then the inverse of earth.frag's ACES fit (254 at most). */
+    /** Exposed linear channel before the tone map: sRGB decode, then the inverse of earth.frag's ACES fit (254 at most). */
+    private fun linear(img: ByteArray, i: Int): Double {
+        val c = minOf(ch(img, i), 254) / 255.0
+        val t = if (c <= 0.04045) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
+        val a = 2.43 * t - 2.51
+        val b = 0.59 * t - 0.03
+        return (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
+    }
+
     private fun linearLuma(img: ByteArray, x: Int, y: Int): Double {
-        fun linear(i: Int): Double {
-            val c = minOf(ch(img, i), 254) / 255.0
-            val t = if (c <= 0.04045) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
-            val a = 2.43 * t - 2.51
-            val b = 0.59 * t - 0.03
-            return (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
-        }
         val i = at(x, y)
-        return 0.2126 * linear(i) + 0.7152 * linear(i + 1) + 0.0722 * linear(i + 2)
+        return 0.2126 * linear(img, i) + 0.7152 * linear(img, i + 1) + 0.0722 * linear(img, i + 2)
     }
 
     private fun meanLuma(img: ByteArray): Double {
@@ -1297,6 +1343,7 @@ class EarthRenderTest {
         private const val FRAMES_PER_STEP = 4 // every frame in flight (2) records with the new scale at least once
         private val NIGHT_BAND = 18.0..64.0
         private const val DAY_INTERIOR_MEDIAN_MIN = 27.0
+        private const val COLOUR_DETAIL_MIN = 0.07
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
