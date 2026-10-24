@@ -161,6 +161,9 @@ const float CABIN_GAIN = 0.05;
 const float EMISSIVE_GAIN = 1.0;
 const float AMBIENT_GAIN = 0.02;
 const float STATIC_SCALE = 2.0e-4;
+// Node 3 behind the eye (towards -Z, no baked face), as the window reflections see it: its lit cabin as a uniform
+// radiance in cabin-layer units (same gains as the cabin layer): a lit mid-grey wall, warm white like L_Cabin.
+const vec3 NODE3_CABIN = vec3(1.0, 0.92, 0.82);
 // Earthlight gains over the mean Earth radiance (Scene.earthLight): the Earthlight layer, and the uniform fill
 // (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the Earth-lit photos
 // iss022e066972 / iss029e043374 (EarthRenderTest.dayCabinToneMatchesTheEarthLitPhotos).
@@ -293,7 +296,7 @@ vec4 interior(vec3 c) { return s.iRight.w == 0.0 ? vec4(0.0) : interiorAt(interi
 vec3 cabinLightAt(vec3 d) {
     vec2 uv;
     int f = cubeFace(d, uv);
-    if (f == 5) return vec3(0.0);
+    if (f == 5) return NODE3_CABIN * (CABIN_GAIN * STATIC_SCALE);
     vec2 a = atlasUv(vec2(textureSize(interiorCabin, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
     return (textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN) +
             textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN)) * STATIC_SCALE;
