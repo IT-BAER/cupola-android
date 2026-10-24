@@ -1,6 +1,10 @@
 package com.baer.cupola
 
 import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.HardwareBuffer
+import android.media.ImageReader
+import android.os.SystemClock
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -72,7 +76,17 @@ class EarthRenderTest {
         animSeconds: Float = 0f,
         effects: Int = 0, // user effects off: the analytic checks see the bare scene
         homeCity: Vector3? = null,
-    ): ByteArray {
+    ): ByteArray = renderer.renderOffscreen(W, H, inputs(scene, renderScale, interior, debug, animSeconds, effects, homeCity))
+
+    private fun inputs(
+        scene: Scene,
+        renderScale: Float = 1f,
+        interior: Boolean = true,
+        debug: Int = 0,
+        animSeconds: Float = 0f,
+        effects: Int = 0,
+        homeCity: Vector3? = null,
+    ): FloatArray {
         val inputs = FrameInputs.empty()
         scene.write(inputs)
         if (homeCity != null) {
@@ -85,7 +99,7 @@ class EarthRenderTest {
         inputs[FrameInputs.RENDER_SCALE] = renderScale
         inputs[FrameInputs.EFFECTS] = ((inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()) or effects or debug).toFloat()
         if (!interior) inputs[FrameInputs.INTERIOR] = 0f
-        return renderer.renderOffscreen(W, H, inputs)
+        return inputs
     }
 
     private fun restScene(instant: Instant, rest: RestView) =
@@ -259,6 +273,71 @@ class EarthRenderTest {
         Log.i(TAG, "star peaks $peaks mean |scaled - full| ${diff / peaks}")
         assertTrue("star peaks $peaks", peaks > 40)
         assertTrue("scaled star peaks differ by ${diff / peaks}", diff / peaks < STAR_PEAK_TOLERANCE)
+    }
+
+    /**
+     * A render-scale change on a live surface rebinds the new scaled Earth target. A35 24 Oct: after a governor step
+     * the composite kept sampling the destroyed target (the new view reused its handle) and showed garbage blocks.
+     * Each step renders another instant, so a stale binding shows the previous Earth or garbage, not this frame.
+     */
+    @Test
+    fun renderScaleChangeRebindsTheScaledEarthTarget() {
+        val steps = listOf(0.6f, 0.5f, 0.4f, 0.6f).mapIndexed { i, scale ->
+            val inputs = inputs(restScene(DAY.plusSeconds(300L * i), RestView.NADIR), scale, effects = FrameInputs.EFFECTS_ALL)
+            Triple(scale, inputs, renderer.renderOffscreen(W, H, inputs))
+        }
+        val reader = ImageReader.newInstance(
+            W, H, PixelFormat.RGBA_8888, 3, HardwareBuffer.USAGE_GPU_COLOR_OUTPUT or HardwareBuffer.USAGE_CPU_READ_OFTEN,
+        )
+        val failures = mutableListOf<String>()
+        try {
+            renderer.attachSurface(SURFACE_ID, reader.surface)
+            // Keeps the Choreographer loop from filling the reader's queue while the test reads it.
+            renderer.updateScheduler(SURFACE_ID) { setVisible(false) }
+            for ((scale, inputs, expected) in steps) {
+                renderer.setFrameInputs(SURFACE_ID, inputs)
+                var presented = ByteArray(0)
+                repeat(FRAMES_PER_STEP) { presented = presentAndRead(reader) }
+                var off = 0
+                var n = 0
+                for (y in 0 until H step 4) for (x in 0 until W step 4) {
+                    n++
+                    if (abs(luma(presented, x, y) - luma(expected, x, y)) > 24) off++
+                }
+                Log.i(TAG, "scale $scale: presented frame off the offscreen render at $off of $n samples")
+                if (off > n / 200) {
+                    failures += "scale $scale: $off of $n"
+                    save("scale_change_${(scale * 10).toInt()}", presented)
+                }
+            }
+        } finally {
+            renderer.detachSurface(SURFACE_ID)
+            reader.close()
+        }
+        assertTrue(failures.joinToString("; "), failures.isEmpty())
+    }
+
+    /** Renders and presents one frame of [SURFACE_ID] and returns it as read back from [reader] (RGBA8, top row first). */
+    private fun presentAndRead(reader: ImageReader): ByteArray {
+        var presented = false
+        for (attempt in 0 until 3) presented = presented || renderer.renderFrame(SURFACE_ID)
+        assertTrue("frame not presented", presented)
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        var image = reader.acquireLatestImage()
+        while (image == null && SystemClock.uptimeMillis() < deadline) {
+            SystemClock.sleep(10)
+            image = reader.acquireLatestImage()
+        }
+        assertNotNull("no frame reached the ImageReader", image)
+        return image!!.use {
+            val plane = it.planes[0]
+            val out = ByteArray(W * H * 4)
+            for (y in 0 until H) {
+                plane.buffer.position(y * plane.rowStride)
+                plane.buffer.get(out, y * W * 4, W * 4)
+            }
+            out
+        }
     }
 
     /** Full frame GPU time (interior + Earth) per rest view and render scale; logged, the budget is checked by hand. */
@@ -1214,6 +1293,8 @@ class EarthRenderTest {
         private const val TOP_KM = 6478.137 // atmosphere_params.h ATMO_TOP_KM
         private const val GPU_SAMPLES = 30
         private const val GPU_WARMUP = 10
+        private const val SURFACE_ID = 9_001 // apart from the wallpaper sessions (RendererHost ids from 1)
+        private const val FRAMES_PER_STEP = 4 // every frame in flight (2) records with the new scale at least once
         private val NIGHT_BAND = 18.0..64.0
         private const val DAY_INTERIOR_MEDIAN_MIN = 27.0
 private const val STAR_PEAK_TOLERANCE = 6.0

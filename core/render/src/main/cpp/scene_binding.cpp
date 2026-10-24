@@ -85,13 +85,12 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
         w.pImageInfo = images;
         return w;
     };
+    // Written every frame, not cached by handle: EarthPass recreates its view on a scale change and the driver may
+    // return the destroyed view's handle value (A35), which a cache would take for the bound image.
     if (earthImage == VK_NULL_HANDLE) earthImage = placeholder;
-    if (earthImage != earthImage_) {
-        const VkDescriptorImageInfo info = image(textures->clamp, earthImage);
-        const VkWriteDescriptorSet w = write(set, kEarthImageBinding, 1, &info);
-        vkUpdateDescriptorSets(device.device, 1, &w, 0, nullptr);
-        earthImage_ = earthImage;
-    }
+    const VkDescriptorImageInfo earthInfo = image(textures->clamp, earthImage);
+    const VkWriteDescriptorSet earthWrite = write(set, kEarthImageBinding, 1, &earthInfo);
+    vkUpdateDescriptorSets(device.device, 1, &earthWrite, 0, nullptr);
     // `set` and `earthSet` read the view LUT; `skySet` (the pass that renders it) gets placeholders.
     const VkImageView inscatter = sky.inscatter != VK_NULL_HANDLE ? sky.inscatter : placeholder;
     const VkImageView transmittance = sky.transmittance != VK_NULL_HANDLE ? sky.transmittance : placeholder;
