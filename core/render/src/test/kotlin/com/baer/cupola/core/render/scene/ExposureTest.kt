@@ -35,6 +35,25 @@ class ExposureTest {
     private fun log2(x: Double) = ln(x) / ln(2.0)
 
     /**
+     * Looking at the Sun near the terminator (R7 terminator golden): with bloom on and the Sun inside the frame the
+     * exposure follows the glare, not the dark ground; with the Sun outside the frame, or bloom off, it does not.
+     */
+    @Test
+    fun sunInFrameLowersTheExposure() {
+        // Camera looks along -z of its frame; ECEF = camera axes. The Sun 6 deg off the view centre and 6 deg below the
+        // local horizontal (still above the limb at 420 km): the ground below is in night.
+        val sun = SceneGeometry.unit(Vector3(-0.1, 0.0, -0.995))
+        val looking = scene(95.0).copy(sunDirEcef = sun)
+        check(looking.sunLight().x > 0.0) { "Sun behind the Earth in this setup" }
+        val inFrame = Exposure.steady(looking)
+        val off = Exposure.steady(looking.copy(effects = FrameInputs.EFFECTS_ALL and FrameInputs.EFFECT_BLOOM.inv()))
+        val behind = looking.copy(sunDirEcef = SceneGeometry.unit(Vector3(0.1736, 0.0, 0.9848)))
+        assertTrue("in frame $inFrame, bloom off $off", inFrame < off * 0.5)
+        val noBloom = behind.copy(effects = FrameInputs.EFFECTS_ALL and FrameInputs.EFFECT_BLOOM.inv())
+        assertEquals("Sun behind the camera", Exposure.steady(noBloom), Exposure.steady(behind), 1e-9)
+    }
+
+    /**
      * Sunrise from the cupola: the ground below is in night (Sun zenith 101 deg there), but the Sun stands 8 deg above
      * the limb on the cupola's outer side (cabin +Z, here the camera z axis), lighting the window glass. With window
      * glare on, the exposure follows the sunlit glass instead of the night floor; off, or without the cabin, it does not.

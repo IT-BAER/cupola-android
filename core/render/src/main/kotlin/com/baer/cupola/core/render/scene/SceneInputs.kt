@@ -295,6 +295,21 @@ data class Scene(
         return t * t * (3 - 2 * t)
     }
 
+    /**
+     * Mean radiance the Sun's bloom adds to a view with the Sun inside the frame (earth.frag bloom, EFFECT_BLOOM),
+     * judged on the long axis's field. Cabin structure is unknown here, so a Sun behind a window frame counts too.
+     */
+    fun sunGlare(): Double {
+        if (effects and FrameInputs.EFFECT_BLOOM == 0) return 0.0
+        val t = sunLight()
+        val luma = 0.2126 * t.x + 0.7152 * t.y + 0.0722 * t.z
+        val c = ecefFromCamera
+        val z = -(sunDirEcef dot c.c2)
+        if (luma <= 0.0 || z <= 0.0) return 0.0
+        val inFrame = abs((sunDirEcef dot c.c0) / z) <= tanHalfLong && abs((sunDirEcef dot c.c1) / z) <= tanHalfLong
+        return if (inFrame) BLOOM_FRAME_MEAN * luma else 0.0
+    }
+
     /** Mean radiance the sunlit window glass adds to the view (earth.frag sunOnGlass); 0 with window glare off. */
     fun glassGlare(): Double {
         if (effects and FrameInputs.EFFECT_WINDOW_GLARE == 0) return 0.0
@@ -352,6 +367,9 @@ data class Scene(
          * ([Exposure.NIGHT_FLOOR]), which would leave a full-Moon night as dark as a moonless one.
          */
         const val MOON_GAIN = 20.0
+
+        /** earth.frag bloom lobes averaged over a view with the Sun inside it. */
+        const val BLOOM_FRAME_MEAN = 0.03
 
         /** earth.frag WINDOW_GLARE averaged over the forward lobe and the glass share of a view. */
         const val GLASS_GLARE_MEAN = 0.002

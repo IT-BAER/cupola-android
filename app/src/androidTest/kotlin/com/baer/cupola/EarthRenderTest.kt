@@ -688,6 +688,113 @@ class EarthRenderTest {
         assertTrue("no marker with the city behind the Earth", meanAbsDiff(render(away, interior = false, homeCity = vienna), render(away, interior = false)) < 0.01)
     }
 
+    /** The 10 P3 goldens (plan P3 acceptance) as (name, scene, animation seconds), all effects on. */
+    private fun goldenScenes(): List<Triple<String, Scene, Float>> {
+        val (gLat, gLon) = subsolar(GLINT)
+        val fullMoon = (0L until 30L).map { DAY.plusSeconds(it * 86_400L) }.maxBy {
+            val st = (orbit.stateAt(it) as OrbitState).toSceneState()
+            -(st.sunDirEcef dot st.moonDirEcef)
+        }
+        val m = (orbit.stateAt(fullMoon) as OrbitState).toSceneState().moonDirEcef
+        val stormNight = Instant.parse("2026-10-25T22:00:00Z")
+        return listOf(
+            Triple("day_nadir", scene(DAY, 25.0, 32.0, 0.0, -90.0), 0f),
+            Triple("limb", scene(GLINT, gLat, gLon, 0.0, -20.0), 0f),
+            Triple("terminator", terminatorScene(subsolar(GLINT).second), 0f),
+            Triple("sun_glint", scene(GLINT, gLat, gLon - 6.0, 0.0, -90.0), 0f),
+            Triple("sun_in_view", lookAlong(DAY, sunDir(DAY), 60.0), 0f),
+            Triple("city_lights", europeNight(), 0f),
+            Triple("aurora", auroraScene(Instant.parse("2026-10-25T14:00:00Z")), 0f),
+            Triple("lightning", scene(stormNight, 0.0, 10.0, 0.0, -90.0), 1000.25f),
+            Triple("moonlit_clouds", scene(fullMoon, Math.toDegrees(asin(m.z)), Math.toDegrees(atan2(m.y, m.x)), 0.0, -90.0), 0f),
+            Triple("stars", scene(stormNight.minusSeconds(3600), 48.0, 10.0, 0.0, 20.0), 0f),
+        )
+    }
+
+    private fun psnr(a: ByteArray, b: ByteArray): Double {
+        var se = 0.0
+        var n = 0
+        for (i in a.indices step 4) for (c in 0 until 3) {
+            val d = (a[i + c].toInt() and 0xFF) - (b[i + c].toInt() and 0xFF)
+            se += d * d; n++
+        }
+        return if (se == 0.0) Double.POSITIVE_INFINITY else 10 * kotlin.math.log10(255.0 * 255.0 / (se / n))
+    }
+
+    /**
+     * R7 goldens: each scene renders at half resolution (540 x 1170) and matches its committed golden
+     * (androidTest assets goldens/<name>.png, rendered on this device model) at PSNR >= 40 dB. The candidates are
+     * saved to files/goldens; a missing golden fails with its path, for the owner's one-time approval.
+     */
+    @Test
+    fun goldensMatchAtFortyDecibels() {
+        val gw = 540
+        val gh = 1170
+        val dir = File(context.getExternalFilesDir(null), "goldens").apply { mkdirs() }
+        val testAssets = InstrumentationRegistry.getInstrumentation().context.assets
+        val failures = mutableListOf<String>()
+        for ((name, scene, anim) in goldenScenes()) {
+            val inputs = FrameInputs.empty()
+            scene.write(inputs)
+            inputs[FrameInputs.TIME_SECONDS] = anim
+            inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or FrameInputs.EFFECTS_ALL).toFloat()
+            val img = renderer.renderOffscreen(gw, gh, inputs)
+            val bitmap = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888)
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(img))
+            File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val golden = runCatching { testAssets.open("goldens/$name.png").use { android.graphics.BitmapFactory.decodeStream(it) } }.getOrNull()
+            if (golden == null) {
+                failures += "$name: no golden (candidate ${File(dir, "$name.png")})"
+                continue
+            }
+            val ref = ByteArray(gw * gh * 4).also { golden.copyPixelsToBuffer(ByteBuffer.wrap(it)) }
+            val db = psnr(img, ref)
+            Log.i(TAG, "golden $name PSNR $db dB")
+            if (db < 40.0) failures += "$name: PSNR $db dB"
+        }
+        assertTrue(failures.joinToString("; "), failures.isEmpty())
+    }
+
+    /**
+     * R7 seam sweep: at every day-detail tile boundary (meridians -180, -90, 0, 90 and the equator) the luma jump
+     * across the boundary line through the image centre is no larger than 2x the median jump across parallel lines
+     * 20-80 px away (bare ground: no atmosphere or clouds, Sun high).
+     */
+    @Test
+    fun noSeamAtTileBoundariesOrTheDateLine() {
+        val (sLat, sLon) = subsolar(DAY)
+        fun jump(img: ByteArray, x0: Int, vertical: Boolean): Double = if (vertical) {
+            (H / 4 until 3 * H / 4 step 2).map { y -> abs(luma(img, x0 + 1, y) - luma(img, x0 - 1, y)) }.average()
+        } else {
+            (W / 4 until 3 * W / 4 step 2).map { x -> abs(luma(img, x, x0 + 1) - luma(img, x, x0 - 1)) }.average()
+        }
+        val cases = listOf(-180.0, -90.0, 0.0, 90.0).map { lon -> Triple("lon $lon", 0.0 + 20.0, lon) } + Triple("equator", 0.0, sLon)
+        val failures = mutableListOf<String>()
+        for ((name, lat, lon) in cases) {
+            // Instant with the Sun high over the boundary: shift DAY by the longitude difference to the subsolar point.
+            val instant = DAY.plusSeconds(((sLon - lon) / 360.0 * 86_400).toLong())
+            val scene = scene(instant, lat, lon, 0.0, -90.0)
+            val img = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_ATMOSPHERE or FrameInputs.DEBUG_NO_CLOUDS)
+            save("seam_" + name.replace(" ", "_"), img)
+            val vertical = name != "equator"
+            // The boundary through the image centre: the meridian runs north-south, the equator east-west, at nadir
+            // over the line; find the exact pixel line from the projection of a point on it.
+            val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(if (vertical) lat + 1.0 else 0.0), Math.toRadians(if (vertical) lon else lon + 1.0), 0.0))
+            val ray = SceneGeometry.unit(Vector3(p.x - scene.cameraEcefKm.x, p.y - scene.cameraEcefKm.y, p.z - scene.cameraEcefKm.z))
+            val c = scene.ecefFromCamera
+            val z = -(ray dot c.c2)
+            val (fx, fy) = scene.fovDeg(W, H)
+            val line = if (vertical) (((ray dot c.c0) / z / tan(Math.toRadians(fx / 2)) + 1) / 2 * W).toInt()
+                       else ((1 - (ray dot c.c1) / z / tan(Math.toRadians(fy / 2))) / 2 * H).toInt()
+            val at = jump(img, line, vertical)
+            val near = (20..80 step 4).flatMap { listOf(line - it, line + it) }.map { jump(img, it, vertical) }.sorted()
+            val median = near[near.size / 2]
+            Log.i(TAG, "seam $name (sun $sLat $sLon) line $line jump $at median nearby $median")
+            if (at > 2 * median + 0.5) failures += "$name: jump $at vs median $median"
+        }
+        assertTrue(failures.joinToString("; "), failures.isEmpty())
+    }
+
     /** Geometry of the ground limb; the atmosphere (which glows above it) is off. */
     @Test
     fun limbWithinTwoPixelsOfTheAnalyticHorizon() {

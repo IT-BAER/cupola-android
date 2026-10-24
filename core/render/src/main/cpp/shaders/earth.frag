@@ -625,6 +625,39 @@ vec3 auroraRadiance(vec3 dir) {
     return sum * dt * AURORA_RADIANCE;
 }
 
+// day_detail (4 x 2 tiles of 90 x 72 deg, one per layer, CLAMP_TO_EDGE). Within half a filtered texel of an inner tile
+// edge the neighbour tile's edge texels are blended in, as one continuous texture would filter: clamping alone repeats
+// each side's edge texel and leaves a seam band (R7 seam sweep).
+vec3 dayDetailAt(float lon, float lat, vec2 dLonLatX, vec2 dLonLatY) {
+    float colF = (lon + PI) / (0.5 * PI);
+    float col = clamp(floor(colF), 0.0, 3.0);
+    float row = lat < 0.0 ? 1.0 : 0.0;
+    vec2 uv = vec2(colF - col, (row == 0.0 ? LAT_MAX - lat : -lat) / LAT_MAX);
+    vec2 scaleTile = vec2(1.0 / (0.5 * PI), -1.0 / LAT_MAX);
+    vec2 gx = dLonLatX * scaleTile;
+    vec2 gy = dLonLatY * scaleTile;
+    float layer = col + 4.0 * row;
+    vec3 c = textureGrad(dayDetail, vec3(uv, layer), gx, gy).rgb;
+    vec2 size = vec2(textureSize(dayDetail, 0).xy);
+    vec2 halfTexel = 0.5 * max(vec2(1.0), max(abs(gx), abs(gy)) * size) / size;
+    if (uv.x < halfTexel.x) {
+        vec3 n = textureGrad(dayDetail, vec3(1.0, uv.y, mod(col + 3.0, 4.0) + 4.0 * row), gx, gy).rgb;
+        c = mix(n, c, 0.5 + 0.5 * uv.x / halfTexel.x);
+    } else if (uv.x > 1.0 - halfTexel.x) {
+        vec3 n = textureGrad(dayDetail, vec3(0.0, uv.y, mod(col + 1.0, 4.0) + 4.0 * row), gx, gy).rgb;
+        c = mix(n, c, 0.5 + 0.5 * (1.0 - uv.x) / halfTexel.x);
+    }
+    // The equator is the only inner edge in v (72 deg is the map's end).
+    if (row == 0.0 && uv.y > 1.0 - halfTexel.y) {
+        vec3 n = textureGrad(dayDetail, vec3(uv.x, 0.0, col + 4.0), gx, gy).rgb;
+        c = mix(n, c, 0.5 + 0.5 * (1.0 - uv.y) / halfTexel.y);
+    } else if (row == 1.0 && uv.y < halfTexel.y) {
+        vec3 n = textureGrad(dayDetail, vec3(uv.x, 1.0, col), gx, gy).rgb;
+        c = mix(n, c, 0.5 + 0.5 * uv.y / halfTexel.y);
+    }
+    return c;
+}
+
 // Linear Earth radiance at physical pixel position p; stepPx = one rendered pixel in physical pixels.
 // Texture footprints come from the neighbouring pixels' ground points, not dFdx, so callers may branch.
 vec3 earthRadiance(vec2 p, vec2 stepPx) {
@@ -656,12 +689,7 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec2 gx = dLonLatX * scaleUv;
     vec2 gy = dLonLatY * scaleUv;
 
-    // day_detail: 4 x 2 tiles of 90 x 72 deg, one per layer, each sampled with CLAMP_TO_EDGE.
-    float col = clamp(floor((lon + PI) / (0.5 * PI)), 0.0, 3.0);
-    float row = lat < 0.0 ? 1.0 : 0.0;
-    vec2 tileUv = vec2((lon + PI) / (0.5 * PI) - col, (row == 0.0 ? LAT_MAX - lat : -lat) / LAT_MAX);
-    vec2 scaleTile = vec2(1.0 / (0.5 * PI), -1.0 / LAT_MAX);
-    vec3 detail = textureGrad(dayDetail, vec3(tileUv, col + 4.0 * row), dLonLatX * scaleTile, dLonLatY * scaleTile).rgb;
+    vec3 detail = dayDetailAt(lon, lat, dLonLatX, dLonLatY);
 
     vec3 month0 = textureGrad(monthlyColour, vec3(uv, s.up.w), gx, gy).rgb;
     vec3 month1 = textureGrad(monthlyColour, vec3(uv, s.back.w), gx, gy).rgb;
