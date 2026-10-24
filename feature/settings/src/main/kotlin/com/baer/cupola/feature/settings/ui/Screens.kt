@@ -110,5 +110,5 @@ fun AboutScreen(appInfo: AppInfo, onCredits: () -> Unit) {
     }
 }
 
-private const val PRIVACY_URL = "https://it-baer.github.io/cupola-android/privacy"
+private const val PRIVACY_URL = "https://github.com/IT-BAER/cupola-android/blob/main/PRIVACY.md"
 private const val SUPPORT_URL = "https://github.com/IT-BAER/cupola-android/issues"

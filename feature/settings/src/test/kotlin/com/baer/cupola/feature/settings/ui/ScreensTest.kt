@@ -324,7 +324,7 @@ class ScreensTest {
         rule.onNodeWithText("Privacy policy").performScrollTo().performClick()
         rule.onNodeWithText("Support and feedback").performScrollTo().performClick()
         assertEquals(
-            listOf("https://it-baer.github.io/cupola-android/privacy", "https://github.com/IT-BAER/cupola-android/issues"),
+            listOf("https://github.com/IT-BAER/cupola-android/blob/main/PRIVACY.md","https://github.com/IT-BAER/cupola-android/issues"),
             opened,
         )
     }

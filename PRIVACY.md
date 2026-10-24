@@ -1,7 +1,3 @@
----
-title: "Privacy Policy: Cupola: ISS Live Wallpaper"
----
-
 # Privacy Policy: Cupola: ISS Live Wallpaper
 
 _Last updated: 24 October 2026_
