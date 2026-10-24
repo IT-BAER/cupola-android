@@ -500,15 +500,29 @@ vec2 starUv(vec3 dir) {
     return vec2(0.5 - atan(g.y, g.x) / (2.0 * PI), 0.5 - asin(clamp(g.z, -1.0, 1.0)) / PI);
 }
 
-// Space behind the atmosphere along dir: stars and the Milky Way, and the Moon disc with its phase (it hides the
-// stars behind it). stepPx as in earthRadiance.
-vec3 spaceRadiance(vec3 dir, vec2 p, vec2 stepPx) {
+// Stars and the Milky Way along dir. stepPx as in earthRadiance.
+vec3 starRadiance(vec3 dir, vec2 p, vec2 stepPx) {
     vec2 uv = starUv(dir);
     vec2 dx = starUv(ecefRay(cameraRay(p + vec2(stepPx.x, 0.0)))) - uv;
     vec2 dy = starUv(ecefRay(cameraRay(p + vec2(0.0, stepPx.y)))) - uv;
     dx.x -= round(dx.x);
     dy.x -= round(dy.x);
-    vec3 space = textureGrad(stars, uv, dx, dy).rgb * STAR_RADIANCE;
+    return textureGrad(stars, uv, dx, dy).rgb * STAR_RADIANCE;
+}
+
+// How much of dir the Sun or Moon disc covers, 0..1 (the stars behind them are hidden).
+float discCover(vec3 dir) {
+    if (dot(dir, s.sun.xyz) > 0.0 && length(cross(dir, s.sun.xyz)) < SUN_RADIUS) return 1.0;
+    float c = dot(dir, s.moon.xyz);
+    if (c <= cos(MOON_RADIUS * 1.05)) return 0.0;
+    return 1.0 - smoothstep(0.96, 1.0, length(dir - s.moon.xyz * c) / sin(MOON_RADIUS));
+}
+
+// Space behind the atmosphere along dir: stars and the Milky Way, and the Moon disc with its phase (it hides the
+// stars behind it). stepPx as in earthRadiance. The scaled Earth pass leaves the stars to the full-resolution
+// composite: one-texel stars upscaled from it twinkle as the view moves by fractions of a pixel.
+vec3 spaceRadiance(vec3 dir, vec2 p, vec2 stepPx) {
+    vec3 space = MODE == 1 ? vec3(0.0) : starRadiance(dir, p, stepPx);
     float sinSun = length(cross(dir, s.sun.xyz));
     if (dot(dir, s.sun.xyz) > 0.0 && sinSun < SUN_RADIUS) {
         float x = sinSun / SUN_RADIUS;
@@ -827,6 +841,9 @@ vec3 bloom(vec2 p, float open) {
                                     BLOOM_WIDE / (1.0 + theta2 / (BLOOM_WIDE_RAD * BLOOM_WIDE_RAD)));
 }
 
+// Share of the light the pane with normal n reflects for interior ray d (Schlick).
+float glassFresnel(vec3 d, vec3 n) { return GLASS_F0 + (1.0 - GLASS_F0) * pow(1.0 - abs(dot(d, n)), 5.0); }
+
 // What the window glass does to the exposed Earth radiance at physical pixel p: cabin reflections (Fresnel), and the
 // forward scatter of sunlit glass (window glare) and its dust. Runs where the Earth shows (the scaled Earth pass).
 vec3 throughGlass(vec2 p, vec3 earth) {
@@ -834,10 +851,7 @@ vec3 throughGlass(vec2 p, vec3 earth) {
     vec3 d = normalize(interiorRay(cameraRay(p)));
     vec3 hit;
     vec3 n = pane(d, hit);
-    if ((pc.effects & EFFECT_REFLECTIONS) != 0) {
-        float fresnel = GLASS_F0 + (1.0 - GLASS_F0) * pow(1.0 - abs(dot(d, n)), 5.0);
-        earth = mix(earth, cabinLightAt(reflect(d, n)) * s.iBack.w, fresnel);
-    }
+    if ((pc.effects & EFFECT_REFLECTIONS) != 0) earth = mix(earth, cabinLightAt(reflect(d, n)) * s.iBack.w, glassFresnel(d, n));
     vec3 lit = sunOnGlass();
     if ((pc.effects & (EFFECT_WINDOW_GLARE | EFFECT_DUST)) != 0 && max(lit.r, max(lit.g, lit.b)) > 0.0) {
         float scatter = 0.0;
@@ -882,8 +896,25 @@ void main() {
     float open;
     if (MODE == 2) {
         vec4 scaled = textureLod(earthImage, p / vec2(pc.extent), 0.0);
-        if (inside.a <= OPAQUE) earth = decodeHdr(scaled.rgb);
         open = scaled.a;
+        if (inside.a <= OPAQUE) {
+            earth = decodeHdr(scaled.rgb);
+            // The stars at full resolution (spaceRadiance), through the atmosphere and the glass.
+            vec3 dir = ecefRay(cameraRay(p));
+            bool hit;
+            castEarth(dir, hit);
+            if (!hit) {
+                vec3 inscatter;
+                vec3 t = vec3(1.0);
+                if ((pc.effects & DEBUG_NO_ATMOSPHERE) == 0) skyLookup(dir, hit, inscatter, t);
+                if (s.iRight.w != 0.0 && (pc.effects & EFFECT_REFLECTIONS) != 0) {
+                    vec3 d = normalize(interiorRay(cameraRay(p)));
+                    vec3 paneHit;
+                    t *= 1.0 - glassFresnel(d, pane(d, paneHit));
+                }
+                earth += starRadiance(dir, p, vec2(1.0)) * (1.0 - discCover(dir)) * t * s.iBack.w;
+            }
+        }
     } else {
         if (inside.a <= OPAQUE) earth = throughGlass(p, earthRadiance(p, vec2(1.0)) * s.iBack.w);
         open = sunOpen();

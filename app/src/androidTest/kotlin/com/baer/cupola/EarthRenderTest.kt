@@ -234,6 +234,33 @@ class EarthRenderTest {
         assertTrue("scaled differs by ${sum / n}", sum / n < 3.0)
     }
 
+    /**
+     * Stars keep full resolution when the Earth renders scaled: at every star peak of the full-resolution frame the
+     * scale 0.6 frame is within [STAR_PEAK_TOLERANCE] luma. One-texel stars upscaled from the scaled pass twinkle as
+     * the view moves by fractions of a pixel (owner report 24 Oct, "static flickering").
+     */
+    @Test
+    fun starsKeepFullResolutionAtRenderScale() {
+        val scene = scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, 20.0)
+        val full = render(scene, interior = false)
+        val scaled = render(scene, 0.6f, interior = false)
+        save("stars_night_s060", scaled)
+        var peaks = 0
+        var diff = 0.0
+        for (y in 2 until H - 2) for (x in 2 until W - 2) {
+            val l = luma(full, x, y)
+            if (l > 60 && l > luma(full, x - 2, y) + 25 && l > luma(full, x + 2, y) + 25 &&
+                l > luma(full, x, y - 2) + 25 && l > luma(full, x, y + 2) + 25
+            ) {
+                peaks++
+                diff += abs(luma(scaled, x, y) - l)
+            }
+        }
+        Log.i(TAG, "star peaks $peaks mean |scaled - full| ${diff / peaks}")
+        assertTrue("star peaks $peaks", peaks > 40)
+        assertTrue("scaled star peaks differ by ${diff / peaks}", diff / peaks < STAR_PEAK_TOLERANCE)
+    }
+
     /** Full frame GPU time (interior + Earth) per rest view and render scale; logged, the budget is checked by hand. */
     @Test
     fun gpuTimeFullFrame() {
@@ -1189,6 +1216,7 @@ class EarthRenderTest {
         private const val GPU_WARMUP = 10
         private val NIGHT_BAND = 18.0..64.0
         private const val DAY_INTERIOR_MEDIAN_MIN = 27.0
+private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
         private val DAY = Instant.parse("2026-10-25T09:50:00Z")
