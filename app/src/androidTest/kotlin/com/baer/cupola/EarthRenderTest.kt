@@ -40,6 +40,7 @@ import java.nio.ByteBuffer
 import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.asin
+import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.ln
@@ -807,11 +808,7 @@ class EarthRenderTest {
     /** P4.5 dust (EFFECT_DUST): sparse bright specks on sunlit glass at sunrise; none at night. */
     @Test
     fun dustSparklesOnSunlitGlass() {
-        val instant = (0L until 24 * 30L).map { DAY.plusSeconds(120 * it) }.first {
-            val st = (orbit.stateAt(it) as OrbitState).toSceneState()
-            val up = SceneGeometry.unit(st.positionEcefKm)
-            Math.acos(-(st.sunDirEcef dot up)) - asin(6378.137 / st.positionEcefKm.norm()) in 0.0..0.25
-        }
+        val instant = sunriseInstant()
         val scene = restScene(instant, RestView.DIAGONAL)
         val on = render(scene, effects = FrameInputs.EFFECT_DUST)
         val off = render(scene, effects = 0)
@@ -828,6 +825,38 @@ class EarthRenderTest {
         assertTrue("dust specks $specks", specks > 200)
         assertTrue("dust is sparse: $specks of $n", specks < n / 10)
         assertTrue("dust at night $nightDiff", nightDiff < 0.3)
+    }
+
+    /** First instant after [DAY] (2 min steps) with the Sun 0 to 0.25 rad above the ISS's horizon: sunlit glass, dark ground. */
+    private fun sunriseInstant(): Instant = (0L until 24 * 30L).map { DAY.plusSeconds(120 * it) }.first {
+        val st = (orbit.stateAt(it) as OrbitState).toSceneState()
+        val up = SceneGeometry.unit(st.positionEcefKm)
+        Math.acos(-(st.sunDirEcef dot up)) - asin(6378.137 / st.positionEcefKm.norm()) in 0.0..0.25
+    }
+
+    /**
+     * Dust specks are smaller than a pixel. Filtered over the pixel footprint, the dust layer (Dust on minus off) barely
+     * changes when the view turns by half a full-resolution pixel (idle float, look-around) in the scaled Earth pass.
+     * Point-sampled specks pop on and off instead: the owner's "static TV" after orbital sunrise (25 Oct).
+     */
+    @Test
+    fun dustStaysSteadyUnderSubPixelLookAround() {
+        val state = (orbit.stateAt(sunriseInstant()) as OrbitState).toSceneState()
+        val (fx, _) = SceneInputs.build(state, RestView.DIAGONAL, 0.0, 0.0).fovDeg(W, H)
+        val halfPixelDeg = Math.toDegrees(atan(tan(Math.toRadians(fx / 2)) / W))
+        fun dustLayer(yawDeg: Double): DoubleArray {
+            val scene = SceneInputs.build(state, RestView.DIAGONAL, yawDeg, 0.0)
+            val on = render(scene, 0.5f, effects = FrameInputs.EFFECT_DUST)
+            val off = render(scene, 0.5f, effects = 0)
+            return DoubleArray(W * H) { maxOf(0.0, luma(on, it % W, it / W) - luma(off, it % W, it / W)) }
+        }
+        val a = dustLayer(0.0)
+        val b = dustLayer(halfPixelDeg)
+        val total = a.sum() + b.sum()
+        val change = a.indices.sumOf { abs(a[it] - b[it]) } / total
+        Log.i(TAG, "dust under $halfPixelDeg deg yaw: layer ${a.sum()} / ${b.sum()}, change $change")
+        assertTrue("no dust", total > 0.0)
+        assertTrue("dust pops: change $change", change < 0.5)
     }
 
     /**

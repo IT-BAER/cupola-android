@@ -811,21 +811,29 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     return radiance;
 }
 
-// Dust on the pane at hit (normal n, m): in DUST_P of the DUST_CELL_M cells one speck of 0.3-0.8 mm at a random
-// spot; 0..1.
+// Dust on the pane at hit (normal n, m), seen through footprintM m of glass per rendered pixel: in DUST_P of the
+// DUST_CELL_M cells one speck of 0.3-0.8 mm at a random spot; 0..1. Each speck is a Gaussian widened by the footprint
+// with the same energy, so sub-pixel specks dim and move smoothly with the view instead of popping on and off.
 const float DUST_CELL_M = 0.003;
 const float DUST_P = 0.15;
-float dustAt(vec3 hit, vec3 n) {
+float dustAt(vec3 hit, vec3 n, float footprintM) {
     vec3 u = abs(n.z) > 0.99 ? vec3(1.0, 0.0, 0.0) : normalize(vec3(-n.y, n.x, 0.0));
     vec2 q = vec2(dot(hit, u), dot(hit, cross(n, u))) / DUST_CELL_M;
-    vec2 cell = floor(q);
-    vec3 h = hash3(vec3(cell, 7.0));
-    float speck = 0.0;
-    if (h.x < DUST_P) {
-        float radius = (0.15 + 0.25 * h.x / DUST_P) * 0.001 / DUST_CELL_M;
-        speck = 1.0 - smoothstep(0.3 * radius, radius, length(q - cell - 0.2 - 0.6 * h.yz));
+    float fp2 = footprintM * footprintM / (DUST_CELL_M * DUST_CELL_M);
+    float dust = 0.0;
+    // The 3x3 cells around q: a widened speck reaches over its cell edge.
+    for (int j = -1; j <= 1; ++j) {
+        for (int i = -1; i <= 1; ++i) {
+            vec2 cell = floor(q) + vec2(float(i), float(j));
+            vec3 h = hash3(vec3(cell, 7.0));
+            if (h.x >= DUST_P) continue;
+            float radius = (0.15 + 0.25 * h.x / DUST_P) * 0.001 / DUST_CELL_M;
+            float w2 = radius * radius + fp2;  // (2 sigma)^2
+            vec2 d = q - cell - 0.2 - 0.6 * h.yz;
+            dust += radius * radius / w2 * exp(-2.0 * dot(d, d) / w2);
+        }
     }
-    return speck;
+    return min(dust, 1.0);
 }
 
 // How far opaque cabin structure leaves the Sun open to the camera, 0..1 (one value per frame: the Earth pass writes
@@ -860,7 +868,8 @@ float glassFresnel(vec3 d, vec3 n) { return GLASS_F0 + (1.0 - GLASS_F0) * pow(1.
 
 // What the window glass does to the exposed Earth radiance at physical pixel p: cabin reflections (Fresnel), and the
 // forward scatter of sunlit glass (window glare) and its dust. Runs where the Earth shows (the scaled Earth pass).
-vec3 throughGlass(vec2 p, vec3 earth) {
+// stepPx as in earthRadiance.
+vec3 throughGlass(vec2 p, vec3 earth, vec2 stepPx) {
     if (s.iRight.w == 0.0 || (pc.effects & (EFFECT_REFLECTIONS | EFFECT_WINDOW_GLARE | EFFECT_DUST)) == 0) return earth;
     vec3 d = normalize(interiorRay(cameraRay(p)));
     vec3 hit;
@@ -870,7 +879,14 @@ vec3 throughGlass(vec2 p, vec3 earth) {
     if ((pc.effects & (EFFECT_WINDOW_GLARE | EFFECT_DUST)) != 0 && max(lit.r, max(lit.g, lit.b)) > 0.0) {
         float scatter = 0.0;
         if ((pc.effects & EFFECT_WINDOW_GLARE) != 0) scatter += WINDOW_GLARE;
-        if ((pc.effects & EFFECT_DUST) != 0) scatter += DUST * dustAt(hit, n);
+        if ((pc.effects & EFFECT_DUST) != 0) {
+            // Glass per rendered pixel: the pane hits of the rays one rendered pixel across and up.
+            vec3 hx;
+            vec3 hy;
+            pane(normalize(interiorRay(cameraRay(p + vec2(stepPx.x, 0.0)))), hx);
+            pane(normalize(interiorRay(cameraRay(p + vec2(0.0, stepPx.y)))), hy);
+            scatter += DUST * dustAt(hit, n, max(distance(hx, hit), distance(hy, hit)));
+        }
         earth += lit * scatter / (1.0 + sunAngle2(p) / (WINDOW_GLARE_RAD * WINDOW_GLARE_RAD)) * s.iBack.w;
     }
     return earth;
@@ -901,7 +917,7 @@ void main() {
                 return;
             }
         }
-        outColor = vec4(encodeHdr(throughGlass(p, earthRadiance(p, stepPx) * s.iBack.w)), open);  // sRGB attachment
+        outColor = vec4(encodeHdr(throughGlass(p, earthRadiance(p, stepPx) * s.iBack.w, stepPx)), open);  // sRGB attachment
         return;
     }
     vec2 p = gl_FragCoord.xy;
@@ -930,7 +946,7 @@ void main() {
             }
         }
     } else {
-        if (inside.a <= OPAQUE) earth = throughGlass(p, earthRadiance(p, vec2(1.0)) * s.iBack.w);
+        if (inside.a <= OPAQUE) earth = throughGlass(p, earthRadiance(p, vec2(1.0)) * s.iBack.w, vec2(1.0));
         open = sunOpen();
     }
     vec3 glare = bloom(p, open) * s.iBack.w;
