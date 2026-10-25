@@ -522,7 +522,9 @@ class EarthRenderTest {
             }
         }
         Log.i(TAG, "low sun (subsolar $sLat $sLon): shadowed samples $darkened, on clear ground $darkenedClear")
-        assertTrue("shadows darken the view: ${meanLuma(full)} vs ${meanLuma(noShadow)}", meanLuma(full) < meanLuma(noShadow) - 1.0)
+        // Mean drop 0.89 luma at CLOUD_THIN_CUT 0.4 (Pixel 7 Pro, A35): few clouds, so the clear-ground count below
+        // is the main check.
+        assertTrue("shadows darken the view: ${meanLuma(full)} vs ${meanLuma(noShadow)}", meanLuma(full) < meanLuma(noShadow) - 0.5)
         assertTrue("shadows on clear ground: $darkenedClear of $darkened", darkenedClear > 500)
     }
 
@@ -1393,7 +1395,7 @@ class EarthRenderTest {
         private const val DAY_WINDOW_FRAME_RATIO_MIN = 8.0
         private const val DAY_DARK_SHARE_MIN = 0.40
         private const val COLOUR_DETAIL_MIN = 0.07
-        private const val CLEAR_GROUND_SHARE_MIN = 0.12 // Pixel 7 Pro 0.186 at cut 0.2, the grey veil gives 0
+        private const val CLEAR_GROUND_SHARE_MIN = 0.4 // Pixel 7 Pro 0.539 at cut 0.4, the grey veil gives 0
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.

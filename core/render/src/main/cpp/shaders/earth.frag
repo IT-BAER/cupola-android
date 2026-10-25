@@ -104,7 +104,7 @@ const float CLOUD_ALBEDO = 0.85;
 const float FLOW_PERIOD_H = 6.0;
 const float CLOUD_SHADOW = 0.75;
 // Map cover below this is dropped and the rest rescaled: the 2002 map's thin veils read as grey haze on a phone.
-const float CLOUD_THIN_CUT = 0.2;
+const float CLOUD_THIN_CUT = 0.4;
 // P3.4 night side, in shader radiance (night exposure about 1.4e4, Exposure.NIGHT_FLOOR): city light per texel value 1
 // in a sodium / warm LED colour (texel^CITY_GAMMA keeps the cores and drops the dim ASTC block noise around sparse
 // lights), star map radiance per texel value 1, the Moon's albedo and angular radius, and the
@@ -132,7 +132,8 @@ const float LIGHTNING_SLOT_S = 0.2;
 const float LIGHTNING_P = 0.0015;
 const float LIGHTNING_KM = 5.0;
 const vec3 LIGHTNING = vec3(0.8, 0.85, 1.0) * 4.0e-4;
-// Storms from map cover 0.4 (none) to 0.8 (full), expressed in cover after CLOUD_THIN_CUT.
+// Storms from map cover 0.4 (none) to 0.8 (full), expressed in cover after CLOUD_THIN_CUT. A cut above 0.4 makes
+// STORM_COVER_MIN negative, and lightning() would then light clear ground.
 const float STORM_COVER_MIN = (0.4 - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT);
 const float STORM_COVER_FULL = (0.8 - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT);
 // P6.7 home-city marker: a ring of MARKER_RING_PX radius around a dot, in physical pixels, drawn at MARKER exposed
