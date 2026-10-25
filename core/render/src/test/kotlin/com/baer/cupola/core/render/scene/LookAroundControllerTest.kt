@@ -83,6 +83,8 @@ class LookAroundControllerTest {
         start()
         c.setOrientation(deg(15.0), 0.0)
         run(1.5)
+        c.setOrientation(deg(15.0), 0.0) // fresh sample, so the nudge below is a fast step (60 deg/s), not a slow drift
+        frame()
         c.setOrientation(deg(15.0 + 1.0), 0.0)
         run(0.1)
         c.setOrientation(deg(15.0 + 6.0), 0.0)
@@ -195,6 +197,20 @@ class LookAroundControllerTest {
         c.setOrientation(deg(15.0), 0.0)
         run(1.5)
         assertTrue(frame().isMoving)
+    }
+
+    /** A hand that keeps drifting slowly (1.5 deg/s) is still: the view springs back instead of waiting for rest. */
+    @Test fun slowDriftStillSpringsBackToRest() {
+        start()
+        c.setOrientation(deg(15.0), 0.0)
+        assertTrue(run(0.5).yawDeg > 10.0)
+        var yaw = 15.0
+        repeat(180) {
+            yaw += 1.5 / 60.0
+            c.setOrientation(deg(yaw), 0.0)
+            frame()
+        }
+        assertTrue("yaw ${c.update().yawDeg}", abs(c.update().yawDeg) < 2.0)
     }
 
     @Test fun referenceIsRecapturedOnVisible() {

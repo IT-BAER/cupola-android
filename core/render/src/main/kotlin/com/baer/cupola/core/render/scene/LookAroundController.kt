@@ -162,7 +162,8 @@ class LookAroundController(private val clockNs: () -> Long) {
         const val NS = 1e9
         const val MIN_SAMPLE_NS = 1_000_000L
         const val STILL_NS = 1_000_000_000L
-        const val STILL_DEG_PER_S = 0.5
+        // Below this view speed the phone counts as still, so hand tremor and slow drift let the spring run.
+        const val STILL_DEG_PER_S = 3.0
         const val MOVING_DEG_PER_S = 0.2
 
         /** Moving holds this long after the last fast frame, so a drift at the threshold keeps one frame rate. */
