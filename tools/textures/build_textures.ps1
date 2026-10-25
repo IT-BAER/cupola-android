@@ -178,8 +178,9 @@ function Write-Ktx2([string]$file, [string]$format, [int]$w, [int]$h, [int]$laye
 }
 
 # $astcPngs / $etcPngs: per layer, the level PNGs in order. Images go level-major into ktx create.
+# $etcShift: ETC2 level 0 is ASTC level $etcShift (ASTC size >> $etcShift).
 function Write-Outputs([string]$name, [object[]]$astcPngs, [object[]]$etcPngs, [string]$block, [string[]]$encArgs,
-    [string]$astcFormat, [string]$etcFd, [string]$etcFormat, [int]$etcBlockBytes, [string]$decodeArgs) {
+    [string]$astcFormat, [string]$etcFd, [string]$etcFormat, [int]$etcBlockBytes, [string]$decodeArgs, [int]$etcShift = 1) {
     $layers = $astcPngs.Count
     $astcRaws = @(); $etcRaws = @()
     for ($l = 0; $l -lt $astcPngs[0].Count; $l++) {
@@ -192,7 +193,7 @@ function Write-Outputs([string]$name, [object[]]$astcPngs, [object[]]$etcPngs, [
     $astcFile = Join-Path $Out "astc\$name.ktx2"
     $etcFile = Join-Path $Out "etc2\$name.ktx2"
     Write-Ktx2 $astcFile $astcFormat $w $h $layers $astcPngs[0].Count $astcRaws
-    Write-Ktx2 $etcFile $etcFormat ($w -shr 1) ($h -shr 1) $layers $etcPngs[0].Count $etcRaws
+    Write-Ktx2 $etcFile $etcFormat ($w -shr $etcShift) ($h -shr $etcShift) $layers $etcPngs[0].Count $etcRaws
 
     # Preview: level 0 decoded back from the ASTC blocks, layers as a mosaic 4 wide, 2048 px wide.
     $decoded = @()
@@ -215,15 +216,17 @@ function Write-Outputs([string]$name, [object[]]$astcPngs, [object[]]$etcPngs, [
 function Build-Day {
     $dir = New-AssetDir 'day'
     # BMNG 86400 tiles: A..D = 90-degree columns from 180 W eastwards, 1 = north half, 2 = south half.
-    # Each tile becomes one 4096 x 3277 layer: north tiles keep rows 4320..21599 (72 N to 0),
+    # Each tile becomes one 7168 x 5734 layer: north tiles keep rows 4320..21599 (72 N to 0),
     # south tiles rows 0..17279 (0 to 72 S). Layer order A1 B1 C1 D1 A2 B2 C2 D2.
+    # ASTC 12x12 (0.89 bit/texel) at 7168 keeps more ground detail than 8x8 at 4096 and stays under 50 MB
+    # per file (GitHub); ETC2 is ASTC level 2 (1792 px).
     $tiles = 'A1', 'B1', 'C1', 'D1', 'A2', 'B2', 'C2', 'D2'
     $layers = @(); $masters = @()
     foreach ($t in $tiles) {
         $src = Get-Source "bmng2004-200407-86400/world.topo.bathy.200407.3x21600x21600.$t.jpg"
         $master = Join-Path $dir "$t.v"
         $top = if ($t.EndsWith('1')) { 4320 } else { 0 }
-        New-Master $src $top 17280 4096 3277 $master $true
+        New-Master $src $top 17280 7168 5734 $master $true
         $masters += $master
         $layers += , (Write-Levels $master $dir $t $true)
     }
@@ -239,8 +242,8 @@ function Build-Day {
     $mad = VNum avg $abs
     "day tile order check: mean |mosaic - July 21600 map| = $(F ([Math]::Round($mad, 3))) (8-bit units)"
     if ($mad -gt 4) { throw "day tiles do not match the July 2004 map (mean abs diff $mad); tile order is wrong" }
-    $etc = @($layers | ForEach-Object { , ($_[1..($_.Count - 1)]) })
-    Write-Outputs 'day_detail' $layers $etc '8x8' @('-cs') 'ASTC_8x8_SRGB_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_SRGB_BLOCK' 8 '-ds'
+    $etc = @($layers | ForEach-Object { , ($_[2..($_.Count - 1)]) })
+    Write-Outputs 'day_detail' $layers $etc '12x12' @('-cs') 'ASTC_12x12_SRGB_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_SRGB_BLOCK' 8 '-ds' 2
 }
 
 function Build-Monthly {

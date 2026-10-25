@@ -17,6 +17,7 @@ enum class Format : uint32_t {
     kAstc6x6Srgb = 166,
     kAstc8x8Unorm = 171,
     kAstc8x8Srgb = 172,
+    kAstc12x12Srgb = 184,
 };
 
 enum class Error : int32_t {

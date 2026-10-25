@@ -46,7 +46,7 @@ abstract class CheckTexturePack : DefaultTask() {
             )
         }
         if (astcBytes > maxAstcBytes.get()) {
-            throw GradleException("ASTC textures take $astcBytes bytes; budget is ${maxAstcBytes.get()} (96 MiB)")
+            throw GradleException("ASTC textures take $astcBytes bytes; budget is ${maxAstcBytes.get()} (104 MiB)")
         }
     }
 }
@@ -54,7 +54,7 @@ abstract class CheckTexturePack : DefaultTask() {
 val checkTexturePack = tasks.register<CheckTexturePack>("checkTexturePack") {
     astcDir.set(layout.projectDirectory.dir("src/main/assets/textures#tcf_astc"))
     defaultDir.set(layout.projectDirectory.dir("src/main/assets/textures"))
-    maxAstcBytes.set(96L * 1024 * 1024)
+    maxAstcBytes.set(104L * 1024 * 1024)
     report.set(layout.buildDirectory.file("reports/texture-pack.txt"))
 }
 tasks.named("check") { dependsOn(checkTexturePack) }

@@ -266,7 +266,7 @@ struct RealTexture {
 };
 
 constexpr RealTexture kRealTextures[] = {
-    {"day_detail", Format::kAstc8x8Srgb, 4096, 3277, 13, Format::kEtc2R8G8B8Srgb, 2048, 1638, 12, 8},
+    {"day_detail", Format::kAstc12x12Srgb, 7168, 5734, 13, Format::kEtc2R8G8B8Srgb, 1792, 1433, 11, 8},
     {"monthly_colour", Format::kAstc6x6Srgb, 2048, 819, 12, Format::kEtc2R8G8B8Srgb, 1024, 409, 11, 12},
     {"clouds", Format::kAstc8x8Unorm, 8192, 3277, 14, Format::kEtc2R8G8B8Unorm, 4096, 1638, 13, 0},
     {"city_lights", Format::kAstc8x8Srgb, 8192, 3277, 14, Format::kEtc2R8G8B8Srgb, 4096, 1638, 13, 0},

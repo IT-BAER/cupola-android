@@ -16,6 +16,7 @@ static_assert(static_cast<uint32_t>(ktx2::Format::kAstc6x6Unorm) == VK_FORMAT_AS
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc6x6Srgb) == VK_FORMAT_ASTC_6x6_SRGB_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc8x8Unorm) == VK_FORMAT_ASTC_8x8_UNORM_BLOCK);
 static_assert(static_cast<uint32_t>(ktx2::Format::kAstc8x8Srgb) == VK_FORMAT_ASTC_8x8_SRGB_BLOCK);
+static_assert(static_cast<uint32_t>(ktx2::Format::kAstc12x12Srgb) == VK_FORMAT_ASTC_12x12_SRGB_BLOCK);
 
 constexpr int32_t code(TextureStatus status) { return static_cast<int32_t>(status); }
 

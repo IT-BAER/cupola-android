@@ -25,7 +25,7 @@ Copy-Item local\textures\out\etc2\*.ktx2 earthpack\src\main\assets\textures\
 ```
 
 - `:earthpack:checkTexturePack` (part of `check`, and run before `:app:bundleRelease`) fails when the two
-  folders hold different file names or the ASTC files exceed 96 MiB. `:app:checkCredits` fails when a
+  folders hold different file names or the ASTC files exceed 104 MiB. `:app:checkCredits` fails when a
   `sources.lock` licence and credit pair has no row in `app/src/main/assets/credits.tsv`.
 - In installed APKs the suffix is stripped: the app reads `textures/<name>.ktx2` on every device.
 - `assembleDebug` APKs carry no asset pack. On a device, install from the bundle: `bundletool build-apks`
@@ -44,11 +44,12 @@ Common to every file:
 - Earth maps cover latitude +72 deg (top edge of row 0) to -72 deg (bottom edge of the last row), linear in
   latitude: `v = (72 - lat) / 144`. Outside that band the shader needs a fallback (the ISS never sees it).
 - ETC2 files are the ASTC file without its level 0: half width and height, one level fewer, same layers,
-  orientation, channel layout and latitude range.
+  orientation, channel layout and latitude range. Exception: `day_detail` ETC2 drops ASTC levels 0 and 1
+  (quarter size, two levels fewer).
 
 | Name | ASTC VkFormat | ASTC size, levels | ETC2 VkFormat | ETC2 size, levels | Layers | Colour space | Channels |
 |---|---|---|---|---|---|---|---|
-| `day_detail` | `ASTC_8x8_SRGB_BLOCK` | 4096 x 3277, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 2048 x 1638, 12 | 8 | sRGB | RGB surface colour (July 2004), A = 1 |
+| `day_detail` | `ASTC_12x12_SRGB_BLOCK` | 7168 x 5734, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 1792 x 1433, 11 | 8 | sRGB | RGB surface colour (July 2004), A = 1 |
 | `monthly_colour` | `ASTC_6x6_SRGB_BLOCK` | 2048 x 819, 12 | `ETC2_R8G8B8_SRGB_BLOCK` | 1024 x 409, 11 | 12 | sRGB | RGB surface colour, A = 1 |
 | `clouds` | `ASTC_8x8_UNORM_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_UNORM_BLOCK` | 4096 x 1638, 13 | 1 (no array) | linear | R = G = B = cloud brightness/coverage 0..1 as in the source, A = 1 |
 | `city_lights` | `ASTC_8x8_SRGB_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_SRGB_BLOCK` | 4096 x 1638, 13 | 1 (no array) | sRGB | R = G = B = night-light radiance (sampled value is linear), A = 1 |

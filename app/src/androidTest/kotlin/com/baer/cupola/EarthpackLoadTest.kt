@@ -55,13 +55,14 @@ class EarthpackLoadTest {
         const val ASTC_6X6_SRGB = 166
         const val ASTC_8X8_UNORM = 171
         const val ASTC_8X8_SRGB = 172
+        const val ASTC_12X12_SRGB = 184
 
         fun ok(format: Int, width: Int, height: Int, layers: Int, levels: Int) =
             TextureInfo(TextureInfo.OK, 0, format, width, height, layers, levels)
 
         // tools/textures/README.md, runtime contract table.
         val ASTC = mapOf(
-            "day_detail" to ok(ASTC_8X8_SRGB, 4096, 3277, 8, 13),
+            "day_detail" to ok(ASTC_12X12_SRGB, 7168, 5734, 8, 13),
             "monthly_colour" to ok(ASTC_6X6_SRGB, 2048, 819, 12, 12),
             "clouds" to ok(ASTC_8X8_UNORM, 8192, 3277, 1, 14),
             "city_lights" to ok(ASTC_8X8_SRGB, 8192, 3277, 1, 14),
@@ -74,7 +75,7 @@ class EarthpackLoadTest {
             "interior_ambient" to ok(ASTC_8X8_SRGB, 512, 1824, 1, 1),
         )
         val ETC2 = mapOf(
-            "day_detail" to ok(ETC2_RGB_SRGB, 2048, 1638, 8, 12),
+            "day_detail" to ok(ETC2_RGB_SRGB, 1792, 1433, 8, 11),
             "monthly_colour" to ok(ETC2_RGB_SRGB, 1024, 409, 12, 11),
             "clouds" to ok(ETC2_RGB_UNORM, 4096, 1638, 1, 13),
             "city_lights" to ok(ETC2_RGB_SRGB, 4096, 1638, 1, 13),
