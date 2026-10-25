@@ -30,6 +30,30 @@ class LookAroundControllerTest {
         c.onVisible()
         c.setOrientation(0.0, 0.0)
         frame()
+        run(1.1) // held still once: the look-around is armed
+    }
+
+    @Test fun stateLineReportsArmingAfterTheFirstHold() {
+        c.onVisible()
+        c.setOrientation(0.0, 0.0)
+        frame()
+        assertTrue(c.stateLine(), c.stateLine().startsWith("armed=false ref=true still_ms="))
+        run(1.1)
+        assertTrue(c.stateLine(), c.stateLine().startsWith("armed=true ref=true still_ms=1"))
+    }
+
+    @Test fun pickUpBeforeTheFirstHoldDoesNotSwingTheView() {
+        c.onVisible()
+        c.setOrientation(0.0, 0.0)
+        frame()
+        now += 300_000_000L
+        c.setOrientation(deg(40.0), deg(20.0)) // picked up: 40 deg in 0.3 s
+        val o = run(0.6)
+        assertEquals(0.0, o.yawDeg, 1e-9)
+        assertEquals(0.0, o.pitchDeg, 1e-9)
+        run(1.1) // held still in the new pose: armed here
+        c.setOrientation(deg(52.0), deg(20.0))
+        assertTrue("tilt after the hold moves the view", run(0.95).yawDeg > 5.0)
     }
 
     @Test fun restWithoutInput() {
@@ -49,31 +73,54 @@ class LookAroundControllerTest {
         assertTrue("pitch ${o.pitchDeg}", o.pitchDeg >= -10.0 && o.pitchDeg < -9.0)
     }
 
-    @Test fun smallOffsetPassesThroughNearlyLinearly() {
+    @Test fun offsetInsideTheDeadBandDoesNotMoveTheView() {
         start()
-        c.setOrientation(deg(2.0), 0.0)
-        assertEquals(1.96 * 0.934, run(0.95).yawDeg, 0.06) // 93 % of the 0.35 s filter after 0.95 s
+        c.setOrientation(deg(1.5), deg(-1.0))
+        val o = run(0.95)
+        assertEquals(0.0, o.yawDeg, 1e-9)
+        assertEquals(0.0, o.pitchDeg, 1e-9)
+    }
+
+    @Test fun onsetBeyondTheDeadBandIsEasedNotKinked() {
+        // Over the 3 deg ease after the 3 deg band the view grows with the square of the excess over 6: 0.5 -> 1/24,
+        // 2 -> 2/3, then linear: 3 -> 1.5 deg (soft-clamped 1.497); each read at 93 % of the 0.35 s filter after 0.95 s.
+        for ((tilt, expected) in listOf(3.5 to 0.0417, 5.0 to 0.667, 6.0 to 1.497)) {
+            start()
+            c.setOrientation(0.0, 0.0) // fresh sample, so the tilt below is a fast step, not a slow drift
+            frame()
+            c.setOrientation(deg(tilt), 0.0)
+            assertEquals("tilt $tilt", expected * 0.934, run(0.95).yawDeg, 0.06)
+        }
+    }
+
+    @Test fun offsetBeyondTheEaseGrowsNearlyLinearly() {
+        start()
+        c.setOrientation(deg(12.0), 0.0)
+        // 12 deg minus the 3 deg band and half the 3 deg ease = 7.5 deg, soft-clamped 7.17, at 93 % of the filter.
+        assertEquals(7.168 * 0.934, run(0.95).yawDeg, 0.06)
     }
 
     @Test fun yawWrapUsesShortestPath() {
         c.onVisible()
         c.setOrientation(deg(179.0), 0.0)
         frame()
-        c.setOrientation(deg(-179.0), 0.0)
-        assertEquals(2.0 * 0.934, run(0.95).yawDeg, 0.1)
+        run(1.1)
+        c.setOrientation(deg(-169.0), 0.0)
+        // 12 deg the short way round, minus the band and half the ease = 7.5 deg, soft-clamped to 7.17 deg.
+        assertEquals(7.168 * 0.934, run(0.95).yawDeg, 0.1)
     }
 
     @Test fun stepResponseReaches63PercentAfterOneTimeConstant() {
         start()
-        c.setOrientation(deg(2.0), 0.0)
+        c.setOrientation(deg(12.0), 0.0)
         now += 350_000_000L
-        assertEquals(2.0 * 0.632, c.update().yawDeg, 0.13)
+        assertEquals(7.168 * 0.632, c.update().yawDeg, 0.13)
     }
 
     @Test fun springReturnsToRestWithinTwoSecondsAfterOneSecondStill() {
         start()
         c.setOrientation(deg(15.0), deg(-8.0))
-        assertTrue("held while not yet still for 1 s", run(0.9).yawDeg > 11.0) // clamp 12.7 deg at 92 % of the filter
+        assertTrue("held while not yet still for 1 s", run(0.9).yawDeg > 8.0) // band and ease leave 12.5 deg, clamp 10.0, 92 % of the filter
         val o = run(5.0)
         assertEquals(0.0, o.yawDeg, 0.1)
         assertEquals(0.0, o.pitchDeg, 0.1)
@@ -90,7 +137,7 @@ class LookAroundControllerTest {
         run(0.1)
         c.setOrientation(deg(15.0 + 6.0), 0.0)
         val o = run(0.5)
-        assertTrue(o.yawDeg > 10.0)
+        assertTrue("yaw ${o.yawDeg}", o.yawDeg > 8.0) // 17 deg offset minus band and ease = 12.5, clamp 10.0, filter from 6.3
     }
 
     @Test fun idleFloatStaysWithinTwoDegreesAndIsContinuous() {
@@ -200,11 +247,26 @@ class LookAroundControllerTest {
         assertTrue(frame().isMoving)
     }
 
+    /** Hand tremor (peaks of about 4 deg/s measured on the Pixel 7 Pro) is still: spring and arming must work in the hand. */
+    @Test fun handTremorCountsAsStill() {
+        start()
+        c.setOrientation(deg(15.0), 0.0)
+        var sign = 1.0
+        val end = now + 2_500_000_000L
+        while (now < end) {
+            now += 10_000_000L
+            sign = -sign
+            c.setOrientation(deg(15.0 + sign * 0.0225), 0.0) // 0.045 deg per 10 ms = 4.5 deg/s
+            c.update()
+        }
+        assertTrue("yaw ${c.update().yawDeg}", c.update().yawDeg < 5.0)
+    }
+
     /** A hand that keeps drifting slowly (1.5 deg/s) is still: the view springs back instead of waiting for rest. */
     @Test fun slowDriftStillSpringsBackToRest() {
         start()
         c.setOrientation(deg(15.0), 0.0)
-        assertTrue(run(0.5).yawDeg > 8.0)
+        assertTrue(run(0.5).yawDeg > 6.0) // band and ease leave 10.5 deg, clamp 9.6, 76 % of the filter
         var yaw = 15.0
         repeat(240) {
             yaw += 1.5 / 60.0

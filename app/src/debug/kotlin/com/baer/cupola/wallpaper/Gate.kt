@@ -83,7 +83,10 @@ internal object Gate {
     }
 
     fun dumpInputs() {
-        sessions.keys.sorted().forEach { Log.i(TAG, inputsLine(it, sessions[it]?.lastFrameInputs())) }
+        sessions.keys.sorted().forEach { id ->
+            Log.i(TAG, inputsLine(id, sessions[id]?.lastFrameInputs()))
+            Log.i(TAG, "gate look id=$id ${sessions[id]?.lookState()}")
+        }
     }
 
     /** Every [FrameInputs] slot of the last frame by name, one line; what `gate capture` would render. */

@@ -35,6 +35,8 @@ class LookAroundController(private val clockNs: () -> Long) {
     private var velYaw = 0.0
     private var velPitch = 0.0
     private var springMoving = false
+    private var armed = false
+    private var peakSpeed = 0.0
 
     private var lastUpdateNs = NONE
     private var smoothYaw = 0.0
@@ -51,6 +53,7 @@ class LookAroundController(private val clockNs: () -> Long) {
         velYaw = 0.0
         velPitch = 0.0
         springMoving = false
+        armed = false
     }
 
     /**
@@ -71,6 +74,7 @@ class LookAroundController(private val clockNs: () -> Long) {
         } else if (timestampNs - sampleNs >= MIN_SAMPLE_NS) {
             val dtS = (timestampNs - sampleNs) / NS
             val speed = angle(wrap(oriYaw - sampleYaw), oriPitch - samplePitch) / dtS
+            if (speed > peakSpeed) peakSpeed = speed
             if (speed >= STILL_DEG_PER_S) lastMotionNs = clockNs()
             sampleNs = timestampNs
         } else {
@@ -78,6 +82,16 @@ class LookAroundController(private val clockNs: () -> Long) {
         }
         sampleYaw = oriYaw
         samplePitch = oriPitch
+    }
+
+    /** Debug: arming, time since the last fast sample, the peak sample speed since the previous call, and the offset. */
+    fun stateLine(): String {
+        val peak = peakSpeed
+        peakSpeed = 0.0
+        return String.format(
+            java.util.Locale.ROOT, "armed=%b ref=%b still_ms=%d peak_deg_s=%.2f offset_deg=%.2f",
+            armed, hasRef, (clockNs() - lastMotionNs) / 1_000_000, peak, angle(wrap(oriYaw - refYaw), oriPitch - refPitch),
+        )
     }
 
     fun update(): LookAroundOutput {
@@ -100,6 +114,16 @@ class LookAroundController(private val clockNs: () -> Long) {
     }
 
     private fun step(now: Long, dtS: Double) {
+        // Until the phone has been held still once after becoming visible, the reference follows the hand: picking
+        // the phone up from the unlock pose must not swing the view.
+        if (hasRef && !armed) {
+            if (now - lastMotionNs >= STILL_NS) {
+                armed = true
+            } else {
+                refYaw = oriYaw
+                refPitch = oriPitch
+            }
+        }
         if (hasRef && now - lastMotionNs >= STILL_NS) {
             val k = exp(-OMEGA * dtS)
             var x = wrap(refYaw - oriYaw)
@@ -126,8 +150,16 @@ class LookAroundController(private val clockNs: () -> Long) {
             velPitch = 0.0
             springMoving = false
         }
-        val lookYaw = if (hasRef) softClamp(wrap(oriYaw - refYaw)) else 0.0
-        val lookPitch = if (hasRef) softClamp(oriPitch - refPitch) else 0.0
+        val offYaw = if (hasRef) wrap(oriYaw - refYaw) else 0.0
+        val offPitch = if (hasRef) oriPitch - refPitch else 0.0
+        // Dead band on the view-sphere offset: tremor and small tilts stay put; beyond it the view eases in
+        // (quadratic over EASE_DEG, so the first movement has no kink) and then follows the tilt one to one.
+        val m = angle(offYaw, offPitch)
+        val d = m - DEAD_DEG
+        val eased = if (d <= 0.0) 0.0 else if (d < EASE_DEG) d * d / (2.0 * EASE_DEG) else d - EASE_DEG / 2.0
+        val band = if (m > 0.0) eased / m else 0.0
+        val lookYaw = softClamp(offYaw * band)
+        val lookPitch = softClamp(offPitch * band)
         val targetYaw = lookYaw + (xOffset - 0.5) * PAN_RANGE_DEG
         val a = 1.0 - exp(-dtS / TAU_S)
         val dy = (targetYaw - smoothYaw) * a
@@ -162,13 +194,16 @@ class LookAroundController(private val clockNs: () -> Long) {
         const val NS = 1e9
         const val MIN_SAMPLE_NS = 1_000_000L
         const val STILL_NS = 1_000_000_000L
-        // Below this view speed the phone counts as still, so hand tremor and slow drift let the spring run.
-        const val STILL_DEG_PER_S = 3.0
+        // Below this view speed the phone counts as still: hand tremor peaks at about 4 deg/s (Pixel 7 Pro, measured), so
+        // the spring and the arming work in the hand; slow drift counts as still too.
+        const val STILL_DEG_PER_S = 6.0
         const val MOVING_DEG_PER_S = 0.2
 
         /** Moving holds this long after the last fast frame, so a drift at the threshold keeps one frame rate. */
         const val MOVING_HOLD_NS = 500_000_000L
         const val LIMIT_DEG = 20.0
+        const val DEAD_DEG = 3.0
+        const val EASE_DEG = 3.0
         const val PAN_RANGE_DEG = 8.0
         // Output filter and spring-back rate: slow enough that sensor noise and the return do not distract on the home screen.
         const val TAU_S = 0.35

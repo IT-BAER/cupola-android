@@ -99,6 +99,9 @@ internal class RenderSession(
         syncRate(scheduler)
     }
 
+    /** Debug gate: the look-around controller's arming and still state. */
+    fun lookState(): String = look.stateLine()
+
     fun onOrientation(orientation: Orientation, timestampNs: Long) {
         if (!Gate.sensorBlocked()) look.setOrientation(orientation.yawRad, orientation.pitchRad, timestampNs)
     }

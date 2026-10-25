@@ -103,6 +103,8 @@ const float CLOUD_ALT_KM = 6.0;
 const float CLOUD_ALBEDO = 0.85;
 const float FLOW_PERIOD_H = 6.0;
 const float CLOUD_SHADOW = 0.75;
+// Map cover below this is dropped and the rest rescaled: the 2002 map's thin veils read as grey haze on a phone.
+const float CLOUD_THIN_CUT = 0.3;
 // P3.4 night side, in shader radiance (night exposure about 1.4e4, Exposure.NIGHT_FLOOR): city light per texel value 1
 // in a sodium / warm LED colour (texel^CITY_GAMMA keeps the cores and drops the dim ASTC block noise around sparse
 // lights), star map radiance per texel value 1, the Moon's albedo and angular radius, and the
@@ -492,6 +494,7 @@ float cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
     vec2 ua = uv - flowShift(uv, latRad, floor(s.clouds.x), fa * FLOW_PERIOD_H);
     vec2 ub = uv - flowShift(uv, latRad, floor(s.clouds.y), fb * FLOW_PERIOD_H);
     float c = mix(textureGrad(cloudMap, ub, gx, gy).r, textureGrad(cloudMap, ua, gx, gy).r, 1.0 - abs(2.0 * fa - 1.0));
+    c = max(c - CLOUD_THIN_CUT, 0.0) / (1.0 - CLOUD_THIN_CUT);
     float d = textureLod(noiseTex, vec2(uv.x, uv.y * 0.4) + s.clouds.z * vec2(1.0 / 64.0, 1.0 / 128.0), 0.0).b;
     float thin = max(d - 0.5, 0.0) * 0.5;
     float thick = max(0.5 - d, 0.0) * 0.6;
