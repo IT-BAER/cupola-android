@@ -23,6 +23,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
                 ?: defaults.restDirection,
             lookAroundStrength = (p[LOOK_AROUND] ?: defaults.lookAroundStrength).coerceIn(0f, 1f),
             idleFloat = p[IDLE_FLOAT] ?: defaults.idleFloat,
+            interior = p[INTERIOR] ?: defaults.interior,
             bloom = p[BLOOM] ?: defaults.bloom,
             windowGlare = p[GLARE] ?: defaults.windowGlare,
             reflections = p[REFLECTIONS] ?: defaults.reflections,
@@ -35,6 +36,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
     override suspend fun setRestDirection(value: RestDirection) = put { it[REST_DIRECTION] = value.name }
     override suspend fun setLookAroundStrength(value: Float) = put { it[LOOK_AROUND] = value.coerceIn(0f, 1f) }
     override suspend fun setIdleFloat(value: Boolean) = put { it[IDLE_FLOAT] = value }
+    override suspend fun setInterior(value: Boolean) = put { it[INTERIOR] = value }
     override suspend fun setBloom(value: Boolean) = put { it[BLOOM] = value }
     override suspend fun setWindowGlare(value: Boolean) = put { it[GLARE] = value }
     override suspend fun setReflections(value: Boolean) = put { it[REFLECTIONS] = value }
@@ -55,6 +57,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
         val REST_DIRECTION = stringPreferencesKey("rest_direction")
         val LOOK_AROUND = floatPreferencesKey("look_around_strength")
         val IDLE_FLOAT = booleanPreferencesKey("idle_float")
+        val INTERIOR = booleanPreferencesKey("interior")
         val BLOOM = booleanPreferencesKey("effect_bloom")
         val GLARE = booleanPreferencesKey("effect_window_glare")
         val REFLECTIONS = booleanPreferencesKey("effect_reflections")

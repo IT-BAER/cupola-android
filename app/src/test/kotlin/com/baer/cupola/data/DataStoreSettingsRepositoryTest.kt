@@ -59,12 +59,22 @@ class DataStoreSettingsRepositoryTest {
         r.setReflections(false)
         r.setDust(false)
         r.setHomeCity("Vienna|AT|48.208|16.372")
-        val expected = Settings(RestDirection.NADIR, 0.25f, false, false, false, false, false, "Vienna|AT|48.208|16.372")
+        val expected = Settings(RestDirection.NADIR, 0.25f, false, true, false, false, false, false, "Vienna|AT|48.208|16.372")
         assertEquals(expected, r.settings.first())
         scope.coroutineContext[Job]!!.cancelAndJoin()
         assertEquals(expected, DataStoreSettingsRepository(
             PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) { File(dir, "settings.preferences_pb") },
         ).settings.first())
+    }
+
+    @Test
+    fun interiorDefaultsOnAndRoundTrips() = runBlocking {
+        val r = repo()
+        assertEquals(true, r.settings.first().interior)
+        r.setInterior(false)
+        assertEquals(false, r.settings.first().interior)
+        r.setInterior(true)
+        assertEquals(true, r.settings.first().interior)
     }
 
     @Test

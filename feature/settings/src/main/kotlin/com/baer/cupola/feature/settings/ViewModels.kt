@@ -46,6 +46,7 @@ class SettingsViewModel @Inject constructor(
     fun setRestDirection(value: RestDirection) = launch { repository.setRestDirection(value) }
     fun setLookAroundStrength(value: Float) = launch { repository.setLookAroundStrength(value) }
     fun setIdleFloat(value: Boolean) = launch { repository.setIdleFloat(value) }
+    fun setInterior(value: Boolean) = launch { repository.setInterior(value) }
     fun setBloom(value: Boolean) = launch { repository.setBloom(value) }
     fun setWindowGlare(value: Boolean) = launch { repository.setWindowGlare(value) }
     fun setReflections(value: Boolean) = launch { repository.setReflections(value) }
@@ -59,6 +60,7 @@ class SettingsViewModel @Inject constructor(
         repository.setRestDirection(d.restDirection)
         repository.setLookAroundStrength(d.lookAroundStrength)
         repository.setIdleFloat(d.idleFloat)
+        repository.setInterior(d.interior)
         repository.setBloom(d.bloom)
         repository.setWindowGlare(d.windowGlare)
         repository.setReflections(d.reflections)

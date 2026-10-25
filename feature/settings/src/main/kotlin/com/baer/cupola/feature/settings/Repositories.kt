@@ -14,6 +14,7 @@ interface SettingsRepository {
     /** Clamped to 0..1. */
     suspend fun setLookAroundStrength(value: Float)
     suspend fun setIdleFloat(value: Boolean)
+    suspend fun setInterior(value: Boolean)
     suspend fun setBloom(value: Boolean)
     suspend fun setWindowGlare(value: Boolean)
     suspend fun setReflections(value: Boolean)

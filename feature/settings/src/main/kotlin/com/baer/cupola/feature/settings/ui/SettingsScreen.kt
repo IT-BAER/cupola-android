@@ -54,6 +54,7 @@ data class SettingsActions(
     val onRestDirection: (RestDirection) -> Unit,
     val onLookAroundStrength: (Float) -> Unit,
     val onIdleFloat: (Boolean) -> Unit,
+    val onInterior: (Boolean) -> Unit,
     val onBloom: (Boolean) -> Unit,
     val onWindowGlare: (Boolean) -> Unit,
     val onReflections: (Boolean) -> Unit,
@@ -124,6 +125,7 @@ fun SettingsScreen(
             SwitchRow(R.string.idle_float, s.idleFloat, actions.onIdleFloat)
 
             Section(R.string.effects)
+            SwitchRow(R.string.interior, s.interior, actions.onInterior)
             SwitchRow(R.string.effect_bloom, s.bloom, actions.onBloom)
             SwitchRow(R.string.effect_glare, s.windowGlare, actions.onWindowGlare)
             SwitchRow(R.string.effect_reflections, s.reflections, actions.onReflections)

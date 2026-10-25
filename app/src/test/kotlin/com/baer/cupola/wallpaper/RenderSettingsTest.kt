@@ -36,6 +36,12 @@ class RenderSettingsTest {
         assertEquals(RenderSettings.BLOOM or RenderSettings.REFLECTIONS, r.effects)
     }
 
+    @Test
+    fun interiorMapsToRenderSettings() {
+        assertEquals(true, Settings().toRenderSettings().interior)
+        assertFalse(Settings(interior = false).toRenderSettings().interior)
+    }
+
     /** P6.7: the home city's position comes from its id (CityEntry.id: name|country|lat|lon, three decimals). */
     @Test
     fun homeCityPositionComesFromItsId() {

@@ -9,6 +9,7 @@ data class RenderSettings(
     val rest: RestView = RestView.NADIR,
     val lookStrength: Double = 1.0,
     val idleFloat: Boolean = true,
+    val interior: Boolean = true,
     val effects: Int = BLOOM or WINDOW_GLARE or REFLECTIONS or DUST,
     /** Home city (latitude, longitude) in degrees for the wallpaper marker (P6.7); null when none is set. */
     val homeCity: Pair<Double, Double>? = null,
@@ -28,6 +29,7 @@ fun Settings.toRenderSettings() = RenderSettings(
     },
     lookStrength = lookAroundStrength.toDouble(),
     idleFloat = idleFloat,
+    interior = interior,
     effects = (if (bloom) RenderSettings.BLOOM else 0) or
         (if (windowGlare) RenderSettings.WINDOW_GLARE else 0) or
         (if (reflections) RenderSettings.REFLECTIONS else 0) or

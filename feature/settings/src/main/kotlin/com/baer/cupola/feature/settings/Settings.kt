@@ -13,6 +13,8 @@ data class Settings(
     /** 0 = no look-around, 1 = full. */
     val lookAroundStrength: Float = 1f,
     val idleFloat: Boolean = true,
+    /** Show the baked Cupola cabin around the view; off renders the Earth only. */
+    val interior: Boolean = true,
     val bloom: Boolean = true,
     val windowGlare: Boolean = true,
     val reflections: Boolean = true,

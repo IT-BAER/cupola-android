@@ -130,7 +130,7 @@ class ScreensTest {
         var bloom: Boolean? = null
         var rest: RestDirection? = null
         val noop = {}
-        val actions = SettingsActions({ rest = it }, {}, {}, { bloom = it }, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        val actions = SettingsActions({ rest = it }, {}, {}, {}, { bloom = it }, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
         rule.setContent { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) }
         rule.onNodeWithText("Bloom").performScrollTo().performClick()
         rule.onNodeWithText("Straight down").performScrollTo().performClick()
@@ -148,9 +148,18 @@ class ScreensTest {
     }
 
     @Test
+    fun interiorSwitchIsOnByDefaultAndWritesTheSetting() {
+        val repo = FakeSettingsRepository()
+        host(repo)
+        rule.onNodeWithText("Cupola interior").performScrollTo().assertIsOn().performClick()
+        rule.waitUntil { kotlinx.coroutines.runBlocking { !repo.settings.first().interior } }
+        rule.onNodeWithText("Cupola interior").assertIsOff()
+    }
+
+    @Test
     fun restRowsMeetTheTouchTargetMinimum() {
         val noop = {}
-        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
         rule.setContent { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) }
         rule.onNodeWithText("Diagonal").performScrollTo().assertHeightIsAtLeast(48.dp)
         rule.onNodeWithText("Straight down").performScrollTo().assertHeightIsAtLeast(48.dp)
@@ -160,7 +169,7 @@ class ScreensTest {
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun everyScreenCoversWhatIsBehindIt() {
         val noop = {}
-        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
         val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
             "Settings" to { SettingsScreen(SettingsUiState(Settings(), null, true), InfoUiState(), RecordingPreview(), actions) },
             "Info" to { InfoScreen(InfoUiState(snapshot(retired = false))) },
@@ -197,7 +206,7 @@ class ScreensTest {
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun lookAroundSliderShowsKeyboardFocus() {
         val noop = {}
-        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
+        val actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, noop, noop, noop, noop, noop, noop, noop)
         lateinit var root: View
         rule.setContent {
             root = LocalView.current

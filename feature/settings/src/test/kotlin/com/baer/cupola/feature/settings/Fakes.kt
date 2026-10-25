@@ -18,6 +18,7 @@ class FakeSettingsRepository(initial: Settings = Settings()) : SettingsRepositor
     override suspend fun setLookAroundStrength(value: Float) =
         state.update { it.copy(lookAroundStrength = value.coerceIn(0f, 1f)) }
     override suspend fun setIdleFloat(value: Boolean) = state.update { it.copy(idleFloat = value) }
+    override suspend fun setInterior(value: Boolean) = state.update { it.copy(interior = value) }
     override suspend fun setBloom(value: Boolean) = state.update { it.copy(bloom = value) }
     override suspend fun setWindowGlare(value: Boolean) = state.update { it.copy(windowGlare = value) }
     override suspend fun setReflections(value: Boolean) = state.update { it.copy(reflections = value) }

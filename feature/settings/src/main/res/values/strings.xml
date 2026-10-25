@@ -8,6 +8,7 @@
     <string name="rest_nadir">Straight down</string>
     <string name="look_around_strength">Look-around strength</string>
     <string name="idle_float">Idle float</string>
+    <string name="interior">Cupola interior</string>
     <string name="effects">Effects</string>
     <string name="effect_bloom">Bloom</string>
     <string name="effect_glare">Window glare</string>

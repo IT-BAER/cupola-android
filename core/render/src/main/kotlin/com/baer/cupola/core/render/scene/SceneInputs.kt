@@ -431,8 +431,9 @@ object SceneInputs {
     /**
      * Camera = LVLH(ISS) x [SceneGeometry.LVLH_FROM_BLENDER] x rest view x look-around. Positive [yawDeg] turns the
      * view right (about the camera up axis), positive [pitchDeg] up (about the turned right axis).
+     * A false [interior] keeps the camera but drops the cabin.
      */
-    fun build(state: SceneState, rest: RestView, yawDeg: Double, pitchDeg: Double, override: SceneOverride? = null): Scene {
+    fun build(state: SceneState, rest: RestView, yawDeg: Double, pitchDeg: Double, override: SceneOverride? = null, interior: Boolean = true): Scene {
         val position = override?.positionEcefKm ?: state.positionEcefKm
         val forward = override?.cameraForwardEcef
         val blenderFromCamera = if (forward != null) null else rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
@@ -449,7 +450,7 @@ object SceneInputs {
             sunDirEcef = state.sunDirEcef,
             moonDirEcef = state.moonDirEcef,
             month = monthBlend(state.instant),
-            blenderFromCamera = blenderFromCamera,
+            blenderFromCamera = if (interior) blenderFromCamera else null,
         )
     }
 

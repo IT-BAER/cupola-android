@@ -64,6 +64,7 @@ fun CupolaNavHost(
                             onRestDirection = settings::setRestDirection,
                             onLookAroundStrength = settings::setLookAroundStrength,
                             onIdleFloat = settings::setIdleFloat,
+                            onInterior = settings::setInterior,
                             onBloom = settings::setBloom,
                             onWindowGlare = settings::setWindowGlare,
                             onReflections = settings::setReflections,
