@@ -462,19 +462,25 @@ class EarthRenderTest {
         save("clouds_day", cloudy)
         var cloudPx = 0
         var n = 0
+        var maxStep = 0.0
+        for (y in 0 until H step 6) for (x in 0 until W step 6) {
+            n++
+            val step = luma(cloudy, x, y) - luma(clear, x, y)
+            if (step > 20) cloudPx++
+            maxStep = maxOf(maxStep, step)
+        }
+        // Whiteness only where the cloud is dense (at least half the brightest cloud step): thin edges show the sea.
         var r = 0.0
         var g = 0.0
         var b = 0.0
         for (y in 0 until H step 6) for (x in 0 until W step 6) {
-            n++
-            if (luma(cloudy, x, y) - luma(clear, x, y) > 20) {
-                cloudPx++
+            if (luma(cloudy, x, y) - luma(clear, x, y) >= maxStep / 2) {
                 val i = at(x, y)
                 r += ch(cloudy, i); g += ch(cloudy, i + 1); b += ch(cloudy, i + 2)
             }
         }
         val fraction = cloudPx.toDouble() / n
-        Log.i(TAG, "clouds fraction $fraction rgb ${r / cloudPx} ${g / cloudPx} ${b / cloudPx}")
+        Log.i(TAG, "clouds fraction $fraction max step $maxStep dense rgb $r $g $b")
         assertTrue("cloud fraction $fraction", fraction in 0.05..0.95)
         val spread = (maxOf(r, g, b) - minOf(r, g, b)) / maxOf(r, g, b)
         assertTrue("clouds white, not tinted: rgb $r $g $b", spread < 0.15)
@@ -1290,6 +1296,28 @@ class EarthRenderTest {
 
     private fun at(x: Int, y: Int) = (y * W + x) * 4
 
+    /**
+     * Map cover below CLOUD_THIN_CUT renders as clear ground: with shadows and air off, a mid-latitude ocean view keeps
+     * at least [CLEAR_GROUND_SHARE_MIN] of its pixels equal to the cloudless frame. The A35 (Mali-G68) driver once
+     * turned the cut into a grey veil over all clear ground (share 0).
+     */
+    @Test
+    fun thinCloudCutLeavesClearGround() {
+        val scene = scene(Instant.parse("2026-10-25T19:15:00Z"), -43.5, -80.3, 0.0, -90.0)
+        val cloudy = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_ATMOSPHERE or FrameInputs.DEBUG_NO_CLOUD_SHADOWS)
+        val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_ATMOSPHERE or FrameInputs.DEBUG_NO_CLOUDS)
+        save("clouds_cut", cloudy)
+        var same = 0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            n++
+            if (abs(luma(cloudy, x, y) - luma(clear, x, y)) < 2.0) same++
+        }
+        val share = same.toDouble() / n
+        Log.i(TAG, "clear ground share $share")
+        assertTrue("clear ground share $share", share >= CLEAR_GROUND_SHARE_MIN)
+    }
+
     private fun ch(img: ByteArray, i: Int) = img[i].toInt() and 0xFF
 
     private fun rgbSum(img: ByteArray, x: Int, y: Int) = at(x, y).let { ch(img, it) + ch(img, it + 1) + ch(img, it + 2) }
@@ -1365,6 +1393,7 @@ class EarthRenderTest {
         private const val DAY_WINDOW_FRAME_RATIO_MIN = 8.0
         private const val DAY_DARK_SHARE_MIN = 0.40
         private const val COLOUR_DETAIL_MIN = 0.07
+        private const val CLEAR_GROUND_SHARE_MIN = 0.12 // Pixel 7 Pro 0.186 at cut 0.2, the grey veil gives 0
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.

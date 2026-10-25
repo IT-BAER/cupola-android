@@ -104,7 +104,7 @@ const float CLOUD_ALBEDO = 0.85;
 const float FLOW_PERIOD_H = 6.0;
 const float CLOUD_SHADOW = 0.75;
 // Map cover below this is dropped and the rest rescaled: the 2002 map's thin veils read as grey haze on a phone.
-const float CLOUD_THIN_CUT = 0.3;
+const float CLOUD_THIN_CUT = 0.2;
 // P3.4 night side, in shader radiance (night exposure about 1.4e4, Exposure.NIGHT_FLOOR): city light per texel value 1
 // in a sodium / warm LED colour (texel^CITY_GAMMA keeps the cores and drops the dim ASTC block noise around sparse
 // lights), star map radiance per texel value 1, the Moon's albedo and angular radius, and the
@@ -132,6 +132,9 @@ const float LIGHTNING_SLOT_S = 0.2;
 const float LIGHTNING_P = 0.0015;
 const float LIGHTNING_KM = 5.0;
 const vec3 LIGHTNING = vec3(0.8, 0.85, 1.0) * 4.0e-4;
+// Storms from map cover 0.4 (none) to 0.8 (full), expressed in cover after CLOUD_THIN_CUT.
+const float STORM_COVER_MIN = (0.4 - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT);
+const float STORM_COVER_FULL = (0.8 - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT);
 // P6.7 home-city marker: a ring of MARKER_RING_PX radius around a dot, in physical pixels, drawn at MARKER exposed
 // brightness (the same by day and night).
 const float MARKER_RING_PX = 11.0;
@@ -494,7 +497,9 @@ float cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
     vec2 ua = uv - flowShift(uv, latRad, floor(s.clouds.x), fa * FLOW_PERIOD_H);
     vec2 ub = uv - flowShift(uv, latRad, floor(s.clouds.y), fb * FLOW_PERIOD_H);
     float c = mix(textureGrad(cloudMap, ub, gx, gy).r, textureGrad(cloudMap, ua, gx, gy).r, 1.0 - abs(2.0 * fa - 1.0));
-    c = max(c - CLOUD_THIN_CUT, 0.0) / (1.0 - CLOUD_THIN_CUT);
+    // clamp, not max(c - CUT, 0.0) / (1 - CUT): the A35 Mali-G68 driver compiled that form into grey cover on clear
+    // ground (EarthRenderTest.thinCloudCutLeavesClearGround).
+    c = clamp((c - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT), 0.0, 1.0);
     float d = textureLod(noiseTex, vec2(uv.x, uv.y * 0.4) + s.clouds.z * vec2(1.0 / 64.0, 1.0 / 128.0), 0.0).b;
     float thin = max(d - 0.5, 0.0) * 0.5;
     float thick = max(0.5 - d, 0.0) * 0.6;
@@ -579,7 +584,8 @@ vec3 hash3(vec3 p) {
 // Lightning glow at a night ground point under thick tropical cloud: each storm cell (and its neighbours, so glows
 // cross cell edges) may flash in an animation-time slot and fades within it.
 vec3 lightning(float lonRad, float latRad, float cover) {
-    float storm = smoothstep(0.4, 0.8, cover) * (1.0 - smoothstep(radians(25.0), radians(40.0), abs(latRad)));
+    float storm = smoothstep(STORM_COVER_MIN, STORM_COVER_FULL, cover)
+                * (1.0 - smoothstep(radians(25.0), radians(40.0), abs(latRad)));
     if (storm <= 0.0) return vec3(0.0);
     vec2 g = vec2(degrees(lonRad), degrees(latRad)) / LIGHTNING_CELL_DEG;
     float slot = floor(pc.time / LIGHTNING_SLOT_S);
@@ -789,7 +795,7 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
         float night = 1.0 - smoothstep(-0.10, 0.0, muS);
         lights = pow(textureGrad(cityLights, uv, gx, gy).r, CITY_GAMMA) * CITY_LIGHT * night * (1.0 - 0.6 * cover);
     }
-    if ((pc.effects & (DEBUG_NO_LIGHTNING | MOTION_REDUCED)) == 0 && muS < -0.05 && cover > 0.4) {
+    if ((pc.effects & (DEBUG_NO_LIGHTNING | MOTION_REDUCED)) == 0 && muS < -0.05 && cover > STORM_COVER_MIN) {
         lights += lightning(lon, lat, cover);
     }
 
