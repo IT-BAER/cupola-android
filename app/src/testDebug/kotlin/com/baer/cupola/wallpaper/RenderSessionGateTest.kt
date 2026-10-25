@@ -1,6 +1,7 @@
 package com.baer.cupola.wallpaper
 
 import com.baer.cupola.core.render.FrameInputs
+import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.scene.RestView
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.OrbitState
@@ -75,6 +76,35 @@ class RenderSessionGateTest {
             Gate.sceneLine(2, dump),
         )
         assertEquals("gate scene id=3 none", Gate.sceneLine(3, null))
+    }
+
+    @Test fun inputsLineIsOneGrepableLogLine() {
+        val inputs = FloatArray(FrameInputs.COUNT) { it.toFloat() }
+        inputs[FrameInputs.EFFECTS] = 15f
+        assertEquals(
+            "gate inputs id=2 time=2.0 yaw=3.0 pitch=4.0 scene=5.0 scale=6.0 effects=0xf cam_km=8.0,9.0,10.0 c=11.0 " +
+                "right=12.0,13.0,14.0 up=16.0,17.0,18.0 back=20.0,21.0,22.0 month=15.0,19.0,23.0 sun=24.0,25.0,26.0 " +
+                "tanfov=27.0 moon=28.0,29.0,30.0 moonlight=31.0 interior=35.0 int_right=32.0,33.0,34.0 " +
+                "int_up=36.0,37.0,38.0 int_back=40.0,41.0,42.0 earthlight=39.0 exposure=43.0 sky_up=44.0,45.0,46.0 " +
+                "sky_hn=47.0 sky_sun=48.0,49.0,50.0 sky_tn=51.0 cloud=52.0,53.0,54.0 star_x=56.0,57.0,58.0 " +
+                "star_y=60.0,61.0,62.0 star_z=64.0,65.0,66.0 sunlight=68.0,69.0,70.0,71.0 home=72.0,73.0,74.0,75.0",
+            Gate.inputsLine(2, inputs),
+        )
+        assertEquals("gate inputs id=3 none", Gate.inputsLine(3, null))
+    }
+
+    @Test fun textureLineNamesTheFallbackSlots() {
+        assertEquals("gate textures mask=0x7ff missing=-", Gate.textureLine(NativeRenderer.TEXTURE_SET_COMPLETE))
+        assertEquals("gate textures mask=0x7fc missing=day_detail,monthly_colour", Gate.textureLine(0x7fc))
+        assertEquals("gate textures mask=0x0 missing=${Gate.TEXTURE_SLOTS.joinToString(",")}", Gate.textureLine(0))
+    }
+
+    /** The slot order is declared twice (texture_set.cpp kSlots and Gate); this keeps both in lockstep. */
+    @Test fun textureSlotNamesMatchTheCppTable() {
+        val cpp = File("../core/render/src/main/cpp/texture_set.cpp").readText()
+        val table = Regex("""kSlots\[kTextureSlots]\s*=\s*\{(.*?)\n};""", RegexOption.DOT_MATCHES_ALL).find(cpp)
+        val names = Regex("""\{"(\w+)",""").findAll(checkNotNull(table).groupValues[1]).map { it.groupValues[1] }.toList()
+        assertEquals(names, Gate.TEXTURE_SLOTS)
     }
 
     private fun sceneBlock(inputs: FloatArray) = inputs.copyOfRange(FrameInputs.SCENE_BLOCK, FrameInputs.COUNT)

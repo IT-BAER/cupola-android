@@ -82,6 +82,44 @@ internal object Gate {
         )
     }
 
+    fun dumpInputs() {
+        sessions.keys.sorted().forEach { Log.i(TAG, inputsLine(it, sessions[it]?.lastFrameInputs())) }
+    }
+
+    /** Every [FrameInputs] slot of the last frame by name, one line; what `gate capture` would render. */
+    fun inputsLine(id: Int, inputs: FloatArray?): String {
+        if (inputs == null) return "gate inputs id=$id none"
+        fun f(i: Int) = inputs[i].toString()
+        fun v3(i: Int) = "${f(i)},${f(i + 1)},${f(i + 2)}"
+        fun v4(i: Int) = "${v3(i)},${f(i + 3)}"
+        return "gate inputs id=$id time=${f(FrameInputs.TIME_SECONDS)} yaw=${f(FrameInputs.LOOK_YAW_DEG)}" +
+            " pitch=${f(FrameInputs.LOOK_PITCH_DEG)} scene=${f(FrameInputs.SCENE)} scale=${f(FrameInputs.RENDER_SCALE)}" +
+            " effects=0x${inputs[FrameInputs.EFFECTS].toInt().toString(16)} cam_km=${v3(FrameInputs.CAMERA_POS_KM)}" +
+            " c=${f(FrameInputs.CAMERA_ELLIPSOID_C)} right=${v3(FrameInputs.CAMERA_RIGHT)} up=${v3(FrameInputs.CAMERA_UP)}" +
+            " back=${v3(FrameInputs.CAMERA_BACK)}" +
+            " month=${f(FrameInputs.MONTH_WEIGHT)},${f(FrameInputs.MONTH_LAYER0)},${f(FrameInputs.MONTH_LAYER1)}" +
+            " sun=${v3(FrameInputs.SUN_DIR)} tanfov=${f(FrameInputs.TAN_HALF_FOV_LONG)} moon=${v3(FrameInputs.MOON_DIR)}" +
+            " moonlight=${f(FrameInputs.MOON_LIGHT)} interior=${f(FrameInputs.INTERIOR)}" +
+            " int_right=${v3(FrameInputs.INTERIOR_RIGHT)} int_up=${v3(FrameInputs.INTERIOR_UP)}" +
+            " int_back=${v3(FrameInputs.INTERIOR_BACK)} earthlight=${f(FrameInputs.EARTH_LIGHT)}" +
+            " exposure=${f(FrameInputs.EXPOSURE)} sky_up=${v3(FrameInputs.SKY_UP)} sky_hn=${f(FrameInputs.SKY_HORIZON_NADIR)}" +
+            " sky_sun=${v3(FrameInputs.SKY_SUN_AXIS)} sky_tn=${f(FrameInputs.SKY_TOP_NADIR)} cloud=${v3(FrameInputs.CLOUD_FLOW)}" +
+            " star_x=${v3(FrameInputs.STAR_ROW_X)} star_y=${v3(FrameInputs.STAR_ROW_Y)} star_z=${v3(FrameInputs.STAR_ROW_Z)}" +
+            " sunlight=${v4(FrameInputs.SUN_LIGHT)} home=${v4(FrameInputs.HOME_CITY)}"
+    }
+
+    /** Slot names by mask bit, in the order of `kSlots` in core/render/src/main/cpp/texture_set.cpp. */
+    val TEXTURE_SLOTS = listOf(
+        "day_detail", "monthly_colour", "clouds", "city_lights", "terrain_normal", "stars", "water_mask",
+        "interior_earth", "interior_cabin", "interior_emissive", "interior_ambient",
+    )
+
+    /** The renderer's texture-set mask and the slots it replaced by their neutral fallback. */
+    fun textureLine(mask: Int): String {
+        val missing = TEXTURE_SLOTS.filterIndexed { bit, _ -> mask and (1 shl bit) == 0 }
+        return "gate textures mask=0x${mask.toString(16)} missing=${if (missing.isEmpty()) "-" else missing.joinToString(",")}"
+    }
+
     fun startTrace() {
         traceStartNs.set(System.nanoTime())
         Log.i(TAG, "gate trace start")

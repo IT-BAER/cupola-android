@@ -27,7 +27,8 @@ import kotlin.concurrent.thread
  * fault (--es arg orbit|surface|clear), capture (--es arg NAME [--ei w --ei h], or --es arg diff --es a A.png --es b B.png
  * [--ei threshold N]; files in getExternalFilesDir/captures), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
- * the ISS, needs the position; --ef fov field of view on the long screen axis in deg).
+ * the ISS, needs the position; --ef fov field of view on the long screen axis in deg), inputs (every session's last
+ * frame inputs by name and the texture-set mask with the slots on their fallback).
  */
 class GateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -63,6 +64,10 @@ class GateReceiver : BroadcastReceiver() {
                         capture(renderer, dir, arg ?: "capture", intent.getIntExtra("w", 1080), intent.getIntExtra("h", 2400))
                     }
                 }
+            }
+            "inputs" -> {
+                Gate.dumpInputs()
+                withRenderer(context) { renderer -> Log.i("CupolaGate", Gate.textureLine(renderer.textureSetMask())) }
             }
             "stats" -> when (arg) {
                 "reset" -> Gate.resetStats()
