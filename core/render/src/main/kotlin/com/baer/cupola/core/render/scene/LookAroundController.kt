@@ -170,13 +170,14 @@ class LookAroundController(private val clockNs: () -> Long) {
         const val MOVING_HOLD_NS = 500_000_000L
         const val LIMIT_DEG = 20.0
         const val PAN_RANGE_DEG = 8.0
-        const val TAU_S = 0.08
-        const val OMEGA = 3.9
+        // Output filter and spring-back rate: slow enough that sensor noise and the return do not distract on the home screen.
+        const val TAU_S = 0.35
+        const val OMEGA = 2.0
         const val SETTLE_DEG = 0.1
         const val SETTLE_DEG_PER_S = 0.5
 
-        // Amplitudes of each set sum to 2.0 deg.
-        val YAW_FLOAT = listOf(Sine(0.07, 1.0, 0.0), Sine(0.13, 0.6, 1.3), Sine(0.19, 0.4, 2.6))
-        val PITCH_FLOAT = listOf(Sine(0.06, 1.0, 0.7), Sine(0.11, 0.6, 2.1), Sine(0.17, 0.4, 0.4))
+        // Amplitudes of each set sum to 1.0 deg; against a star-only night window a larger sway reads as fast motion.
+        val YAW_FLOAT = listOf(Sine(0.07, 0.5, 0.0), Sine(0.13, 0.3, 1.3), Sine(0.19, 0.2, 2.6))
+        val PITCH_FLOAT = listOf(Sine(0.06, 0.5, 0.7), Sine(0.11, 0.3, 2.1), Sine(0.17, 0.2, 0.4))
     }
 }
