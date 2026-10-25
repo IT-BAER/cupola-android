@@ -139,7 +139,7 @@ internal class RenderSession(
         inputs[FrameInputs.TIME_SECONDS] = (System.nanoTime() / 1_000_000 % MILLIS_PER_DAY / 1000.0).toFloat()
         inputs[FrameInputs.LOOK_YAW_DEG] = view.yawDeg.toFloat()
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
-        writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg, current.interior)
+        writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg, current.interior, current.fovLongDeg)
         val reduced = if (engineState.reducedMotion) FrameInputs.MOTION_REDUCED else 0
         val other = inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()
         inputs[FrameInputs.EFFECTS] = (other or (current.effects and FrameInputs.EFFECTS_ALL) or reduced).toFloat()
@@ -159,7 +159,14 @@ internal class RenderSession(
      * Real UTC (preview: time-lapse) or the debug override; an override with instant and position skips SGP4.
      * An SGP4 failure (wrong device clock, decayed TLE) keeps the last good state, or the state at the TLE epoch.
      */
-    private fun writeScene(inputs: FloatArray, rest: RestView, yawDeg: Double, pitchDeg: Double, interior: Boolean) {
+    private fun writeScene(
+        inputs: FloatArray,
+        rest: RestView,
+        yawDeg: Double,
+        pitchDeg: Double,
+        interior: Boolean,
+        fovLongDeg: Double,
+    ) {
         val override = Gate.sceneOverride()
         val poseInstant = override?.instant
         val posePosition = override?.positionEcefKm
@@ -196,7 +203,7 @@ internal class RenderSession(
         lastScene = SceneDump(
             source, state.instant, state.latitudeDeg, state.longitudeDeg, state.heightKm, state.sunlitFraction, yawDeg, pitchDeg,
         )
-        adapted(SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override, interior)).write(inputs)
+        adapted(SceneInputs.build(state.toSceneState(), rest, yawDeg, pitchDeg, override, interior, fovLongDeg)).write(inputs)
     }
 
     private var lastGoodState: OrbitState? = null

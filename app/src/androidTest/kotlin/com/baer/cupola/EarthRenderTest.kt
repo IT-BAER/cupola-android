@@ -65,7 +65,7 @@ class EarthRenderTest {
     private fun scene(instant: Instant, latDeg: Double, lonDeg: Double, azDeg: Double, elDeg: Double): Scene {
         val state = (orbit.stateAt(instant) as OrbitState).toSceneState()
         val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(latDeg), Math.toRadians(lonDeg), ALT_KM))
-        val override = SceneOverride(instant, p, SceneGeometry.directionFromAzEl(p, azDeg, elDeg))
+        val override = SceneOverride(instant, p, SceneGeometry.directionFromAzEl(p, azDeg, elDeg), TEST_FOV_DEG)
         return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, override)
     }
 
@@ -105,7 +105,7 @@ class EarthRenderTest {
     }
 
     private fun restScene(instant: Instant, rest: RestView) =
-        SceneInputs.build((orbit.stateAt(instant) as OrbitState).toSceneState(), rest, 0.0, 0.0)
+        SceneInputs.build((orbit.stateAt(instant) as OrbitState).toSceneState(), rest, 0.0, 0.0, fovLongDeg = TEST_FOV_DEG)
 
     /** First instant after [DAY] (1 min steps) with the ISS deep in the Earth's shadow. */
     private fun nightInstant(): Instant = (0L until 180L).map { DAY.plusSeconds(60 * it) }.first {
@@ -842,10 +842,10 @@ class EarthRenderTest {
     @Test
     fun dustStaysSteadyUnderSubPixelLookAround() {
         val state = (orbit.stateAt(sunriseInstant()) as OrbitState).toSceneState()
-        val (fx, _) = SceneInputs.build(state, RestView.DIAGONAL, 0.0, 0.0).fovDeg(W, H)
+        val (fx, _) = SceneInputs.build(state, RestView.DIAGONAL, 0.0, 0.0, fovLongDeg = TEST_FOV_DEG).fovDeg(W, H)
         val halfPixelDeg = Math.toDegrees(atan(tan(Math.toRadians(fx / 2)) / W))
         fun dustLayer(yawDeg: Double): DoubleArray {
-            val scene = SceneInputs.build(state, RestView.DIAGONAL, yawDeg, 0.0)
+            val scene = SceneInputs.build(state, RestView.DIAGONAL, yawDeg, 0.0, fovLongDeg = TEST_FOV_DEG)
             val on = render(scene, 0.5f, effects = FrameInputs.EFFECT_DUST)
             val off = render(scene, 0.5f, effects = 0)
             return DoubleArray(W * H) { maxOf(0.0, luma(on, it % W, it / W) - luma(off, it % W, it / W)) }
@@ -1410,6 +1410,8 @@ class EarthRenderTest {
 
     companion object {
         private const val TAG = "EarthRenderTest"
+        // Fixed 14 mm test lens: the user's field of view (Settings) does not move the goldens and thresholds.
+        private val TEST_FOV_DEG = Math.toDegrees(atan(18.0 / 14.0)) * 2
         private const val W = 1080
         private const val H = 2340
         private const val ALT_KM = 420.0

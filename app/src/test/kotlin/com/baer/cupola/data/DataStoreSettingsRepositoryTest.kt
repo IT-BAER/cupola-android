@@ -106,4 +106,16 @@ class DataStoreSettingsRepositoryTest {
         r.setHomeCity(null)
         assertEquals(null, r.settings.first().homeCityId)
     }
+
+    @Test
+    fun fieldOfViewDefaultsToTheRestLensAndIsClamped() = runBlocking {
+        val r = repo()
+        assertEquals(Settings.FOV_DEFAULT_DEG, r.settings.first().fieldOfViewDeg)
+        r.setFieldOfView(80f)
+        assertEquals(80f, r.settings.first().fieldOfViewDeg)
+        r.setFieldOfView(500f)
+        assertEquals(Settings.FOV_MAX_DEG, r.settings.first().fieldOfViewDeg)
+        r.setFieldOfView(1f)
+        assertEquals(Settings.FOV_MIN_DEG, r.settings.first().fieldOfViewDeg)
+    }
 }

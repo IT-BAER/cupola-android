@@ -21,7 +21,16 @@ data class Settings(
     val dust: Boolean = true,
     val homeCityId: String? = null,
     val onlineOrbitUpdates: Boolean = true,
-)
+    /** Field of view on the long screen axis in degrees, [FOV_MIN_DEG]..[FOV_MAX_DEG]. */
+    val fieldOfViewDeg: Float = FOV_DEFAULT_DEG,
+) {
+    companion object {
+        const val FOV_MIN_DEG = 60f
+        const val FOV_MAX_DEG = 105f
+        /** The rest lens, 16 mm on a 36 mm sensor (SceneInputs.DEFAULT_FOV_LONG_DEG). */
+        const val FOV_DEFAULT_DEG = 96.73f
+    }
+}
 
 /** Metadata of the bundled orbit data (`assets/orbit/iss.json`); [retired] is the decision 38 flag. */
 data class OrbitMetadata(

@@ -13,6 +13,9 @@ interface SettingsRepository {
 
     /** Clamped to 0..1. */
     suspend fun setLookAroundStrength(value: Float)
+
+    /** Clamped to [Settings.FOV_MIN_DEG]..[Settings.FOV_MAX_DEG]. */
+    suspend fun setFieldOfView(value: Float)
     suspend fun setIdleFloat(value: Boolean)
     suspend fun setInterior(value: Boolean)
     suspend fun setBloom(value: Boolean)

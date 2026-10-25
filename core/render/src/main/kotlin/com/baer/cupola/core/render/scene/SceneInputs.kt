@@ -407,8 +407,8 @@ data class Scene(
 }
 
 object SceneInputs {
-    /** Cam_Rest lens: 14 mm on a 36 mm sensor (fit AUTO), applied to the long screen axis. */
-    val DEFAULT_FOV_LONG_DEG = Math.toDegrees(2 * atan(18.0 / 14.0))
+    /** Rest lens: 16 mm on a 36 mm sensor, applied to the long screen axis (Cam_Rest in the cabin scene is 14 mm). */
+    val DEFAULT_FOV_LONG_DEG = Math.toDegrees(2 * atan(18.0 / 16.0))
 
     /**
      * Explicit pose (override with instant and position): Sun and Moon straight from the ephemerides at that instant,
@@ -431,9 +431,18 @@ object SceneInputs {
     /**
      * Camera = LVLH(ISS) x [SceneGeometry.LVLH_FROM_BLENDER] x rest view x look-around. Positive [yawDeg] turns the
      * view right (about the camera up axis), positive [pitchDeg] up (about the turned right axis).
-     * A false [interior] keeps the camera but drops the cabin.
+     * A false [interior] keeps the camera but drops the cabin. [fovLongDeg] is the user's field of view; an override's
+     * own field of view wins.
      */
-    fun build(state: SceneState, rest: RestView, yawDeg: Double, pitchDeg: Double, override: SceneOverride? = null, interior: Boolean = true): Scene {
+    fun build(
+        state: SceneState,
+        rest: RestView,
+        yawDeg: Double,
+        pitchDeg: Double,
+        override: SceneOverride? = null,
+        interior: Boolean = true,
+        fovLongDeg: Double = DEFAULT_FOV_LONG_DEG,
+    ): Scene {
         val position = override?.positionEcefKm ?: state.positionEcefKm
         val forward = override?.cameraForwardEcef
         val blenderFromCamera = if (forward != null) null else rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
@@ -446,7 +455,7 @@ object SceneInputs {
             instant = state.instant,
             cameraEcefKm = position,
             ecefFromCamera = ecefFromCamera,
-            fovLongDeg = override?.fovLongDeg ?: DEFAULT_FOV_LONG_DEG,
+            fovLongDeg = override?.fovLongDeg ?: fovLongDeg,
             sunDirEcef = state.sunDirEcef,
             moonDirEcef = state.moonDirEcef,
             month = monthBlend(state.instant),

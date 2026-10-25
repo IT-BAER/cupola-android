@@ -13,6 +13,8 @@ data class RenderSettings(
     val effects: Int = BLOOM or WINDOW_GLARE or REFLECTIONS or DUST,
     /** Home city (latitude, longitude) in degrees for the wallpaper marker (P6.7); null when none is set. */
     val homeCity: Pair<Double, Double>? = null,
+    /** Field of view on the long screen axis in degrees. */
+    val fovLongDeg: Double = Settings.FOV_DEFAULT_DEG.toDouble(),
 ) {
     companion object {
         const val BLOOM = 1
@@ -35,6 +37,7 @@ fun Settings.toRenderSettings() = RenderSettings(
         (if (reflections) RenderSettings.REFLECTIONS else 0) or
         (if (dust) RenderSettings.DUST else 0),
     homeCity = homeCityId?.let(::homeCityLatLon),
+    fovLongDeg = fieldOfViewDeg.toDouble(),
 )
 
 /** Latitude and longitude from the end of a CityEntry id (name|country|lat|lon); null when malformed. */

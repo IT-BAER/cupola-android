@@ -63,6 +63,7 @@ fun CupolaNavHost(
                         actions = SettingsActions(
                             onRestDirection = settings::setRestDirection,
                             onLookAroundStrength = settings::setLookAroundStrength,
+                            onFieldOfView = settings::setFieldOfView,
                             onIdleFloat = settings::setIdleFloat,
                             onInterior = settings::setInterior,
                             onBloom = settings::setBloom,

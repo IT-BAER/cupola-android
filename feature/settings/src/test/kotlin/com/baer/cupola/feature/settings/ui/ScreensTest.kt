@@ -44,6 +44,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import com.baer.cupola.feature.settings.AppInfo
 import com.baer.cupola.feature.settings.CityEntry
 import com.baer.cupola.feature.settings.CreditsParser
@@ -203,6 +204,16 @@ class ScreensTest {
     }
 
     @Test
+    fun fieldOfViewSliderReachesTheRepository() {
+        val repo = FakeSettingsRepository()
+        host(repo = repo)
+        val slider = rule.onNodeWithTag(SettingsTags.FIELD_OF_VIEW).performScrollTo()
+        slider.assert(hasContentDescription("Field of view"))
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(70f) }
+        rule.waitUntil(5_000) { runBlocking { repo.settings.first() }.fieldOfViewDeg == 70f }
+    }
+
+    @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun lookAroundSliderShowsKeyboardFocus() {
         val noop = {}
@@ -223,7 +234,7 @@ class ScreensTest {
             return IntArray(w * h).also { bitmap.getPixels(it, 0, w, b.left.toInt(), b.top.toInt(), w, h) }
         }
         val unfocused = sliderPixels()
-        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress)).requestFocus()
+        slider.requestFocus()
         rule.waitForIdle()
         val focused = sliderPixels()
         assertFalse("focused slider looks the same as unfocused", unfocused.contentEquals(focused))

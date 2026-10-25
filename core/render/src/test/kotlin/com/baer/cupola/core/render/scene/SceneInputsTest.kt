@@ -128,13 +128,15 @@ class SceneInputsTest {
     @Test
     fun fovIsTheLensOnTheLongAxis() {
         val scene = SceneInputs.build(state(0.0, 0.0), RestView.NADIR, 0.0, 0.0)
-        assertEquals(104.25, SceneInputs.DEFAULT_FOV_LONG_DEG, 0.01)
+        assertEquals(96.73, SceneInputs.DEFAULT_FOV_LONG_DEG, 0.01)
         val (h, v) = scene.fovDeg(1080, 2340)
         assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, v, 1e-9)
         assertEquals(Math.toDegrees(2 * kotlin.math.atan(kotlin.math.tan(Math.toRadians(v / 2)) * 1080 / 2340)), h, 1e-9)
         val (hl, vl) = scene.fovDeg(2340, 1080)
         assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, hl, 1e-9)
         assertEquals(h, vl, 1e-9)
+        val narrow = SceneInputs.build(state(0.0, 0.0), RestView.NADIR, 0.0, 0.0, fovLongDeg = 70.0)
+        assertEquals(70.0, narrow.fovDeg(1080, 2340).second, 1e-9)
     }
 
     @Test

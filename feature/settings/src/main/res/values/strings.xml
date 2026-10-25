@@ -7,6 +7,7 @@
     <string name="rest_diagonal">Diagonal</string>
     <string name="rest_nadir">Straight down</string>
     <string name="look_around_strength">Look-around strength</string>
+    <string name="field_of_view">Field of view</string>
     <string name="idle_float">Idle float</string>
     <string name="interior">Cupola interior</string>
     <string name="effects">Effects</string>

@@ -47,6 +47,7 @@ import com.baer.cupola.feature.settings.InfoUiState
 import com.baer.cupola.feature.settings.PreviewRenderer
 import com.baer.cupola.feature.settings.R
 import com.baer.cupola.feature.settings.RestDirection
+import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.feature.settings.SettingsUiState
 
 /** Everything the Settings screen can do; [SettingsViewModel] setters plus navigation and intents. */
@@ -67,10 +68,12 @@ data class SettingsActions(
     val onShare: () -> Unit,
     val onReset: () -> Unit,
     val onOnlineOrbitUpdates: (Boolean) -> Unit = {},
+    val onFieldOfView: (Float) -> Unit = {},
 )
 
 object SettingsTags {
     const val LOOK_AROUND = "look_around_slider"
+    const val FIELD_OF_VIEW = "field_of_view_slider"
     const val PREVIEW = "preview"
 }
 
@@ -106,21 +109,14 @@ fun SettingsScreen(
             }
 
             Section(R.string.look_around_strength)
-            val lookAroundLabel = stringResource(R.string.look_around_strength)
-            val sliderInteraction = remember { MutableInteractionSource() }
-            // The M3 Slider draws no focus state; match the 10 % focus layer of the rows.
-            val sliderFocus = if (sliderInteraction.collectIsFocusedAsState().value) {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-            } else {
-                Color.Transparent
-            }
-            Slider(
-                value = s.lookAroundStrength,
-                onValueChange = actions.onLookAroundStrength,
-                valueRange = 0f..1f,
-                interactionSource = sliderInteraction,
-                modifier = Modifier.testTag(SettingsTags.LOOK_AROUND).background(sliderFocus)
-                    .semantics { contentDescription = lookAroundLabel },
+            LabelledSlider(
+                R.string.look_around_strength, s.lookAroundStrength, actions.onLookAroundStrength, 0f..1f,
+                SettingsTags.LOOK_AROUND,
+            )
+            Section(R.string.field_of_view)
+            LabelledSlider(
+                R.string.field_of_view, s.fieldOfViewDeg, actions.onFieldOfView,
+                Settings.FOV_MIN_DEG..Settings.FOV_MAX_DEG, SettingsTags.FIELD_OF_VIEW,
             )
             SwitchRow(R.string.idle_float, s.idleFloat, actions.onIdleFloat)
 
@@ -167,6 +163,31 @@ private fun Section(title: Int) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 16.dp),
+    )
+}
+
+@Composable
+private fun LabelledSlider(
+    label: Int,
+    value: Float,
+    onChange: (Float) -> Unit,
+    range: ClosedFloatingPointRange<Float>,
+    tag: String,
+) {
+    val name = stringResource(label)
+    val interaction = remember { MutableInteractionSource() }
+    // The M3 Slider draws no focus state; match the 10 % focus layer of the rows.
+    val focus = if (interaction.collectIsFocusedAsState().value) {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+    } else {
+        Color.Transparent
+    }
+    Slider(
+        value = value,
+        onValueChange = onChange,
+        valueRange = range,
+        interactionSource = interaction,
+        modifier = Modifier.testTag(tag).background(focus).semantics { contentDescription = name },
     )
 }
 

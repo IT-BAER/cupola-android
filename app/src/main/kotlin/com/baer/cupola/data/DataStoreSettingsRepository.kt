@@ -30,11 +30,14 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
             dust = p[DUST] ?: defaults.dust,
             homeCityId = p[HOME_CITY],
             onlineOrbitUpdates = p[ONLINE_ORBIT] ?: defaults.onlineOrbitUpdates,
+            fieldOfViewDeg = (p[FIELD_OF_VIEW] ?: defaults.fieldOfViewDeg).coerceIn(Settings.FOV_MIN_DEG, Settings.FOV_MAX_DEG),
         )
     }
 
     override suspend fun setRestDirection(value: RestDirection) = put { it[REST_DIRECTION] = value.name }
     override suspend fun setLookAroundStrength(value: Float) = put { it[LOOK_AROUND] = value.coerceIn(0f, 1f) }
+    override suspend fun setFieldOfView(value: Float) =
+        put { it[FIELD_OF_VIEW] = value.coerceIn(Settings.FOV_MIN_DEG, Settings.FOV_MAX_DEG) }
     override suspend fun setIdleFloat(value: Boolean) = put { it[IDLE_FLOAT] = value }
     override suspend fun setInterior(value: Boolean) = put { it[INTERIOR] = value }
     override suspend fun setBloom(value: Boolean) = put { it[BLOOM] = value }
@@ -64,5 +67,6 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
         val DUST = booleanPreferencesKey("effect_dust")
         val HOME_CITY = stringPreferencesKey("home_city_id")
         val ONLINE_ORBIT = booleanPreferencesKey("online_orbit_updates")
+        val FIELD_OF_VIEW = floatPreferencesKey("field_of_view_deg")
     }
 }

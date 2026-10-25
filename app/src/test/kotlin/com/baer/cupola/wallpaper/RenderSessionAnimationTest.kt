@@ -37,6 +37,14 @@ class RenderSessionAnimationTest {
         assertEquals(FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_DUST, inputs.effects() and all)
     }
 
+    /** The Settings field of view reaches the shader's TAN_HALF_FOV_LONG. */
+    @Test
+    fun settingsFieldOfViewReachesTheShader() {
+        val inputs = RenderSession(orbit, { RenderSettings(fovLongDeg = 70.0) }, { orbit.epoch.toEpochMilli() + 3_600_000 })
+            .apply { apply(EngineState(visible = true), FrameScheduler()) }.nextFrameInputs()
+        assertEquals(kotlin.math.tan(Math.toRadians(35.0)), inputs[FrameInputs.TAN_HALF_FOV_LONG].toDouble(), 1e-6)
+    }
+
     @Test
     fun reducedMotionReachesTheShader() {
         assertTrue(session(EngineState(visible = true, reducedMotion = true)).nextFrameInputs().effects() and FrameInputs.MOTION_REDUCED != 0)

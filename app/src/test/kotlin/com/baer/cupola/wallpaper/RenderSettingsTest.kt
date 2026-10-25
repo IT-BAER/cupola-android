@@ -37,6 +37,13 @@ class RenderSettingsTest {
     }
 
     @Test
+    fun fieldOfViewMapsToRenderSettingsAndDefaultsToTheRestLens() {
+        assertEquals(75.0, Settings(fieldOfViewDeg = 75f).toRenderSettings().fovLongDeg, 1e-6)
+        assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, Settings().toRenderSettings().fovLongDeg, 0.01)
+        assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, RenderSettings().fovLongDeg, 0.01)
+    }
+
+    @Test
     fun interiorMapsToRenderSettings() {
         assertEquals(true, Settings().toRenderSettings().interior)
         assertFalse(Settings(interior = false).toRenderSettings().interior)
