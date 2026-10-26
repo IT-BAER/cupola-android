@@ -368,23 +368,56 @@ class EarthRenderTest {
             listOf(1f, 0.5f).map { Triple(RestView.DIAGONAL, it, false) }
         for ((rest, scale, interior) in configs) {
             val scene = restScene(DAY, rest)
-            repeat(GPU_WARMUP) { render(scene, scale, interior, effects = FrameInputs.EFFECTS_ALL) }
-            val samples = (0 until GPU_SAMPLES).map {
-                render(scene, scale, interior, effects = FrameInputs.EFFECTS_ALL) // the default settings
-                Triple(renderer.lastGpuTimeNanos() / 1e6, renderer.lastEarthPassGpuTimeNanos() / 1e6, renderer.lastSkyPassGpuTimeNanos() / 1e6)
-            }.filter { it.first >= 0 && it.second >= 0 && it.third >= 0 }
-            assertTrue("no GPU timestamps", samples.isNotEmpty())
-            fun pct(values: List<Double>, p: Int) = values.sorted()[((values.size - 1) * p + 99) / 100]
-            val total = samples.map { it.first }
-            val earth = samples.map { it.second }
-            val sky = samples.map { it.third }
-            val composite = samples.map { it.first - it.second - it.third }
-            Log.i(
-                TAG,
-                "frame gpu $rest scale $scale interior $interior ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms sky p50=%.3f earth p50=%.3f composite p50=%.3f"
-                    .format(pct(total, 50), pct(total, 95), pct(sky, 50), pct(earth, 50), pct(composite, 50)),
-            )
+            logGpu("$rest scale $scale interior $interior") { render(scene, scale, interior, effects = FrameInputs.EFFECTS_ALL) }
         }
+    }
+
+    /**
+     * Full frame GPU time at the shipped defaults (NADIR, scale 0.6, interior, all effects) with one feature off at a
+     * time, day and night; the default runs first and last of each scene so drift shows. Logged, compared by hand.
+     */
+    @Test
+    fun gpuTimePerFeature() {
+        val all = FrameInputs.EFFECTS_ALL
+        val features = listOf(
+            "default" to Triple(true, all, 0),
+            "no bloom" to Triple(true, all and FrameInputs.EFFECT_BLOOM.inv(), 0),
+            "no glare" to Triple(true, all and FrameInputs.EFFECT_WINDOW_GLARE.inv(), 0),
+            "no reflections" to Triple(true, all and FrameInputs.EFFECT_REFLECTIONS.inv(), 0),
+            "no dust" to Triple(true, all and FrameInputs.EFFECT_DUST.inv(), 0),
+            "no effects" to Triple(true, 0, 0),
+            "no clouds" to Triple(true, all, FrameInputs.DEBUG_NO_CLOUDS),
+            "no lightning" to Triple(true, all, FrameInputs.DEBUG_NO_LIGHTNING),
+            "no interior" to Triple(false, all, 0),
+            "default again" to Triple(true, all, 0),
+        )
+        for ((name, instant) in listOf("day" to DAY, "night" to nightInstant())) {
+            val scene = restScene(instant, RestView.NADIR)
+            for ((feature, cfg) in features) {
+                val (interior, effects, debug) = cfg
+                logGpu("$name $feature") { render(scene, 0.6f, interior, debug, animSeconds = 0f, effects = effects) }
+            }
+        }
+    }
+
+    /** Renders [GPU_WARMUP] + [GPU_SAMPLES] frames with [frame] and logs the GPU time percentiles under [label]. */
+    private fun logGpu(label: String, frame: () -> Unit) {
+        repeat(GPU_WARMUP) { frame() }
+        val samples = (0 until GPU_SAMPLES).map {
+            frame()
+            Triple(renderer.lastGpuTimeNanos() / 1e6, renderer.lastEarthPassGpuTimeNanos() / 1e6, renderer.lastSkyPassGpuTimeNanos() / 1e6)
+        }.filter { it.first >= 0 && it.second >= 0 && it.third >= 0 }
+        assertTrue("no GPU timestamps", samples.isNotEmpty())
+        fun pct(values: List<Double>, p: Int) = values.sorted()[((values.size - 1) * p + 99) / 100]
+        val total = samples.map { it.first }
+        val earth = samples.map { it.second }
+        val sky = samples.map { it.third }
+        val composite = samples.map { it.first - it.second - it.third }
+        Log.i(
+            TAG,
+            "frame gpu $label ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms sky p50=%.3f earth p50=%.3f composite p50=%.3f"
+                .format(pct(total, 50), pct(total, 95), pct(sky, 50), pct(earth, 50), pct(composite, 50)),
+        )
     }
 
     /** Geocentric lat/lon in degrees of the subsolar point at [instant]. */
