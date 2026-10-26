@@ -31,15 +31,16 @@ class SettingsReachRendererTest {
         val host = RendererHost(context, repository, DataModule.orbitRepository(context))
         val (id, session) = host.openSession()
         try {
-            val back = { session.nextFrameInputs()[FrameInputs.CAMERA_BACK + 2] }
+            // The whole axis: one ECEF component alone can stay put at some ISS positions.
+            val back = { session.nextFrameInputs().copyOfRange(FrameInputs.CAMERA_BACK, FrameInputs.CAMERA_BACK + 3) }
             waitUntil(5_000) { host.settings.rest.name == "DIAGONAL" }
             val before = back()
             val start = System.nanoTime()
             repository.setRestDirection(RestDirection.NADIR)
-            val reached = waitUntil(1_000) { kotlin.math.abs(back() - before) > 0.05f }
+            val reached = waitUntil(1_000) { back().zip(before) { a, b -> (a - b) * (a - b) }.sum() > 0.05f * 0.05f }
             val ms = (System.nanoTime() - start) / 1e6
             Log.i("SettingsReachRendererTest", "rest direction reached the session after %.1f ms".format(ms))
-            assertTrue("no change within 1 s (camera back z stayed %.3f)".format(before), reached)
+            assertTrue("no change within 1 s (camera back stayed %s)".format(before.contentToString()), reached)
         } finally {
             host.closeSession(id)
             file.delete()
