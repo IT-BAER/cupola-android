@@ -19,7 +19,7 @@ Asked with AskUserQuestion and answered by the owner on 18 October 2026.
 |---|---|---|
 | D1 | Repo folder and hosting | `D:\VSC\Cupola`, plus a private GitHub repo `IT-BAER/cupola-android` (renamed from `IT-BAER/cupola` on 23 October 2026) for CI, the TLE fetch and the Play upload (HandType pattern) |
 | D2 | Viewers for the photoreal gate (decision 16) | The owner alone. Bias control: the NASA photos used in G-PR are a hold-out set the owner does not see before the gate run (see P4.1 and G-PR) |
-| D3 | Battery budget for the final performance gate | At most 1 %/h extra drain, screen on, phone still (15 fps), live against static wallpaper |
+| D3 | Battery budget for the final performance gate | At most 3 %/h extra drain, screen on, phone still (15 fps), live against static wallpaper (raised from 1 %/h on 26 October 2026, see G-PERF) |
 | D4 | Closed test for a paid app (testers must buy it) | Decided at the start of P8; the OC5 promo-code check is an input |
 
 Defaults taken without a question (the owner can override any of them):
@@ -566,10 +566,11 @@ paused and animation scales set to 1 (restored to 0 afterwards).
   none above 33.4 ms; GPU p95 at most 12 ms; thermal status MODERATE or lower after 10 minutes;
   the governor never steps below the default quality step.
 - Still: 15 +- 1 fps. Hidden: 0 frames. Battery saver: one frame per visibility change.
-- Battery (D3): at most 1 %/h extra drain. Measured over 2 hours with the screen on at fixed
+- Battery (D3): at most 3 %/h extra drain. Measured over 2 hours with the screen on at fixed
   brightness, phone still (15 fps), flight mode, same start charge band, live wallpaper against
-  the static system wallpaper. If the gate fails, idle quality or the idle frame rate goes down
-  first (owner accepted this trade-off with the stricter budget).
+  the static system wallpaper. The budget was 1 %/h until 26 October 2026: still frames cost about
+  8 mA per fps on the Pixel 7 Pro, so 1 %/h meant 2 fps at rest, and the owner rejected the
+  visible steps. If the gate fails, idle quality goes down first.
 - Memory: total PSS at most 512 MiB with the active and preview engines running.
 
 ### G-PR, photoreal side-by-side gate (decision 16, hard gate)
