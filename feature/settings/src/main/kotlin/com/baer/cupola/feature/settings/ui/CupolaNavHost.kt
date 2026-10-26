@@ -78,6 +78,9 @@ fun CupolaNavHost(
                             onShare = onShare,
                             onReset = settings::resetToDefaults,
                             onOnlineOrbitUpdates = settings::setOnlineOrbitUpdates,
+                            onStillFps = settings::setStillFps,
+                            onQuality = settings::setQuality,
+                            onClouds = settings::setClouds,
                         ),
                     )
                 }

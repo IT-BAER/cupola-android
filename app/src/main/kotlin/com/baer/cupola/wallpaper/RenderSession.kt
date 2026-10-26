@@ -87,6 +87,10 @@ internal class RenderSession(
     var moving = false
         private set
 
+    /** Called on the render thread when look-around starts or stops needing the rotation sensor; strength 0 needs none. */
+    var onSensorWanted: ((Boolean) -> Unit)? = null
+    private var lastSensorWanted: Boolean? = null
+
     fun apply(state: EngineState, scheduler: FrameScheduler) {
         engineState = state
         if (state.visible && !wasVisible) look.onVisible()
@@ -96,6 +100,7 @@ internal class RenderSession(
         look.reducedMotion = state.reducedMotion
         scheduler.setVisible(state.visible)
         scheduler.batterySaver = state.batterySaver
+        scheduler.stillFps = settings().stillFps
         syncRate(scheduler)
     }
 
@@ -131,6 +136,13 @@ internal class RenderSession(
         if (Gate.frozen()) lastInputs?.let { return it.copyOf() }
         feedTrace()
         val current = settings()
+        val sensorWanted = current.lookStrength > 0.0
+        if (sensorWanted != lastSensorWanted) {
+            // The sensor was off: its first sample must not swing the view from the stale reference.
+            if (sensorWanted && lastSensorWanted == false) look.onVisible()
+            lastSensorWanted = sensorWanted
+            onSensorWanted?.invoke(sensorWanted)
+        }
         look.strength = current.lookStrength
         look.idleFloat = current.idleFloat
         val view = look.update()
@@ -141,8 +153,10 @@ internal class RenderSession(
         inputs[FrameInputs.LOOK_PITCH_DEG] = view.pitchDeg.toFloat()
         writeScene(inputs, current.rest, view.yawDeg, view.pitchDeg, current.interior, current.fovLongDeg)
         val reduced = if (engineState.reducedMotion) FrameInputs.MOTION_REDUCED else 0
+        // The clouds switch reuses the shader's debug bit; its GPU saving was measured with it.
+        val noClouds = if (current.clouds) 0 else FrameInputs.DEBUG_NO_CLOUDS
         val other = inputs[FrameInputs.EFFECTS].toInt() and FrameInputs.EFFECTS_ALL.inv()
-        inputs[FrameInputs.EFFECTS] = (other or (current.effects and FrameInputs.EFFECTS_ALL) or reduced).toFloat()
+        inputs[FrameInputs.EFFECTS] = (other or (current.effects and FrameInputs.EFFECTS_ALL) or reduced or noClouds).toFloat()
         current.homeCity?.let { (lat, lon) ->
             val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(lat), Math.toRadians(lon), 0.0))
             inputs[FrameInputs.HOME_CITY] = p.x.toFloat()

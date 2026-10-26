@@ -46,6 +46,9 @@ class SettingsViewModel @Inject constructor(
     fun setRestDirection(value: RestDirection) = launch { repository.setRestDirection(value) }
     fun setLookAroundStrength(value: Float) = launch { repository.setLookAroundStrength(value) }
     fun setFieldOfView(value: Float) = launch { repository.setFieldOfView(value) }
+    fun setStillFps(value: Int) = launch { repository.setStillFps(value) }
+    fun setQuality(value: Quality) = launch { repository.setQuality(value) }
+    fun setClouds(value: Boolean) = launch { repository.setClouds(value) }
     fun setIdleFloat(value: Boolean) = launch { repository.setIdleFloat(value) }
     fun setInterior(value: Boolean) = launch { repository.setInterior(value) }
     fun setBloom(value: Boolean) = launch { repository.setBloom(value) }
@@ -61,6 +64,9 @@ class SettingsViewModel @Inject constructor(
         repository.setRestDirection(d.restDirection)
         repository.setLookAroundStrength(d.lookAroundStrength)
         repository.setFieldOfView(d.fieldOfViewDeg)
+        repository.setStillFps(d.stillFps)
+        repository.setQuality(d.quality)
+        repository.setClouds(d.clouds)
         repository.setIdleFloat(d.idleFloat)
         repository.setInterior(d.interior)
         repository.setBloom(d.bloom)

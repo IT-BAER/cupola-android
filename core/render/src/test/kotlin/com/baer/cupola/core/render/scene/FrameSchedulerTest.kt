@@ -28,6 +28,17 @@ class FrameSchedulerTest {
         assertEquals(15, s.targetFps)
     }
 
+    /** The Settings rest rate: on a 60 Hz display, 2 s at 5 fps render 10 frames and at 30 fps 60 frames. */
+    @Test fun stillRateFollowsTheSetting() {
+        for ((fps, frames) in listOf(5 to 10, 30 to 60)) {
+            val s = FrameScheduler()
+            s.stillFps = fps
+            s.setVisible(true)
+            assertEquals(fps, s.targetFps)
+            assertEquals(frames, renderedTicks(s, vsync60, 120).size)
+        }
+    }
+
     @Test fun displayVoteStaysAt60WhileStillAndIsZeroWhenNothingRenders() {
         val s = FrameScheduler()
         assertEquals(0, s.voteFps)

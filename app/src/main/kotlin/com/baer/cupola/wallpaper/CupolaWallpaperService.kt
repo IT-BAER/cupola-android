@@ -85,6 +85,7 @@ class CupolaWallpaperService : WallpaperService() {
             surfaceId = opened.first
             session = opened.second
             sensor = OrientationSensor(getSystemService(SensorManager::class.java), session::onOrientation)
+            session.onSensorWanted = sensor::setEnabled
         }
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {

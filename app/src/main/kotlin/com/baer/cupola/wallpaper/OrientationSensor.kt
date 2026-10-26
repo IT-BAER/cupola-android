@@ -11,7 +11,8 @@ import com.baer.cupola.core.render.NativeRenderer
 /**
  * Game rotation vector feed delivered on the render thread. Registration runs on that thread (the Handler is
  * built from its Looper); [lock] makes a late registration lose against a [stop] from any thread.
- * Without the sensor, [start] does nothing and look-around stays at rest.
+ * Without the sensor, [start] does nothing and look-around stays at rest. [setEnabled] (false at look-around
+ * strength 0) keeps it released while visible.
  */
 internal class OrientationSensor(
     private val manager: SensorManager?,
@@ -20,19 +21,33 @@ internal class OrientationSensor(
     private val sensor = manager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
     private val lock = Any()
     private var wanted = false
+    private var enabled = true
     private var registered = false
 
     fun start(renderer: NativeRenderer, surfaceId: Int) {
+        if (manager == null || sensor == null) return
+        synchronized(lock) { wanted = true }
+        renderer.updateScheduler(surfaceId) { synchronized(lock) { syncLocked() } }
+    }
+
+    /** Render thread only. */
+    fun setEnabled(on: Boolean) {
+        synchronized(lock) {
+            enabled = on
+            syncLocked()
+        }
+    }
+
+    // Holds [lock] on the render thread, whose Looper delivers the events.
+    private fun syncLocked() {
         val manager = manager ?: return
         val sensor = sensor ?: return
-        synchronized(lock) { wanted = true }
-        renderer.updateScheduler(surfaceId) {
-            synchronized(lock) {
-                if (wanted && !registered) {
-                    val handler = Handler(checkNotNull(Looper.myLooper()))
-                    registered = manager.registerListener(this@OrientationSensor, sensor, SensorManager.SENSOR_DELAY_GAME, handler)
-                }
-            }
+        if (wanted && enabled && !registered) {
+            val handler = Handler(checkNotNull(Looper.myLooper()))
+            registered = manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME, handler)
+        } else if (!(wanted && enabled) && registered) {
+            manager.unregisterListener(this)
+            registered = false
         }
     }
 

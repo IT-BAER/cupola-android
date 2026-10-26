@@ -1,6 +1,7 @@
 package com.baer.cupola.wallpaper
 
 import com.baer.cupola.core.render.scene.RestView
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 
@@ -15,6 +16,11 @@ data class RenderSettings(
     val homeCity: Pair<Double, Double>? = null,
     /** Field of view on the long screen axis in degrees. */
     val fovLongDeg: Double = Settings.FOV_DEFAULT_DEG.toDouble(),
+    /** Frame rate while the view rests. */
+    val stillFps: Int = Settings.STILL_FPS_DEFAULT,
+    /** Cap on the Earth render scale (Settings quality); the thermal governor can go lower. */
+    val maxRenderScale: Float = 0.6f,
+    val clouds: Boolean = true,
 ) {
     companion object {
         const val BLOOM = 1
@@ -38,6 +44,13 @@ fun Settings.toRenderSettings() = RenderSettings(
         (if (dust) RenderSettings.DUST else 0),
     homeCity = homeCityId?.let(::homeCityLatLon),
     fovLongDeg = fieldOfViewDeg.toDouble(),
+    stillFps = stillFps,
+    maxRenderScale = when (quality) {
+        Quality.HIGH -> 0.6f
+        Quality.MEDIUM -> 0.5f
+        Quality.LOW -> 0.4f
+    },
+    clouds = clouds,
 )
 
 /** Latitude and longitude from the end of a CityEntry id (name|country|lat|lon); null when malformed. */

@@ -37,6 +37,7 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -60,6 +61,7 @@ import com.baer.cupola.feature.settings.InfoSnapshot
 import com.baer.cupola.feature.settings.InfoUiState
 import com.baer.cupola.feature.settings.InfoViewModel
 import com.baer.cupola.feature.settings.PreviewRenderer
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.feature.settings.SettingsUiState
@@ -155,6 +157,21 @@ class ScreensTest {
         rule.onNodeWithText("Cupola interior").performScrollTo().assertIsOn().performClick()
         rule.waitUntil { kotlinx.coroutines.runBlocking { !repo.settings.first().interior } }
         rule.onNodeWithText("Cupola interior").assertIsOff()
+    }
+
+    @Test
+    fun batterySettingsWriteTheSettings() {
+        val repo = FakeSettingsRepository()
+        host(repo)
+        rule.onNodeWithText("15 fps (default)").performScrollTo().assertIsSelected()
+        rule.onNodeWithText("5 fps").performScrollTo().performClick()
+        rule.onNodeWithText("Low").performScrollTo().performClick()
+        rule.onNodeWithText("Clouds").performScrollTo().assertIsOn().performClick()
+        rule.waitUntil { kotlinx.coroutines.runBlocking { !repo.settings.first().clouds } }
+        val s = kotlinx.coroutines.runBlocking { repo.settings.first() }
+        assertEquals(5, s.stillFps)
+        assertEquals(Quality.LOW, s.quality)
+        rule.onNodeWithText("5 fps").assertIsSelected()
     }
 
     @Test

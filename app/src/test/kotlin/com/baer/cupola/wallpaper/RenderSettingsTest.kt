@@ -4,6 +4,7 @@ import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.scene.RestView
 import com.baer.cupola.core.render.scene.SceneInputs
 import com.baer.cupola.core.render.scene.toSceneState
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.orbit.OrbitModel
@@ -41,6 +42,31 @@ class RenderSettingsTest {
         assertEquals(75.0, Settings(fieldOfViewDeg = 75f).toRenderSettings().fovLongDeg, 1e-6)
         assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, Settings().toRenderSettings().fovLongDeg, 0.01)
         assertEquals(SceneInputs.DEFAULT_FOV_LONG_DEG, RenderSettings().fovLongDeg, 0.01)
+    }
+
+    @Test
+    fun stillFpsMapsToRenderSettingsAndDefaultsTo15() {
+        assertEquals(15, Settings().toRenderSettings().stillFps)
+        assertEquals(15, RenderSettings().stillFps)
+        assertEquals(5, Settings(stillFps = 5).toRenderSettings().stillFps)
+    }
+
+    @Test
+    fun qualityCapsTheRenderScale() {
+        assertEquals(0.6f, Settings().toRenderSettings().maxRenderScale)
+        assertEquals(0.5f, Settings(quality = Quality.MEDIUM).toRenderSettings().maxRenderScale)
+        assertEquals(0.4f, Settings(quality = Quality.LOW).toRenderSettings().maxRenderScale)
+        // The thermal governor can still go below the cap, never above it.
+        assertEquals(0.4f, renderScale(governorStep = 2, maxScale = 0.4f))
+        assertEquals(0.4f, renderScale(governorStep = 0, maxScale = 0.6f))
+        assertEquals(0.6f, renderScale(governorStep = 2, maxScale = 0.6f))
+    }
+
+    @Test
+    fun cloudsSwitchMapsToRenderSettings() {
+        assertEquals(true, Settings().toRenderSettings().clouds)
+        assertEquals(true, RenderSettings().clouds)
+        assertFalse(Settings(clouds = false).toRenderSettings().clouds)
     }
 
     @Test

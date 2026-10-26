@@ -6,7 +6,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.feature.settings.SettingsRepository
@@ -31,6 +33,9 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
             homeCityId = p[HOME_CITY],
             onlineOrbitUpdates = p[ONLINE_ORBIT] ?: defaults.onlineOrbitUpdates,
             fieldOfViewDeg = (p[FIELD_OF_VIEW] ?: defaults.fieldOfViewDeg).coerceIn(Settings.FOV_MIN_DEG, Settings.FOV_MAX_DEG),
+            stillFps = p[STILL_FPS]?.takeIf { it in Settings.STILL_FPS_CHOICES } ?: defaults.stillFps,
+            quality = p[QUALITY]?.let { name -> Quality.entries.firstOrNull { it.name == name } } ?: defaults.quality,
+            clouds = p[CLOUDS] ?: defaults.clouds,
         )
     }
 
@@ -38,6 +43,11 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
     override suspend fun setLookAroundStrength(value: Float) = put { it[LOOK_AROUND] = value.coerceIn(0f, 1f) }
     override suspend fun setFieldOfView(value: Float) =
         put { it[FIELD_OF_VIEW] = value.coerceIn(Settings.FOV_MIN_DEG, Settings.FOV_MAX_DEG) }
+    override suspend fun setStillFps(value: Int) {
+        if (value in Settings.STILL_FPS_CHOICES) put { it[STILL_FPS] = value }
+    }
+    override suspend fun setQuality(value: Quality) = put { it[QUALITY] = value.name }
+    override suspend fun setClouds(value: Boolean) = put { it[CLOUDS] = value }
     override suspend fun setIdleFloat(value: Boolean) = put { it[IDLE_FLOAT] = value }
     override suspend fun setInterior(value: Boolean) = put { it[INTERIOR] = value }
     override suspend fun setBloom(value: Boolean) = put { it[BLOOM] = value }
@@ -68,5 +78,8 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
         val HOME_CITY = stringPreferencesKey("home_city_id")
         val ONLINE_ORBIT = booleanPreferencesKey("online_orbit_updates")
         val FIELD_OF_VIEW = floatPreferencesKey("field_of_view_deg")
+        val STILL_FPS = intPreferencesKey("still_fps")
+        val QUALITY = stringPreferencesKey("quality")
+        val CLOUDS = booleanPreferencesKey("clouds")
     }
 }

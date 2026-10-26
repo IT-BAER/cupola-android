@@ -15,6 +15,16 @@
     <string name="effect_glare">Window glare</string>
     <string name="effect_reflections">Reflections</string>
     <string name="effect_dust">Dust</string>
+    <string name="effect_clouds">Clouds</string>
+    <string name="still_fps">Frame rate at rest</string>
+    <string name="still_fps_hint">Lower saves battery. 30 fps is smoother but uses clearly more battery.</string>
+    <string name="still_fps_value">%1$d fps</string>
+    <string name="still_fps_default">%1$d fps (default)</string>
+    <string name="quality">Quality</string>
+    <string name="quality_hint">Lower quality renders the Earth at a lower resolution and saves battery.</string>
+    <string name="quality_high">High</string>
+    <string name="quality_medium">Medium</string>
+    <string name="quality_low">Low</string>
     <string name="reset_defaults">Reset to defaults</string>
     <string name="home_city">Home city</string>
     <string name="home_city_none">Not set</string>

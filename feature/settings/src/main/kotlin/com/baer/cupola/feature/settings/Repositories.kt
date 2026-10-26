@@ -16,6 +16,11 @@ interface SettingsRepository {
 
     /** Clamped to [Settings.FOV_MIN_DEG]..[Settings.FOV_MAX_DEG]. */
     suspend fun setFieldOfView(value: Float)
+
+    /** Ignored unless one of [Settings.STILL_FPS_CHOICES]. */
+    suspend fun setStillFps(value: Int)
+    suspend fun setQuality(value: Quality)
+    suspend fun setClouds(value: Boolean)
     suspend fun setIdleFloat(value: Boolean)
     suspend fun setInterior(value: Boolean)
     suspend fun setBloom(value: Boolean)

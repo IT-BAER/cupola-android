@@ -46,6 +46,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.baer.cupola.feature.settings.InfoUiState
 import com.baer.cupola.feature.settings.PreviewRenderer
 import com.baer.cupola.feature.settings.R
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import com.baer.cupola.feature.settings.SettingsUiState
@@ -69,6 +70,9 @@ data class SettingsActions(
     val onReset: () -> Unit,
     val onOnlineOrbitUpdates: (Boolean) -> Unit = {},
     val onFieldOfView: (Float) -> Unit = {},
+    val onStillFps: (Int) -> Unit = {},
+    val onQuality: (Quality) -> Unit = {},
+    val onClouds: (Boolean) -> Unit = {},
 )
 
 object SettingsTags {
@@ -100,10 +104,10 @@ fun SettingsScreen(
 
             Section(R.string.rest_direction)
             Column(Modifier.selectableGroup()) {
-                RadioRow(R.string.rest_diagonal, s.restDirection == RestDirection.DIAGONAL) {
+                RadioRow(stringResource(R.string.rest_diagonal), s.restDirection == RestDirection.DIAGONAL) {
                     actions.onRestDirection(RestDirection.DIAGONAL)
                 }
-                RadioRow(R.string.rest_nadir, s.restDirection == RestDirection.NADIR) {
+                RadioRow(stringResource(R.string.rest_nadir), s.restDirection == RestDirection.NADIR) {
                     actions.onRestDirection(RestDirection.NADIR)
                 }
             }
@@ -120,12 +124,30 @@ fun SettingsScreen(
             )
             SwitchRow(R.string.idle_float, s.idleFloat, actions.onIdleFloat)
 
+            Section(R.string.still_fps)
+            Hint(R.string.still_fps_hint)
+            Column(Modifier.selectableGroup()) {
+                for (fps in Settings.STILL_FPS_CHOICES) {
+                    val label = if (fps == Settings.STILL_FPS_DEFAULT) R.string.still_fps_default else R.string.still_fps_value
+                    RadioRow(stringResource(label, fps), s.stillFps == fps) { actions.onStillFps(fps) }
+                }
+            }
+
+            Section(R.string.quality)
+            Hint(R.string.quality_hint)
+            Column(Modifier.selectableGroup()) {
+                for ((quality, label) in QUALITY_LABELS) {
+                    RadioRow(stringResource(label), s.quality == quality) { actions.onQuality(quality) }
+                }
+            }
+
             Section(R.string.effects)
             SwitchRow(R.string.interior, s.interior, actions.onInterior)
             SwitchRow(R.string.effect_bloom, s.bloom, actions.onBloom)
             SwitchRow(R.string.effect_glare, s.windowGlare, actions.onWindowGlare)
             SwitchRow(R.string.effect_reflections, s.reflections, actions.onReflections)
             SwitchRow(R.string.effect_dust, s.dust, actions.onDust)
+            SwitchRow(R.string.effect_clouds, s.clouds, actions.onClouds)
             TextButton(onClick = actions.onReset) { Text(stringResource(R.string.reset_defaults)) }
 
             Section(R.string.home_city)
@@ -203,14 +225,29 @@ private fun SwitchRow(label: Int, checked: Boolean, onChange: (Boolean) -> Unit)
     }
 }
 
+private val QUALITY_LABELS = listOf(
+    Quality.HIGH to R.string.quality_high,
+    Quality.MEDIUM to R.string.quality_medium,
+    Quality.LOW to R.string.quality_low,
+)
+
 @Composable
-private fun RadioRow(label: Int, selected: Boolean, onSelect: () -> Unit) {
+private fun Hint(text: Int) {
+    Text(
+        stringResource(text),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun RadioRow(label: String, selected: Boolean, onSelect: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null)
-        Text(stringResource(label), Modifier.padding(start = 8.dp))
+        Text(label, Modifier.padding(start = 8.dp))
     }
 }
 

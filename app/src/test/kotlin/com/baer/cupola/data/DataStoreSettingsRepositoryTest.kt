@@ -1,6 +1,7 @@
 package com.baer.cupola.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.baer.cupola.feature.settings.Quality
 import com.baer.cupola.feature.settings.RestDirection
 import com.baer.cupola.feature.settings.Settings
 import java.io.File
@@ -105,6 +106,27 @@ class DataStoreSettingsRepositoryTest {
         r.setHomeCity("x")
         r.setHomeCity(null)
         assertEquals(null, r.settings.first().homeCityId)
+    }
+
+    @Test
+    fun stillFpsDefaultsTo15AndOnlyTakesAChoice() = runBlocking {
+        val r = repo()
+        assertEquals(15, r.settings.first().stillFps)
+        r.setStillFps(30)
+        assertEquals(30, r.settings.first().stillFps)
+        r.setStillFps(7)
+        assertEquals(30, r.settings.first().stillFps)
+    }
+
+    @Test
+    fun qualityAndCloudsDefaultHighAndOnAndRoundTrip() = runBlocking {
+        val r = repo()
+        assertEquals(Quality.HIGH, r.settings.first().quality)
+        assertEquals(true, r.settings.first().clouds)
+        r.setQuality(Quality.LOW)
+        r.setClouds(false)
+        assertEquals(Quality.LOW, r.settings.first().quality)
+        assertEquals(false, r.settings.first().clouds)
     }
 
     @Test

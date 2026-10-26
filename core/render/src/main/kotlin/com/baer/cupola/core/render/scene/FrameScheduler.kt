@@ -11,6 +11,9 @@ class FrameScheduler {
     var batterySaver = false
     var moving = false
 
+    /** Frame rate while visible and not moving; the user's Settings choice. */
+    var stillFps = STILL_FPS
+
     /** True from a hidden-to-visible transition until [shouldRender] consumes it. */
     var renderOnce = false
         private set
@@ -19,7 +22,7 @@ class FrameScheduler {
         get() = when {
             !visible || batterySaver -> 0
             moving -> MOVING_FPS
-            else -> STILL_FPS
+            else -> stillFps
         }
 
     /**

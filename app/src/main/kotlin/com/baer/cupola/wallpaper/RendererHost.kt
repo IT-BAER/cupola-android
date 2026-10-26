@@ -72,7 +72,10 @@ class RendererHost @Inject constructor(
                 settings = value
                 Gate.onSettings(value)
                 val r = renderer ?: return@collect
-                for (id in sessions.keys) r.updateScheduler(id) { requestFrame() }
+                for (id in sessions.keys) r.updateScheduler(id) {
+                    stillFps = value.stillFps
+                    requestFrame()
+                }
             }
         }
     }
@@ -112,13 +115,13 @@ class RendererHost @Inject constructor(
         if (frameTimeNanos != governedFrameNanos) {
             governedFrameNanos = frameTimeNanos
             lastGpuNanos = renderer?.lastGpuTimeNanos() ?: return null
-            val fps = if (session.scheduledMoving) FrameScheduler.MOVING_FPS else FrameScheduler.STILL_FPS
+            val fps = if (session.scheduledMoving) FrameScheduler.MOVING_FPS else settings.stillFps
             if (lastGpuNanos >= 0) governor.onFrame(lastGpuNanos / 1e6, 1000.0 / fps)
             governor.onThermalHeadroom(thermal.current())
         }
         Gate.onFrame(surfaceId, lastGpuNanos)
         val inputs = session.nextFrameInputs()
-        inputs[FrameInputs.RENDER_SCALE] = RENDER_SCALES[governor.step]
+        inputs[FrameInputs.RENDER_SCALE] = renderScale(governor.step, settings.maxRenderScale)
         if (session.moving != session.scheduledMoving) {
             renderer?.updateScheduler(surfaceId) { session.applyMoving(this) }
         }
@@ -126,8 +129,12 @@ class RendererHost @Inject constructor(
     }
 
     private companion object {
-        /** Earth render scale per governor step; the default (highest) step is 0.6. */
-        val RENDER_SCALES = floatArrayOf(0.4f, 0.5f, 0.6f)
         val QUALITY_STEPS = RENDER_SCALES.size
     }
 }
+
+/** Earth render scale per governor step; the default (highest) step is 0.6. */
+private val RENDER_SCALES = floatArrayOf(0.4f, 0.5f, 0.6f)
+
+/** The governor step's scale, capped by the Settings quality. */
+internal fun renderScale(governorStep: Int, maxScale: Float) = minOf(RENDER_SCALES[governorStep], maxScale)
