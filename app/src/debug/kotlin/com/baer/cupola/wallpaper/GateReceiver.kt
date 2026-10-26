@@ -1,5 +1,6 @@
 package com.baer.cupola.wallpaper
 
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -28,7 +29,8 @@ import kotlin.concurrent.thread
  * [--ei threshold N]; files in getExternalFilesDir/captures), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
  * the ISS, needs the position; --ef fov field of view on the long screen axis in deg), inputs (every session's last
- * frame inputs by name and the texture-set mask with the slots on their fallback).
+ * frame inputs by name and the texture-set mask with the slots on their fallback), wallpaper (--es arg clear: the home
+ * screen gets the system default static wallpaper; Cupola comes back only through the picker).
  */
 class GateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -73,6 +75,13 @@ class GateReceiver : BroadcastReceiver() {
                 "reset" -> Gate.resetStats()
                 "dump" -> Gate.dumpStats()
                 else -> Log.w("CupolaGate", "gate bad stats arg=$arg")
+            }
+            "wallpaper" -> when (arg) {
+                "clear" -> background {
+                    WallpaperManager.getInstance(context).clear(WallpaperManager.FLAG_SYSTEM)
+                    Log.i("CupolaGate", "gate wallpaper cleared")
+                }
+                else -> Log.w("CupolaGate", "gate bad wallpaper arg=$arg")
             }
             else -> Log.w("CupolaGate", "gate bad cmd=$cmd")
         }
