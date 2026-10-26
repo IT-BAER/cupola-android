@@ -122,6 +122,7 @@ dependencies {
 
 // The app ships without any runtime permission (design decisions 12 and 35). INTERNET serves the orbit data
 // download only; besides it, only library-internal signature permissions of this app may appear.
+// Debug builds may also hold SET_WALLPAPER (src/debug: the gate receiver clears the wallpaper for the battery check).
 abstract class CheckManifestPermissions : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -157,7 +158,8 @@ androidComponents {
         val variantName = variant.name.replaceFirstChar { it.uppercase() }
         val guard = tasks.register<CheckManifestPermissions>("check${variantName}ManifestPermissions") {
             mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
-            allowed.set(variant.applicationId.map { setOf("android.permission.INTERNET", "$it.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION") })
+            val debugOnly = if (variant.debuggable) setOf("android.permission.SET_WALLPAPER") else emptySet()
+            allowed.set(variant.applicationId.map { setOf("android.permission.INTERNET", "$it.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION") + debugOnly })
             report.set(layout.buildDirectory.file("reports/manifest-permissions/${variant.name}.txt"))
         }
         tasks.named { it == "assemble$variantName" || it == "check" }.configureEach { dependsOn(guard) }
