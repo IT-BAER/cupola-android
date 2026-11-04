@@ -100,6 +100,41 @@ class RenderTargetsTest {
     }
 
     @Test
+    fun freshTargetRecoversOnceAfterDropAllByRepeatedDeviceLost() {
+        targets.attach(1, "a")
+        api.renderResult = { VK_ERROR_DEVICE_LOST }
+        targets.renderFrame(1)
+        targets.renderFrame(1)
+        assertFalse(targets.isAttached(1))
+
+        targets.attach(2, "b")
+        val results = ArrayDeque(listOf(VK_ERROR_DEVICE_LOST))
+        api.renderResult = { results.removeFirstOrNull() ?: VK_SUCCESS }
+        assertEquals(VK_ERROR_DEVICE_LOST, targets.renderFrame(2))
+
+        assertTrue(targets.isAttached(2))
+        assertEquals(setOf(2), api.live)
+    }
+
+    @Test
+    fun freshTargetRecoversOnceAfterEveryReattachFailed() {
+        targets.attach(1, "a")
+        api.renderResult = { VK_ERROR_DEVICE_LOST }
+        api.attachResult = { _, _ -> VK_ERROR_INITIALIZATION_FAILED }
+        targets.renderFrame(1)
+        assertFalse(targets.isAttached(1))
+
+        api.attachResult = { _, _ -> VK_SUCCESS }
+        targets.attach(2, "b")
+        val results = ArrayDeque(listOf(VK_ERROR_DEVICE_LOST))
+        api.renderResult = { results.removeFirstOrNull() ?: VK_SUCCESS }
+        assertEquals(VK_ERROR_DEVICE_LOST, targets.renderFrame(2))
+
+        assertTrue(targets.isAttached(2))
+        assertEquals(setOf(2), api.live)
+    }
+
+    @Test
     fun successfulFrameAfterRecoveryAllowsAnotherRecovery() {
         targets.attach(1, "a")
         val results = ArrayDeque(listOf(VK_ERROR_DEVICE_LOST, VK_SUCCESS, VK_ERROR_DEVICE_LOST))

@@ -8,6 +8,7 @@ import com.baer.cupola.core.render.scene.FrameScheduler
  * No Vulkan failure throws. A failing id is detached and forgotten (later calls for it are no-ops until a new
  * [attach]). VK_ERROR_DEVICE_LOST detaches every target, so the device is destroyed, and re-attaches every id
  * from its stored surface; a second loss before a frame succeeds on the recovered device drops all ids.
+ * Once no target is left the recovery state resets, so a freshly attached id gets its own recovery.
  */
 internal class RenderTargets<S : Any>(
     private val api: NativeApi<S>,
@@ -54,6 +55,7 @@ internal class RenderTargets<S : Any>(
         for (id in schedulers.keys) api.detach(id)
         schedulers.clear()
         surfaces.clear()
+        recovering = false
     }
 
     fun setInputs(id: Int, values: FloatArray) {
@@ -110,6 +112,7 @@ internal class RenderTargets<S : Any>(
                 forget(id)
             }
         }
+        if (schedulers.isEmpty()) recovering = false
         requestFrame()
     }
 
