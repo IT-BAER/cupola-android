@@ -44,15 +44,24 @@ function PhotoPath($e) {
 
 $jsonPath = Join-Path $Holdout 'holdout.json'
 if (-not (Test-Path -LiteralPath $jsonPath)) { Fail 'holdout.json not found' }
-try { $doc = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json } catch { Fail 'holdout.json is not valid JSON' }
+# DateKind String: a DateTime would reach the device shell as a locale string with a space.
+try { $doc = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json -DateKind String } catch { Fail 'holdout.json is not valid JSON' }
 $entries = @(if ($doc -is [array]) { $doc } else { $doc.photos })
 $gated = @($entries | Where-Object { $_.gate })
 $required = 'time', 'lat', 'lon', 'alt_km', 'fov'
+$enums = @{ pass = 'asc', 'desc'; rest = 'nadir', 'diagonal'; projection = 'rectilinear', 'fisheye' }
+$numeric = 'lat', 'lon', 'alt_km', 'az', 'el', 'fov', 'heading_deg', 'roll', 'yaw', 'pitch', 'fisheye_fov'
+function Test-Gate($g) {
+    $view = ($null -ne $g.az -and $null -ne $g.el) -or $null -ne $g.heading_deg -or $null -ne $g.pass
+    if (($required | Where-Object { $null -eq $g.$_ }) -or -not $view) { return $false }
+    if ($g.time -cnotmatch '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$') { return $false }
+    foreach ($k in $enums.Keys) { if ($null -ne $g.$k -and $g.$k -cnotin $enums[$k]) { return $false } }
+    foreach ($k in $numeric) { if ($null -ne $g.$k -and $g.$k -isnot [double] -and $g.$k -isnot [long] -and $g.$k -isnot [int]) { return $false } }
+    $true
+}
 $bad = 0; $missingPhoto = 0
 foreach ($e in $gated) {
-    $g = $e.gate
-    $view = ($null -ne $g.az -and $null -ne $g.el) -or $null -ne $g.heading_deg -or $null -ne $g.pass
-    if (($required | Where-Object { $null -eq $g.$_ }) -or -not $view) { $bad++ }
+    if (-not (Test-Gate $e.gate)) { $bad++ }
     if (-not (PhotoPath $e)) { $missingPhoto++ }
 }
 $python = Get-Command python -ErrorAction SilentlyContinue
@@ -112,11 +121,10 @@ try {
         $e = $gated[$order[$i]]; $g = $e.gate
         $id = 'p{0:d2}' -f ($i + 1)
         $scene = @('--es', 'cmd', 'scene', '--es', 'time', $g.time)
-        foreach ($k in 'lat', 'lon', 'alt_km', 'az', 'el', 'fov', 'heading_deg', 'roll', 'yaw', 'pitch', 'fisheye_fov') {
-            if ($null -ne $g.$k) { $scene += '--ef', $k, (Num $g.$k) }
-        }
-        foreach ($k in 'pass', 'rest', 'projection') { if ($null -ne $g.$k) { $scene += '--es', $k, $g.$k } }
-        Adb shell am broadcast -n $Gate @scene | Out-Null
+        foreach ($k in $numeric) { if ($null -ne $g.$k) { $scene += '--ef', $k, (Num $g.$k) } }
+        foreach ($k in $enums.Keys) { if ($null -ne $g.$k) { $scene += '--es', $k, $g.$k } }
+        $reply = Adb shell am broadcast -n $Gate @scene 2>&1
+        if (-not ($reply -match 'Broadcast completed')) { Fail "scene broadcast failed for $id" }
         Start-Sleep 2
         Adb shell am broadcast -n $Gate --es cmd capture --es arg "gpr-$id" --ei w $w --ei h $h | Out-Null
         Start-Sleep 2
