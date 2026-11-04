@@ -1,8 +1,8 @@
 """Export the ISS exterior parts visible from the Cupola eye as the runtime asset station.mesh (plan P4.6).
 
-Run: blender -b --factory-startup -P tools/blender/export_station.py -- [--glb PATH] [--cupola BLEND]
+Run: blender -b --factory-startup -P tools/blender/export_station.py -- [--cupola BLEND]
      [--out DIR] [--budget N] [--atlas PX] [--min-hits N] [--stop-after vis] [--no-bake]
-Reads the NASA IGOAL ISS glTF (local/sources/igoal) and local/blender/cupola.blend, writes DIR (default
+Models the station with model_station.py (no external model) into local/blender/cupola.blend, writes DIR (default
 local/blender/exterior): station.mesh, station_albedo.png, station_orm.png, station_report.json.
 Deterministic: sorted iteration, fixed seeds, numpy only on sorted data. Frame definition: see README.md.
 """
@@ -12,7 +12,6 @@ import importlib.util
 import json
 import math
 import os
-import re
 import struct
 import sys
 
@@ -23,25 +22,17 @@ from mathutils.bvhtree import BVHTree
 
 sys.dont_write_bytecode = True
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GLB = os.path.join(ROOT, "local", "sources", "igoal", "International Space Station (ISS).glb")
 CUPOLA_BLEND = os.path.join(ROOT, "local", "blender", "cupola.blend")
 REGION_JSON = os.path.join(ROOT, "local", "blender", "visible_region.json")
 
 EYE = Vector((0.0, 0.0, -0.10947))  # build_cupola.py EYE (decision 22), Cupola frame, metres
-INCH = 0.0254                   # IGOAL mesh data is in SSREF inches
-YAW_DEG = 30.0                  # IGOAL window facets sit at 30 + 60k deg from ISS velocity, build_cupola at 60k
 KIND_STATIC, KIND_ALPHA, KIND_BETA, KIND_GAMMA = 0, 1, 2, 3
-# Removed from the asset by name: decals as separate meshes. Cupola and shutters are the interior model's.
-EXCLUDE = re.compile(r"Logo|^Cupola")
-# Small hardware on the rotating arrays (cables, handrails, boxes) is dropped: 25 to 55 m away it is sub-pixel.
-DROP_ROT = re.compile("Details")
 SHARP_DEG = 60.0
 RAY_STEPS, RAY_GRID = 5, 48
 
 
 def args():
     p = argparse.ArgumentParser()
-    p.add_argument("--glb", default=GLB)
     p.add_argument("--cupola", default=CUPOLA_BLEND)
     p.add_argument("--out", default=os.path.join(ROOT, "local", "blender", "exterior"))
     p.add_argument("--budget", type=int, default=38000)
@@ -80,22 +71,6 @@ def build_bvh(objs):
             np.concatenate(owner))
 
 
-def place_station(root):
-    """Set the root so world = Cupola frame (metres, +X velocity, +Y starboard, +Z nadir, yaw YAW_DEG)."""
-    k = abs(root.matrix_basis.to_scale()[0])
-    m = INCH / k
-    cup = bpy.data.objects["Cupola"]
-    co, _ = world_arrays(cup)
-    zt = co[:, 2].max()
-    ring = co[co[:, 2] > zt - 0.01]
-    origin = Vector((ring[:, 0].mean(), ring[:, 1].mean(), zt))  # hatch plane centre in the import frame
-    lin = Matrix.Rotation(math.radians(YAW_DEG), 4, "Z") @ Matrix.Scale(-m, 4)
-    mat = lin @ Matrix.Translation(-origin)
-    root.matrix_basis = mat @ root.matrix_basis
-    bpy.context.view_layer.update()
-    return mat, m, origin
-
-
 def joints_of(ob):
     """Joint ancestors, nearest first: (node name, kind, empty)."""
     out, p = [], ob.parent
@@ -114,23 +89,6 @@ def joints_of(ob):
 def group_of(ob):
     j = joints_of(ob)
     return (j[0][0], j[0][1], j[0][2]) if j else ("static", KIND_STATIC, None)
-
-
-def joint_geometry(joints, members, lin):
-    """name -> (pivot, axis) in the Cupola frame. Alpha: truss axis (import +Y, toward port). Beta, gamma:
-    longest extent of the assembly (import-frame axes), pointing from the pivot to the tip."""
-    res = {}
-    for name, (kind, emp) in joints.items():
-        pivot = np.array(emp.matrix_world.translation)
-        if kind == KIND_ALPHA:
-            ax = lin @ np.array([0.0, 1.0, 0.0])
-        else:
-            pos = np.concatenate([world_arrays(o)[0] for o in members[name]])
-            ext = [np.ptp(pos @ lin[:, i]) for i in range(3)]
-            ax = lin[:, int(np.argmax(ext))]
-            ax = ax if (pos.mean(0) - pivot) @ ax >= 0 else -ax
-        res[name] = (tuple(float(x) for x in pivot), tuple(float(x) for x in ax / np.linalg.norm(ax)))
-    return res
 
 
 def smooth_normals(pos, faces):
@@ -195,25 +153,12 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=a.cupola)
     scene = bpy.context.scene
-    before = set(bpy.data.objects.keys())
-    bpy.ops.import_scene.gltf(filepath=a.glb)
-    iss = sorted((o for o in bpy.data.objects if o.name not in before), key=lambda o: o.name)
-    root = bpy.data.objects["SSREF_IGOAL"]
-    mat, mpu, origin = place_station(root)
-    cup = bpy.data.objects["Cupola"]
-    cz = world_arrays(cup)[0][:, 2]
-    print("FRAME metres/unit %.5f origin(import) %s Cupola z %.3f..%.3f" % (mpu, tuple(round(x, 4) for x in origin),
-                                                                          cz.min(), cz.max()))
-    # Window facets of the IGOAL Cupola must land on the build's windows (azimuth, deg).
-    def az(ob):
-        v = world_arrays(ob)[0].mean(0)
-        return math.degrees(math.atan2(v[1], v[0])) % 360.0
-    sh = sorted(az(bpy.data.objects["Cupola_Shutter%d" % k]) for k in range(1, 7))
-    gl = sorted(az(o) for o in bpy.data.objects if o.name.startswith("Glass_Side_"))
-    dev = max(min(abs((s - g + 180) % 360 - 180) for g in gl) for s in sh)
-    print("WINDOW azimuth IGOAL shutters", [round(x, 1) for x in sh], "build glass", [round(x, 1) for x in gl],
-          "max deviation %.2f deg" % dev)
-    assert dev < 2.0, "IGOAL Cupola windows do not line up with build_cupola"
+    spec = importlib.util.spec_from_file_location("model_station", os.path.join(ROOT, "tools", "blender",
+                                                                                "model_station.py"))
+    ms = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ms)
+    iss, jgeo = ms.build(scene)
+    iss = sorted(iss, key=lambda o: o.name)
 
     # Visibility: rays from EYE through the glass meshes over the view envelope.
     spec = importlib.util.spec_from_file_location("visible_region", os.path.join(ROOT, "tools", "blender",
@@ -228,10 +173,10 @@ def main():
     glass_obs = sorted((o for o in bpy.data.objects if o.name.startswith("Glass_")), key=lambda o: o.name)
     assert len(glass_obs) == 7, [o.name for o in glass_obs]
     glass_bvh, _ = build_bvh(glass_obs)
-    cand = [o for o in iss if o.type == "MESH" and not EXCLUDE.search(o.name)]
+    cand = [o for o in iss if o.type == "MESH"]
     stat = [o for o in cand if not joints_of(o)]
     rot = [o for o in cand if joints_of(o)]
-    iss_bvh, owner = build_bvh(stat)
+    iss_bvh, owner = build_bvh(stat) if stat else (None, None)
     hits = np.zeros(len(stat), np.int64)
     dmin = np.full(len(stat), 1e9)
     eye = Vector(EYE)
@@ -242,7 +187,7 @@ def main():
         if g[0] is None:
             continue
         p0 = g[0] + dv * 1e-3
-        h = iss_bvh.ray_cast(p0, dv)
+        h = iss_bvh.ray_cast(p0, dv) if iss_bvh else (None,)
         pts.append(p0)
         dvs.append(dv)
         dst.append(h[3] if h[0] is not None else math.inf)
@@ -252,24 +197,14 @@ def main():
             dmin[o] = min(dmin[o], g[3] + h[3])
     print("RAYS %d through glass %d" % (len(dirs), len(pts)))
     # Rotating assemblies swept over their joint angles: rays are rotated into the rest pose instead.
-    joints = {}
-    members = {}
-    for o in rot:
-        for name, kind, emp in joints_of(o):
-            joints[name] = (kind, emp)
-    for o in iss:
-        if o.type == "MESH" and not EXCLUDE.search(o.name):
-            for name, kind, emp in joints_of(o):
-                members.setdefault(name, []).append(o)
-    jgeo = joint_geometry(joints, members, np.array(mat)[:3, :3] / mpu)
+    kinds = {name: kind for o in rot for name, kind, _ in joints_of(o)}
     cache = os.path.join(a.out, "visible_parts.json")
     if a.reuse_vis:  # skip the ray sweep: reuse the kept parts and weights of the last run
         by = {o.name: o for o in cand}
         old = json.load(open(cache))["visible"]
-        old = [v for v in old if v["group"] == "static" or not DROP_ROT.search(v["name"])]
         keep = [by[v["name"]] for v in old]
         weights = [v["weight"] for v in old]
-        build_asset(a, scene, keep, weights, mat, jgeo)
+        build_asset(a, scene, keep, weights, jgeo)
         return
     sub = slice(0, None, a.sweep_stride)
     P = np.array([tuple(p) for p in pts])[sub]
@@ -299,7 +234,7 @@ def main():
             rhits[i] += vis
             rposes[i] += vis > 0
     keep_s = sorted((i for i in range(len(stat)) if hits[i] >= a.min_hits), key=lambda i: stat[i].name)
-    keep_r = sorted((i for i in range(len(rot)) if rhits[i] >= a.min_sweep_hits and not DROP_ROT.search(rot[i].name)), key=lambda i: rot[i].name)
+    keep_r = sorted((i for i in range(len(rot)) if rhits[i] >= a.min_sweep_hits), key=lambda i: rot[i].name)
     keep = [stat[i] for i in keep_s] + [rot[i] for i in keep_r]
     weights = [int(hits[i]) for i in keep_s] + [max(1, int(rhits[i]) * a.sweep_stride // 10) for i in keep_r]
     vis = [{"name": stat[i].name, "group": "static", "hits": int(hits[i]), "min_distance_m": round(float(dmin[i]), 2),
@@ -315,11 +250,11 @@ def main():
     print("VISIBLE objects %d of %d, source triangles %d" % (len(vis), len(cand), sum(v["triangles"] for v in vis)))
     print("SWEPT-OUT objects", [rot[i].name for i in range(len(rot)) if i not in keep_r])
     json.dump({"rays": int(len(dirs)), "through_glass": len(pts), "visible": vis,
-               "joints": {k: {"kind": joints[k][0], "pivot": v[0], "axis": v[1]} for k, v in jgeo.items()}},
+               "joints": {k: {"kind": kinds[k], "pivot": v[0], "axis": v[1]} for k, v in jgeo.items()}},
               open(os.path.join(a.out, "visible_parts.json"), "w"), indent=1)
     if a.stop_after == "vis":
         return
-    build_asset(a, scene, keep, weights, mat, jgeo)
+    build_asset(a, scene, keep, weights, jgeo)
 
 
 def decimated_world_mesh(ob, target):
@@ -403,7 +338,7 @@ def allocate(tris, hits, budget):
     return np.minimum(tris, np.maximum(40.0, lo * w))
 
 
-def build_asset(a, scene, objs, hits, mat, jgeo):
+def build_asset(a, scene, objs, hits, jgeo):
     tris = np.array([len(o.data.loop_triangles) for o in objs], float)
     target = allocate(tris, hits, a.budget * 0.85)
     groups = {}

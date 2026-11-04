@@ -133,27 +133,27 @@ Runtime contract (the P3 shader samples exactly this):
 
 ## Station exterior (P4.6): export_station.py, station.mesh
 
-`export_station.py [--out DIR] [--budget N] [--atlas PX] [--reuse-vis] [--no-bake]` imports the NASA IGOAL ISS glTF
-(`local/sources/igoal`, pinned in `tools/textures/sources.lock`) and writes `local/blender/exterior/`: `station.mesh`,
+`model_station.py` models the ISS solar array wings from scratch (no external model; procedural materials: cell side,
+kapton back, MLI boxes, lattice mast): 8 wings at the measured SARJ alpha / BGA beta pivots and axes in the Cupola frame,
+under empties `PORT_ALPHA_ROT` and `PORT_BETA_ROT_2A` (the node name is the empty name without `_ROT`). Wing envelope
+(P4 2A, measured): 35.2 m along the axis, 11.4 m wide, two 4.57 m blankets beside the mast.
+
+`export_station.py [--out DIR] [--budget N] [--atlas PX] [--reuse-vis] [--no-bake]` builds that model into
+`local/blender/cupola.blend` and writes `local/blender/exterior/`: `station.mesh`,
 `station_albedo.png`, `station_orm.png` (G roughness, B metallic, R 1), `visible_parts.json`, `station_report.json`.
-`--reuse-vis` skips the ray sweep (about 3 min) and reuses `visible_parts.json`. Deterministic (two runs, equal SHA-256).
+`--reuse-vis` skips the ray sweep and reuses `visible_parts.json`. Deterministic (two runs, equal SHA-256).
 Then `tools/textures/build_station.ps1` encodes the atlases (ASTC 6x6 sRGB albedo, ASTC 8x8 linear ORM, ETC2 one level
 lower, `ktx validate`); copy `station.mesh` to `earthpack/src/main/assets/meshes/` and the KTX2 files to the two texture
 folders. `render_exterior_preview.py` reads the exported files back and renders three views (CPU).
 
-Frame (one transform, ISS import frame -> Cupola frame): the glTF root carries scale -0.002581683 (uniform, point
-inversion) and the mesh data is SSREF inches, so metres = import units x 0.0254 / 0.002581683 = 9.83854 per unit.
-Cupola frame c = Rz(+30 deg) . (-9.83854) . (w - w0), w0 = centre of the IGOAL Cupola base ring (the hatch plane).
-Without the yaw, c is SSREF: +X velocity, +Y starboard, +Z nadir (right-handed). The IGOAL window facets sit at
-30 + 60k deg from the velocity, `build_cupola.py` windows at 60k deg, so the yaw makes them coincide (measured max
-deviation 0.11 deg). Consequence: ISS velocity points at azimuth +30 deg in the Cupola frame, not +X; a renderer that
-assumes +X = velocity must rotate its LVLH frame by +30 deg about Z (nadir rest view up = forward). `station.mesh`
-was exported from the earlier eye (0, 0, 0.70); `EYE` is now (0, 0, -0.10947), 0.11 m behind the hatch plane, and the
-export needs a re-run. Only nadir-side parts are visible: the eye is below the windows, so nothing at -Z shows.
+Frame: the Cupola frame of `build_cupola.py` (metres, +Z nadir). ISS velocity points at azimuth +30 deg in this frame,
+not +X (measured on the station's window facets, 20 October 2026); a renderer that assumes +X = velocity must rotate its
+LVLH frame by +30 deg about Z (nadir rest view up = forward). Measured 4 November 2026 at the 1.55 m eye: only the port
+P4 wings 2A and 4A are visible, 34.2 m away at the closest.
 
 Visibility: rays from the eye over the P4.3 envelope (both rest views, five aspects, yaw +-26, pitch +-22) through the
-seven glass meshes, first hit on the IGOAL meshes (Cupola and `*Logo*` meshes excluded). Rotating assemblies (SARJ alpha,
-BGA beta, radiator gamma) are swept (alpha 30 deg, beta 45 deg steps) by rotating the rays into the rest pose.
+seven glass meshes. Rotating assemblies (SARJ alpha, BGA beta) are swept (alpha 30 deg, beta 45 deg steps) by rotating
+the rays into the rest pose.
 
 `station.mesh` (little-endian): `"CPST"`, u32 version = 1, u32 node count; per node: u16 name length + UTF-8 name,
 3 x f32 pivot, 3 x f32 unit axis, u8 kind, u32 vertex count, u32 index count, vertices (22 bytes each: 3 x f32 position in
