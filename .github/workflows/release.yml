@@ -1,0 +1,133 @@
+name: Release
+
+# Plan P8.2 (HandType pattern): tag vX.Y.Z -> checks, signed AAB with :earthpack, Play internal track, GitHub release.
+# Needs the secrets RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD and
+# PLAY_STORE_JSON_KEY. Repository variable PLAY_RELEASE_STATUS: "draft" (default, required while the app has never
+# been published) or "completed". Play takes the first bundle of a new app only through the Console, so the upload
+# step runs only when the repository variable PLAY_UPLOAD is "true"; until then the AAB ships on the GitHub release.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.0.0); must equal versionName'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then VERSION="$INPUT_VERSION"; else VERSION="${GITHUB_REF#refs/tags/v}"; fi
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # versionCode is bumped by hand; Play rejects a reused one.
+      - name: Check versionName matches the release
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          VERSION_NAME=$(sed -n 's/^ *versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
+          VERSION_CODE=$(sed -n 's/^ *versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
+          echo "versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+          if [ "$VERSION_NAME" != "$VERSION" ]; then
+            echo "::error::versionName $VERSION_NAME in app/build.gradle.kts does not match release $VERSION"
+            exit 1
+          fi
+
+      - name: Changelog entry
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 { p = 1; next } /^## \[/ { if (p) exit } p' CHANGELOG.md \
+            | sed '/^$/d' > "$RUNNER_TEMP/changelog.md"
+          if [ ! -s "$RUNNER_TEMP/changelog.md" ]; then
+            echo "::error::CHANGELOG.md has no '## [$VERSION]' section"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/changelog.md"
+
+      # Play allows 500 characters per locale; stale notes ship unless whatsnew/ is edited per release.
+      - name: Check What's New
+        run: |
+          export LC_ALL=C.UTF-8
+          for f in whatsnew/whatsnew-*; do
+            n=$(wc -m < "$f")
+            echo "$f: $n chars"
+            if [ "$n" -gt 500 ] || [ "$n" -eq 0 ]; then echo "::error::$f has $n characters (1..500)"; exit 1; fi
+          done
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0 ndk;30.0.16248370 cmake;4.1.2'
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Decode upload keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then echo "::error::secret RELEASE_KEYSTORE_BASE64 missing"; exit 1; fi
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          # Must match the upload certificate registered in Play Console, or Play rejects the bundle.
+          keytool -list -v -keystore "$RUNNER_TEMP/upload.keystore" -storepass:env RELEASE_KEYSTORE_PASSWORD \
+            -alias "$RELEASE_KEY_ALIAS" | grep -E 'SHA1:|SHA256:'
+
+      # cupola.releaseTag adds the TLE age guard (P7.3); bundleRelease runs the texture budget and credits checks.
+      - name: Build and test the signed bundle
+        env:
+          RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/upload.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew -Pcupola.releaseTag=true build :app:bundleRelease
+
+      - name: Check the bundle signature
+        run: |
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab | tail -n 1
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab | grep -q 'jar verified'
+
+      - name: Upload to Play internal testing
+        if: vars.PLAY_UPLOAD == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          packageName: com.baer.cupola
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'draft' }}
+          whatsNewDirectory: whatsnew/
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          gh release create "v$VERSION" app/build/outputs/bundle/release/app-release.aab \
+            --title "v$VERSION" --notes-file "$RUNNER_TEMP/changelog.md" --target "$GITHUB_SHA"
