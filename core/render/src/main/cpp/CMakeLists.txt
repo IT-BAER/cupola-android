@@ -14,7 +14,7 @@ list(GET GLSLC_CANDIDATES 0 GLSLC)
 set(SHADER_OUT "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 file(MAKE_DIRECTORY "${SHADER_OUT}")
 set(SHADER_INCS)
-foreach(SHADER fullscreen.vert pattern.frag earth.frag)
+foreach(SHADER fullscreen.vert pattern.frag earth.frag station.vert station.frag)
     set(SRC "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${SHADER}")
     set(INC "${SHADER_OUT}/${SHADER}.inc")
     add_custom_command(
@@ -35,6 +35,8 @@ add_library(cupola_render SHARED
     offscreen.cpp
     scene_binding.cpp
     sky_pass.cpp
+    station_mesh.cpp
+    station_pass.cpp
     surface_target.cpp
     texture_loader.cpp
     texture_set.cpp

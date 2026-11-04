@@ -5,6 +5,7 @@
 #include "earth_pass.h"
 #include "scene_binding.h"
 #include "sky_pass.h"
+#include "station_pass.h"
 
 namespace cupola {
 namespace {
@@ -26,12 +27,14 @@ struct OffscreenResources {
     SceneBinding scene;
     EarthPass earthPass;
     SkyPass skyPass;
+    StationPass stationPass;
 
     ~OffscreenResources() {
         if (fence != VK_NULL_HANDLE) vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
         vkDestroyFence(dev, fence, nullptr);
         earthPass.destroy(dev);
         skyPass.destroy(dev);
+        stationPass.destroy(dev);
         scene.destroy(dev);
         if (cmd != VK_NULL_HANDLE) vkFreeCommandBuffers(dev, pool, 1, &cmd);
         vkDestroyQueryPool(dev, queries, nullptr);
@@ -92,10 +95,13 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     const bool scaled = EarthPass::wanted(inputs);
     VK_TRY(device.createPipeline(r.renderPass, earth, &r.pipeline, scaled ? kEarthModeComposite : kEarthModeSingle));
     if (scaled) VK_TRY(r.earthPass.ensure(device, extent, inputs[inputs::kRenderScale]));
+    bool station = false;
     if (earth) {
         VK_TRY(r.skyPass.ensure(device));
+        VK_TRY(r.stationPass.prepare(device, inputs, extent, scaled ? inputs[inputs::kRenderScale] : 1.0f, 0, &station));
         VK_TRY(r.scene.init(device));
-        VK_TRY(r.scene.update(device, inputs, scaled ? r.earthPass.view : VK_NULL_HANDLE, r.skyPass));
+        VK_TRY(r.scene.update(device, inputs, scaled ? r.earthPass.view : VK_NULL_HANDLE, r.skyPass,
+                              station ? r.stationPass.view : VK_NULL_HANDLE));
     }
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -120,7 +126,8 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     VK_TRY(vkBeginCommandBuffer(r.cmd, &begin));
     device.recordFrame(r.cmd, r.renderPass, r.framebuffer, r.pipeline, earth ? r.scene.set : VK_NULL_HANDLE, extent,
                        makePushConstants(inputs, extent, 0), r.queries, 0, scaled ? &r.earthPass : nullptr,
-                       r.scene.earthSet, earth ? &r.skyPass : nullptr, r.scene.skySet);
+                       r.scene.earthSet, earth ? &r.skyPass : nullptr, r.scene.skySet,
+                       station ? &r.stationPass : nullptr);
     VkBufferImageCopy region{};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {width, height, 1};

@@ -114,7 +114,7 @@ internal object Gate {
     /** Slot names by mask bit, in the order of `kSlots` in core/render/src/main/cpp/texture_set.cpp. */
     val TEXTURE_SLOTS = listOf(
         "day_detail", "monthly_colour", "clouds", "city_lights", "terrain_normal", "stars", "water_mask",
-        "interior_earth", "interior_cabin", "interior_emissive", "interior_ambient",
+        "interior_earth", "interior_cabin", "interior_emissive", "interior_ambient", "station_albedo", "station_orm",
     )
 
     /** The renderer's texture-set mask and the slots it replaced by their neutral fallback. */

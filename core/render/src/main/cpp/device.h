@@ -33,6 +33,8 @@ constexpr int32_t kEarthModeSky = 3;
 
 class EarthPass;
 class SkyPass;
+class StationPass;
+struct StationMesh;
 
 struct TextureSet;
 
@@ -75,6 +77,8 @@ public:
     static void setAssetManager(AAssetManager* assets);
     // The texture set, loaded on first use (render thread, blocking) and kept for the device lifetime.
     VkResult textures(const TextureSet** out);
+    // meshes/station.mesh, loaded on first use like the texture set; null (logged once) when missing or invalid.
+    VkResult station(const StationMesh** out);
 
     // GPU duration of the last completed frame (any target, survives device teardown), -1 until known.
     static int64_t lastGpuTimeNs();
@@ -94,13 +98,14 @@ public:
     VkResult allocate(VkMemoryRequirements req, VkMemoryPropertyFlags preferred, VkMemoryPropertyFlags required,
                       VkDeviceMemory* out) const;
     // kTimestampsPerFrame timestamps per frame at query index `first`: begin, after the sky pass, after the
-    // Earth pass, end. A non-null `skyPass` is recorded first (with `skyScene`); a non-null `earthPass` next (with
-    // `earthScene`), and the main pass then uses the composite pipeline.
+    // station and Earth passes, end. A non-null `skyPass` is recorded first (with `skyScene`), a non-null
+    // `stationPass` next (with `skyScene`; without one the push block gets kDebugNoStation), a non-null `earthPass`
+    // next (with `earthScene`), and the main pass then uses the composite pipeline.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                      VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr,
                      VkDescriptorSet earthScene = VK_NULL_HANDLE, const SkyPass* skyPass = nullptr,
-                     VkDescriptorSet skyScene = VK_NULL_HANDLE) const;
+                     VkDescriptorSet skyScene = VK_NULL_HANDLE, const StationPass* stationPass = nullptr) const;
     VkResult createTimestampPool(uint32_t count, VkQueryPool* out) const;
     void collectGpuTime(VkQueryPool queries, uint32_t first);
 
@@ -111,6 +116,8 @@ private:
 
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
     std::unique_ptr<TextureSet> textures_;
+    std::unique_ptr<StationMesh> station_;
+    bool stationTried_ = false;
 };
 
 }  // namespace cupola

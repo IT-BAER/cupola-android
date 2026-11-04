@@ -130,10 +130,10 @@ class NativeRenderer(
 
     companion object {
         /**
-         * All eleven slots: day_detail, monthly_colour, clouds, city_lights, terrain_normal, stars, water_mask and the
-         * interior atlases earth, cabin, emissive, ambient.
+         * All thirteen slots: day_detail, monthly_colour, clouds, city_lights, terrain_normal, stars, water_mask, the
+         * interior atlases earth, cabin, emissive, ambient and the station exterior's albedo and ORM.
          */
-        const val TEXTURE_SET_COMPLETE = (1 shl 11) - 1
+        const val TEXTURE_SET_COMPLETE = (1 shl 13) - 1
 
         private const val VK_SUCCESS = 0
         private const val LOG_TAG = "Cupola"

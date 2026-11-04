@@ -19,7 +19,7 @@ struct SlotInfo {
 };
 
 // Grey colour (detail ratio 1), flat normal (.ga = 0.5), no clouds, lights, stars or water; no interior
-// (window alpha 0 shows the Earth everywhere).
+// (window alpha 0 shows the Earth everywhere); a grey dielectric station (ORM: occlusion 1, roughness 0.5, metal 0).
 constexpr SlotInfo kSlots[kTextureSlots] = {
     {"day_detail", true, {{0.5f, 0.5f, 0.5f, 1.0f}}},
     {"monthly_colour", true, {{0.5f, 0.5f, 0.5f, 1.0f}}},
@@ -32,6 +32,8 @@ constexpr SlotInfo kSlots[kTextureSlots] = {
     {"interior_cabin", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
     {"interior_emissive", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
     {"interior_ambient", false, {{0.0f, 0.0f, 0.0f, 1.0f}}},
+    {"station_albedo", false, {{0.5f, 0.5f, 0.5f, 1.0f}}},
+    {"station_orm", false, {{1.0f, 0.5f, 0.0f, 1.0f}}},
 };
 
 VkResult createSampler(const Device& device, VkSamplerAddressMode u, VkSampler* out,

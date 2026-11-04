@@ -26,6 +26,7 @@ import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.frames.angleTo
 import com.baer.cupola.orbit.frames.cross
 import com.baer.cupola.orbit.frames.dot
+import com.baer.cupola.orbit.frames.minus
 import com.baer.cupola.orbit.frames.norm
 import com.baer.cupola.orbit.frames.plus
 import com.baer.cupola.orbit.frames.times
@@ -39,6 +40,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.time.Instant
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.asin
 import kotlin.math.atan
 import kotlin.math.atan2
@@ -193,6 +195,146 @@ class EarthRenderTest {
         assertTrue("window shows no Earth: luma ${lum / 25}", lum / 25 > 20.0)
         assertTrue("window differs from the Earth: ${diff / 25}", diff / 25 <= 2.0)
         assertTrue("interior share $share", share in 0.2..0.95)
+    }
+
+    /**
+     * P3.6 station exterior: at the sunlit rest pose (look-around within its limits) showing most window pixels inside
+     * the predicted wing boxes, station on and off differ in a non-empty region, only inside those boxes (the wing
+     * envelopes tracked to the Sun, projected), and never where the interior covers the view. At scale 0.6 too.
+     */
+    @Test
+    fun stationWingShowsThroughTheWindowOnly() {
+        val (scene, boxes) = wingView()
+        val off = render(scene, debug = FrameInputs.DEBUG_NO_STATION)
+        val on = render(scene)
+        fun differs(a: ByteArray, b: ByteArray, i: Int) = (0..2).any { a[i + it] != b[i + it] }
+        val earth = render(scene.copy(blenderFromCamera = null))
+        val bare = render(scene, debug = FrameInputs.DEBUG_NO_STATION or FrameInputs.DEBUG_NO_ATMOSPHERE)
+        save("station_on", on)
+        save("station_off", off)
+        // Interior covers: it changes the image (vs the Earth alone) and a changed exterior (no atmosphere) does not
+        // show through it; a semi-transparent interior pixel passes the station like the Earth.
+        val covered = BooleanArray(W * H) {
+            abs(luma(off, it % W, it / W) - luma(earth, it % W, it / W)) > 2.0 && !differs(off, bare, it * 4)
+        }
+        fun opaque(x: Int, y: Int) = (-2..2).all { dy -> (-2..2).all { dx -> covered[(y + dy).coerceIn(0, H - 1) * W + (x + dx).coerceIn(0, W - 1)] } }
+        fun inBox(x: Int, y: Int) = boxes.any { b ->
+            x >= b[0] - BOX_MARGIN_PX && x <= b[2] + BOX_MARGIN_PX && y >= b[1] - BOX_MARGIN_PX && y <= b[3] + BOX_MARGIN_PX
+        }
+        var diff = 0
+        var outside = 0
+        var onInterior = 0
+        for (y in 0 until H) for (x in 0 until W) {
+            if (!differs(on, off, at(x, y))) continue
+            diff++
+            if (!inBox(x, y)) outside++
+            if (opaque(x, y)) onInterior++
+        }
+        val scaledOn = render(scene, 0.6f)
+        val scaledOff = render(scene, 0.6f, debug = FrameInputs.DEBUG_NO_STATION)
+        val scaledDiff = (0 until W * H).count { differs(scaledOn, scaledOff, it * 4) }
+        Log.i(TAG, "station ${scene.instant} diff $diff outside $outside on interior $onInterior scaled diff $scaledDiff")
+        assertTrue("station adds nothing: $diff px", diff >= STATION_MIN_PX)
+        assertEquals("station pixels outside the predicted boxes", 0, outside)
+        assertEquals("station pixels where the interior covers the view", 0, onInterior)
+        assertTrue("station adds nothing at scale 0.6: $scaledDiff px", scaledDiff >= STATION_MIN_PX / 3)
+    }
+
+    /**
+     * Rest views x look-around (yaw +-26, pitch +-22) over one orbit from [DAY] (1 min steps, ISS sunlit: outside the
+     * Earth's shadow cylinder), each with its projected wing boxes. The SARJ turns the wings once per orbit.
+     */
+    private fun stationViews(): List<Pair<Scene, List<DoubleArray>>> = (0L until 93L).flatMap { step ->
+        val state = (orbit.stateAt(DAY.plusSeconds(60 * step)) as OrbitState).toSceneState()
+        val p = state.positionEcefKm
+        val along = p dot state.sunDirEcef
+        if (along <= 0 && (p - state.sunDirEcef * along).norm() < SceneGeometry.A_KM) return@flatMap emptyList()
+        RestView.entries.flatMap { rest ->
+            listOf(-26.0, 0.0, 26.0).flatMap { yaw ->
+                listOf(-22.0, 0.0, 22.0).map { pitch ->
+                    val scene = SceneInputs.build(state, rest, yaw, pitch, fovLongDeg = TEST_FOV_DEG)
+                    scene to wingBoxes(scene)
+                }
+            }
+        }
+    }
+
+    private fun frameArea(boxes: List<DoubleArray>) = boxes.sumOf { b ->
+        (minOf(b[2], W.toDouble()) - maxOf(b[0], 0.0)).coerceAtLeast(0.0) * (minOf(b[3], H.toDouble()) - maxOf(b[1], 0.0)).coerceAtLeast(0.0)
+    }
+
+    /**
+     * Of the station views with a wing box in frame, the one where station on and off differ most at quarter size: the
+     * wing seen through a window. (Composite equal to the Earth-only render does not mark windows: a dark cabin wall
+     * matches a dark Earth.)
+     */
+    private fun wingView(): Pair<Scene, List<DoubleArray>> = wingViewCache ?: run {
+        val w = W / 4
+        val h = H / 4
+        val counted = stationViews().filter { frameArea(it.second) > 0 }.map { view ->
+            val on = renderer.renderOffscreen(w, h, inputs(view.first))
+            val off = renderer.renderOffscreen(w, h, inputs(view.first, debug = FrameInputs.DEBUG_NO_STATION))
+            view to (0 until w * h).count { i -> (0..2).any { on[i * 4 + it] != off[i * 4 + it] } }
+        }
+        val (best, count) = counted.maxBy { it.second }
+        Log.i(TAG, "station view ${best.first.instant} of ${counted.size}: $count px at ${w}x$h")
+        assertTrue("no view shows the wing", count >= STATION_MIN_PX / 16)
+        wingViewCache = best
+        best
+    }
+
+    /**
+     * Logical-pixel boxes (x0, y0, x1, y1) of the tracked wing envelopes in front of the camera: each envelope clipped
+     * at [NEAR_M] depth (corners in front plus edge crossings), so a box bounds every pixel its wing can cover.
+     */
+    private fun wingBoxes(scene: Scene): List<DoubleArray> {
+        val e = scene.ecefFromCamera
+        val m = scene.blenderFromCamera!!
+        val s = scene.sunDirEcef
+        val (fx, fy) = scene.fovDeg(W, H)
+        val tx = tan(Math.toRadians(fx / 2))
+        val ty = tan(Math.toRadians(fy / 2))
+        return wingCorners(SceneGeometry.unit(m * Vector3(s dot e.c0, s dot e.c1, s dot e.c2))).mapNotNull { corners ->
+            val cam = corners.map { val d = it - STATION_EYE; Vector3(d dot m.c0, d dot m.c1, -(d dot m.c2)) }
+            val front = cam.filter { it.z > NEAR_M }.toMutableList()
+            for (i in cam.indices) for (j in i + 1 until cam.size) {
+                if (Integer.bitCount(i xor j) != 1 || (cam[i].z > NEAR_M) == (cam[j].z > NEAR_M)) continue
+                front += cam[i] + (cam[j] - cam[i]) * ((NEAR_M - cam[i].z) / (cam[j].z - cam[i].z))
+            }
+            if (front.isEmpty()) return@mapNotNull null
+            val xs = front.map { (it.x / it.z / tx + 1) / 2 * W }
+            val ys = front.map { (1 - it.y / it.z / ty) / 2 * H }
+            doubleArrayOf(xs.min(), ys.min(), xs.max(), ys.max())
+        }
+    }
+
+    /**
+     * Envelope corners (8 per PORT wing, index bits = a, w, t) in the Cupola frame, tracked to the unit [sun] as
+     * station_mesh.cpp poses().
+     */
+    private fun wingCorners(sun: Vector3): List<List<Vector3>> {
+        val t = SARJ_AXIS
+        fun rot(k: Vector3, angle: Double, v: Vector3) = v * cos(angle) + (k cross v) * sin(angle) + k * ((k dot v) * (1 - cos(angle)))
+        fun cell(a: Vector3) = -(SceneGeometry.unit(a cross t) cross a)
+        val a0 = WINGS[0].second
+        val perp = a0 - t * (a0 dot t)
+        val b = perp dot sun
+        val c = (t cross perp) dot sun
+        val d = (a0 dot cell(a0)) - (a0 dot t) * (t dot sun)
+        val r = sqrt(b * b + c * c)
+        val alpha = if (r < 1e-9) 0.0 else atan2(c, b) + acos((d / r).coerceIn(-1.0, 1.0))
+        val local = rot(t, -alpha, sun)
+        return WINGS.map { (pivot, a) ->
+            val u = cell(a) - a * (cell(a) dot a)
+            val v = local - a * (local dot a)
+            val beta = atan2(a dot (u cross v), u dot v)
+            val w = SceneGeometry.unit(a cross t)
+            val n = w cross a
+            (0 until 8).map { i ->
+                val rest = a * WING_A[i shr 2 and 1] + w * WING_W[i shr 1 and 1] + n * WING_T[i and 1]
+                rot(t, alpha, rot(a, beta, rest) + pivot - SARJ_PIVOT) + SARJ_PIVOT
+            }
+        }
     }
 
     /**
@@ -400,10 +542,28 @@ class EarthRenderTest {
         }
     }
 
-    /** Renders [GPU_WARMUP] + [GPU_SAMPLES] frames with [frame] and logs the GPU time percentiles under [label]. */
-    private fun logGpu(label: String, frame: () -> Unit) {
+    /**
+     * Station exterior (P3.6) GPU cost at the shipped defaults (scale 0.6, all effects): the wing pose and a pose
+     * without the wing in frame, station on, off, on again. The station pass records inside the "earth" interval.
+     */
+    @Test
+    fun gpuTimeStation() {
+        val wing = wingView().first
+        val none = stationViews().firstOrNull { (_, boxes) -> frameArea(boxes) <= 0 }
+        assertNotNull("no pose without the wing", none)
+        for ((name, scene) in listOf("wing" to wing, "no wing" to none!!.first)) {
+            for ((state, debug) in listOf("on" to 0, "off" to FrameInputs.DEBUG_NO_STATION, "on again" to 0)) {
+                logGpu("station $name $state", STATION_GPU_SAMPLES) {
+                    render(scene, 0.6f, debug = debug, effects = FrameInputs.EFFECTS_ALL)
+                }
+            }
+        }
+    }
+
+    /** Renders [GPU_WARMUP] + [count] frames with [frame] and logs the GPU time percentiles under [label]. */
+    private fun logGpu(label: String, count: Int = GPU_SAMPLES, frame: () -> Unit) {
         repeat(GPU_WARMUP) { frame() }
-        val samples = (0 until GPU_SAMPLES).map {
+        val samples = (0 until count).map {
             frame()
             Triple(renderer.lastGpuTimeNanos() / 1e6, renderer.lastEarthPassGpuTimeNanos() / 1e6, renderer.lastSkyPassGpuTimeNanos() / 1e6)
         }.filter { it.first >= 0 && it.second >= 0 && it.third >= 0 }
@@ -415,8 +575,8 @@ class EarthRenderTest {
         val composite = samples.map { it.first - it.second - it.third }
         Log.i(
             TAG,
-            "frame gpu $label ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms sky p50=%.3f earth p50=%.3f composite p50=%.3f"
-                .format(pct(total, 50), pct(total, 95), pct(sky, 50), pct(earth, 50), pct(composite, 50)),
+            "frame gpu $label ${W}x$H n=${samples.size} p50=%.3f ms p95=%.3f ms sky p50=%.3f earth p50=%.3f p95=%.3f composite p50=%.3f"
+                .format(pct(total, 50), pct(total, 95), pct(sky, 50), pct(earth, 50), pct(earth, 95), pct(composite, 50)),
         )
     }
 
@@ -1451,6 +1611,24 @@ class EarthRenderTest {
         private const val TOP_KM = 6478.137 // atmosphere_params.h ATMO_TOP_KM
         private const val GPU_SAMPLES = 30
         private const val GPU_WARMUP = 10
+        private const val STATION_GPU_SAMPLES = 200
+        private var wingViewCache: Pair<Scene, List<DoubleArray>>? = null // the search renders 2 x ~340 views
+        private const val STATION_MIN_PX = 400
+        private const val BOX_MARGIN_PX = 8.0
+        private const val NEAR_M = 0.05
+
+        // station.mesh PORT nodes (Cupola frame, m): SARJ pivot and axis; per wing (BGA pivot, axis), 2A first.
+        private val SARJ_PIVOT = Vector3(9.418, -7.422, -6.739)
+        private val SARJ_AXIS = Vector3(0.5, -0.8660254, 0.0)
+        private val WINGS = listOf(
+            Vector3(14.875, -22.349, -7.400) to Vector3(-0.8660254, -0.5, 0.0),
+            Vector3(19.007, -19.964, -6.079) to Vector3(0.8660254, 0.5, 0.0),
+        )
+        // Wing envelope about its BGA pivot: along the axis, across (axis x truss), along the cell side's back.
+        private val WING_A = listOf(-1.27, 33.91)
+        private val WING_W = listOf(-5.7, 5.7)
+        private val WING_T = listOf(-0.55, 1.16)
+        private val STATION_EYE = Vector3(0.0, 0.0, 1.4405 - 1.55) // earth.frag EYE_Z
         private const val SURFACE_ID = 9_001 // apart from the wallpaper sessions (RendererHost ids from 1)
         private const val FRAMES_PER_STEP = 4 // every frame in flight (2) records with the new scale at least once
         private val NIGHT_BAND = 18.0..64.0

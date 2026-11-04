@@ -94,8 +94,8 @@ class RenderSessionGateTest {
     }
 
     @Test fun textureLineNamesTheFallbackSlots() {
-        assertEquals("gate textures mask=0x7ff missing=-", Gate.textureLine(NativeRenderer.TEXTURE_SET_COMPLETE))
-        assertEquals("gate textures mask=0x7fc missing=day_detail,monthly_colour", Gate.textureLine(0x7fc))
+        assertEquals("gate textures mask=0x1fff missing=-", Gate.textureLine(NativeRenderer.TEXTURE_SET_COMPLETE))
+        assertEquals("gate textures mask=0x1ffc missing=day_detail,monthly_colour", Gate.textureLine(0x1ffc))
         assertEquals("gate textures mask=0x0 missing=${Gate.TEXTURE_SLOTS.joinToString(",")}", Gate.textureLine(0))
     }
 

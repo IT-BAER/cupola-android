@@ -13,4 +13,10 @@ inline constexpr uint32_t kPatternFrag[] =
 inline constexpr uint32_t kEarthFrag[] =
 #include "earth.frag.inc"
     ;
+inline constexpr uint32_t kStationVert[] =
+#include "station.vert.inc"
+    ;
+inline constexpr uint32_t kStationFrag[] =
+#include "station.frag.inc"
+    ;
 }  // namespace cupola::shaders

@@ -11,6 +11,7 @@
 #include "frame_inputs.h"
 #include "shaders.h"
 #include "sky_pass.h"
+#include "station_pass.h"
 #include "texture_set.h"
 
 namespace cupola {
@@ -96,6 +97,30 @@ VkResult Device::textures(const TextureSet** out) {
         textures_ = std::move(set);
     }
     *out = textures_.get();
+    return VK_SUCCESS;
+}
+
+VkResult Device::station(const StationMesh** out) {
+    if (!stationTried_ && gAssets != nullptr) {
+        stationTried_ = true;
+        constexpr const char* kPath = "meshes/station.mesh";
+        AAsset* asset = AAssetManager_open(gAssets, kPath, AASSET_MODE_BUFFER);
+        auto mesh = std::make_unique<StationMesh>();
+        std::string error = "asset missing";
+        VkResult result = VK_SUCCESS;
+        const void* data = asset != nullptr ? AAsset_getBuffer(asset) : nullptr;
+        if (data != nullptr && loadStationMesh(*this, static_cast<const uint8_t*>(data),
+                                               static_cast<size_t>(AAsset_getLength64(asset)), mesh.get(), &error,
+                                               &result)) {
+            LOGI("%s: %zu nodes", kPath, mesh->nodes.size());
+            station_ = std::move(mesh);
+        } else if (result == VK_SUCCESS) {
+            LOGW("%s: %s; no station exterior", kPath, error.c_str());
+        }
+        if (asset != nullptr) AAsset_close(asset);
+        VK_TRY(result);
+    }
+    *out = station_.get();
     return VK_SUCCESS;
 }
 
@@ -293,6 +318,7 @@ Device::~Device() {
     if (device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device);
         if (textures_) destroyTextureSet(*this, textures_.get());
+        if (station_) destroyStationMesh(device, station_.get());
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         vkDestroyDescriptorSetLayout(device, sceneSetLayout, nullptr);
         vkDestroyShaderModule(device, earthShader, nullptr);
@@ -435,7 +461,8 @@ VkResult Device::createTimestampPool(uint32_t count, VkQueryPool* out) const {
 void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                          VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                          VkQueryPool queries, uint32_t first, const EarthPass* earthPass,
-                         VkDescriptorSet earthScene, const SkyPass* skyPass, VkDescriptorSet skyScene) const {
+                         VkDescriptorSet earthScene, const SkyPass* skyPass, VkDescriptorSet skyScene,
+                         const StationPass* stationPass) const {
     if (queries != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(cmd, queries, first, kTimestampsPerFrame);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
@@ -444,7 +471,13 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     if (queries != VK_NULL_HANDLE) {
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 1);
     }
-    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, push);
+    PushConstants framePush = push;
+    if (stationPass != nullptr) {
+        stationPass->record(*this, cmd, skyScene);
+    } else {
+        framePush.effects |= inputs::kDebugNoStation;
+    }
+    if (earthPass != nullptr) earthPass->record(*this, cmd, earthScene, framePush);
     if (queries != VK_NULL_HANDLE) {
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, first + 2);
     }
@@ -461,7 +494,7 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     VkRect2D scissor{{0, 0}, extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &push);
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &framePush);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
     if (queries != VK_NULL_HANDLE) {

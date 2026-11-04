@@ -11,6 +11,8 @@ constexpr int kScene = 5;
 constexpr int kRenderScale = 6;
 // Bitmask (FrameInputs.EFFECT_* and DEBUG_* bits), pushed to earth.frag as an int.
 constexpr int kEffects = 7;
+// FrameInputs.DEBUG_NO_STATION; also pushed when a frame draws no station.
+constexpr int kDebugNoStation = 1 << 15;
 // Floats [kSceneBlock, kCount) are the per-frame uniform block of earth.frag (std140 vec4s).
 constexpr int kSceneBlock = 8;
 constexpr int kCameraPosKm = 8;

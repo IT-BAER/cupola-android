@@ -25,7 +25,8 @@ layout(push_constant) uniform Push {
     int effects;      // FrameInputs.EFFECTS bits
 } pc;
 
-// FrameInputs.DEBUG_* bits.
+// FrameInputs.DEBUG_* bits; the renderer also sets DEBUG_NO_STATION when it drew no station this frame.
+const int DEBUG_NO_STATION = 1 << 15;
 const int DEBUG_NO_ATMOSPHERE = 1 << 16;
 const int DEBUG_NO_INSCATTER = 1 << 17;
 const int DEBUG_NO_CLOUDS = 1 << 18;
@@ -74,14 +75,17 @@ layout(set = 0, binding = 8) uniform sampler2D interiorEarth;
 layout(set = 0, binding = 9) uniform sampler2D interiorCabin;
 layout(set = 0, binding = 10) uniform sampler2D interiorEmissive;
 layout(set = 0, binding = 11) uniform sampler2D interiorAmbient;
-layout(set = 0, binding = 12) uniform sampler2D earthImage;  // MODE 2: the scaled Earth target (linear)
+// Bindings 12 and 13: station_albedo and station_orm (station.frag only).
+layout(set = 0, binding = 14) uniform sampler2D earthImage;  // MODE 2: the scaled Earth target (linear)
 // Atmosphere LUTs computed at start (atmosphere_lut.cpp, mappings mirrored below) and the per-frame view LUT.
-layout(set = 0, binding = 13) uniform sampler2D transmittanceLut;
-layout(set = 0, binding = 14) uniform sampler2D multiScatterLut;
-layout(set = 0, binding = 15) uniform sampler2D irradianceLut;
-layout(set = 0, binding = 16) uniform sampler2D noiseTex;  // tiling fBm, 4 independent channels (REPEAT)
-layout(set = 0, binding = 17) uniform sampler2D skyInscatter;
-layout(set = 0, binding = 18) uniform sampler2D skyTransmittance;
+layout(set = 0, binding = 15) uniform sampler2D transmittanceLut;
+layout(set = 0, binding = 16) uniform sampler2D multiScatterLut;
+layout(set = 0, binding = 17) uniform sampler2D irradianceLut;
+layout(set = 0, binding = 18) uniform sampler2D noiseTex;  // tiling fBm, 4 independent channels (REPEAT)
+layout(set = 0, binding = 19) uniform sampler2D skyInscatter;
+layout(set = 0, binding = 20) uniform sampler2D skyTransmittance;
+// StationPass target (MODES 0-2): exposed station radiance as encodeHdr, alpha = coverage; Earth resolution.
+layout(set = 0, binding = 21) uniform sampler2D stationImage;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outTransmittance;  // MODE 3 only
@@ -226,6 +230,11 @@ vec3 toneMap(vec3 x) { return clamp(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.5
 // The scaled Earth target stores exposed radiance x as x / (1 + x) (8-bit sRGB, unbounded range).
 vec3 encodeHdr(vec3 x) { return x / (1.0 + x); }
 vec3 decodeHdr(vec3 y) { y = min(y, vec3(0.999)); return y / (1.0 - y); }
+
+// The station target at physical pixel p (alpha 0 where no station was drawn).
+vec4 stationAt(vec2 p) {
+    return (pc.effects & DEBUG_NO_STATION) == 0 ? textureLod(stationImage, p / vec2(pc.extent), 0.0) : vec4(0.0);
+}
 
 vec3 encodeSrgb(vec3 c) {
     c = clamp(c, 0.0, 1.0);
@@ -866,6 +875,14 @@ vec3 bloom(vec2 p, float open) {
 // Share of the light the pane with normal n reflects for interior ray d (Schlick).
 float glassFresnel(vec3 d, vec3 n) { return GLASS_F0 + (1.0 - GLASS_F0) * pow(1.0 - abs(dot(d, n)), 5.0); }
 
+// Exposed radiance outside the window at physical pixel p: the station exterior over the Earth. stepPx as in
+// earthRadiance.
+vec3 exterior(vec2 p, vec2 stepPx) {
+    vec4 st = stationAt(p);
+    vec3 earth = st.a < 1.0 ? earthRadiance(p, stepPx) * s.iBack.w : vec3(0.0);
+    return mix(earth, decodeHdr(st.rgb), st.a);
+}
+
 // What the window glass does to the exposed Earth radiance at physical pixel p: cabin reflections (Fresnel), and the
 // forward scatter of sunlit glass (window glare) and its dust. Runs where the Earth shows (the scaled Earth pass).
 // stepPx as in earthRadiance.
@@ -917,7 +934,7 @@ void main() {
                 return;
             }
         }
-        outColor = vec4(encodeHdr(throughGlass(p, earthRadiance(p, stepPx) * s.iBack.w, stepPx)), open);  // sRGB attachment
+        outColor = vec4(encodeHdr(throughGlass(p, exterior(p, stepPx), stepPx)), open);  // sRGB attachment
         return;
     }
     vec2 p = gl_FragCoord.xy;
@@ -942,11 +959,11 @@ void main() {
                     vec3 paneHit;
                     t *= 1.0 - glassFresnel(d, pane(d, paneHit));
                 }
-                earth += starRadiance(dir, p, vec2(1.0)) * (1.0 - discCover(dir)) * t * s.iBack.w;
+                earth += starRadiance(dir, p, vec2(1.0)) * (1.0 - discCover(dir)) * (1.0 - stationAt(p).a) * t * s.iBack.w;
             }
         }
     } else {
-        if (inside.a <= OPAQUE) earth = throughGlass(p, earthRadiance(p, vec2(1.0)) * s.iBack.w, vec2(1.0));
+        if (inside.a <= OPAQUE) earth = throughGlass(p, exterior(p, vec2(1.0)), vec2(1.0));
         open = sunOpen();
     }
     vec3 glare = bloom(p, open) * s.iBack.w;

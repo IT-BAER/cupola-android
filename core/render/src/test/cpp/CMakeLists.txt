@@ -1,4 +1,4 @@
-# Host tests of the KTX2 reader and the atmosphere LUTs (no Android, no Vulkan). From the repo root:
+# Host tests of the KTX2 reader, the atmosphere LUTs, the sky LUT key and station.mesh (no Android, no Vulkan). From the repo root:
 #   cmake -S core/render/src/test/cpp -B build/host-tests -G Ninja && cmake --build build/host-tests
 #   ctest --test-dir build/host-tests --output-on-failure
 cmake_minimum_required(VERSION 3.22.1)
@@ -61,4 +61,17 @@ else()
 endif()
 foreach(CASE first_frame look_direction sun_tolerance slow_drift altitude invalidate)
     add_test(NAME sky_lut_key.${CASE} COMMAND sky_lut_key_test ${CASE})
+endforeach()
+
+add_executable(station_mesh_test station_mesh_test.cpp "${RENDER_CPP}/station_mesh.cpp")
+target_include_directories(station_mesh_test PRIVATE "${RENDER_CPP}")
+target_compile_definitions(station_mesh_test PRIVATE
+    CUPOLA_STATION_MESH="${CMAKE_CURRENT_SOURCE_DIR}/../../../../../earthpack/src/main/assets/meshes/station.mesh")
+if(MSVC)
+    target_compile_options(station_mesh_test PRIVATE /W4 /WX /utf-8)
+else()
+    target_compile_options(station_mesh_test PRIVATE -Wall -Wextra -Werror)
+endif()
+foreach(CASE self_test validation shipped track degenerate)
+    add_test(NAME station_mesh.${CASE} COMMAND station_mesh_test ${CASE})
 endforeach()

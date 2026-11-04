@@ -23,6 +23,8 @@ enum TextureSlot : uint32_t {
     kInteriorCabin,
     kInteriorEmissive,
     kInteriorAmbient,
+    kStationAlbedo,
+    kStationOrm,
     kTextureSlots,
 };
 
@@ -39,10 +41,12 @@ enum GeneratedSlot : uint32_t {
     kGeneratedSlots,
 };
 constexpr uint32_t kGeneratedBinding = kEarthImageBinding + 1;
-// The per-frame view LUT of SkyPass (inscatter, transmittance), then the binding count of set 0.
+// The per-frame view LUT of SkyPass (inscatter, transmittance).
 constexpr uint32_t kSkyInscatterBinding = kGeneratedBinding + kGeneratedSlots;
 constexpr uint32_t kSkyTransmittanceBinding = kSkyInscatterBinding + 1;
-constexpr uint32_t kBindingCount = kSkyTransmittanceBinding + 1;
+// The StationPass target (station exterior, alpha = coverage), then the binding count of set 0.
+constexpr uint32_t kStationImageBinding = kSkyTransmittanceBinding + 1;
+constexpr uint32_t kBindingCount = kStationImageBinding + 1;
 
 // The Earth and sky textures of the process (decision 33): loaded once per device, shared by every
 // surface target and offscreen render, destroyed with the device.

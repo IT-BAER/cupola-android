@@ -9,6 +9,7 @@
 #include "frame_inputs.h"
 #include "scene_binding.h"
 #include "sky_pass.h"
+#include "station_pass.h"
 
 namespace cupola {
 
@@ -60,6 +61,7 @@ private:
     VkPipeline compositePipeline_ = VK_NULL_HANDLE;
     EarthPass earthPass_;
     SkyPass skyPass_;
+    StationPass stationPass_;
     VkQueryPool queries_ = VK_NULL_HANDLE;
     std::vector<VkImage> images_;
     std::vector<VkImageView> views_;

@@ -69,7 +69,8 @@ void SceneBinding::destroy(VkDevice dev) {
     *this = SceneBinding{};
 }
 
-VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage, const SkyPass& sky) {
+VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView earthImage, const SkyPass& sky,
+                              VkImageView stationImage) {
     const TextureSet* textures = nullptr;
     VK_TRY(device.textures(&textures));
     const VkImageView placeholder = textures->textures[kInteriorEarth].view;
@@ -88,9 +89,13 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
     // Written every frame, not cached by handle: EarthPass recreates its view on a scale change and the driver may
     // return the destroyed view's handle value (A35), which a cache would take for the bound image.
     if (earthImage == VK_NULL_HANDLE) earthImage = placeholder;
+    if (stationImage == VK_NULL_HANDLE) stationImage = placeholder;
     const VkDescriptorImageInfo earthInfo = image(textures->clamp, earthImage);
-    const VkWriteDescriptorSet earthWrite = write(set, kEarthImageBinding, 1, &earthInfo);
-    vkUpdateDescriptorSets(device.device, 1, &earthWrite, 0, nullptr);
+    const VkDescriptorImageInfo stationInfo = image(textures->clamp, stationImage);
+    const VkWriteDescriptorSet frameWrites[3] = {write(set, kEarthImageBinding, 1, &earthInfo),
+                                                 write(set, kStationImageBinding, 1, &stationInfo),
+                                                 write(earthSet, kStationImageBinding, 1, &stationInfo)};
+    vkUpdateDescriptorSets(device.device, 3, frameWrites, 0, nullptr);
     // `set` and `earthSet` read the view LUT; `skySet` (the pass that renders it) gets placeholders.
     const VkImageView inscatter = sky.inscatter != VK_NULL_HANDLE ? sky.inscatter : placeholder;
     const VkImageView transmittance = sky.transmittance != VK_NULL_HANDLE ? sky.transmittance : placeholder;
@@ -120,6 +125,7 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
             write(earthSet, kEarthImageBinding, 1, &hold),
             write(skySet, kEarthImageBinding, 1, &hold),
             write(skySet, kSkyInscatterBinding, 2, holdPair),
+            write(skySet, kStationImageBinding, 1, &hold),
         };
         vkUpdateDescriptorSets(device.device, sizeof(w) / sizeof(w[0]), w, 0, nullptr);
         texturesBound_ = true;

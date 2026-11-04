@@ -38,6 +38,9 @@ object FrameInputs {
     /** State, not a setting: the system reduces motion (animator scale 0), so nothing flashes (lightning). */
     const val MOTION_REDUCED = 1 shl 8
 
+    /** Debug: no station exterior (solar wings). Below bit 16: bit 24 would not survive the float next to bit 0. */
+    const val DEBUG_NO_STATION = 1 shl 15
+
     /** Debug: no atmosphere (bare ground and black space), for the analytic geometry checks. */
     const val DEBUG_NO_ATMOSPHERE = 1 shl 16
 
