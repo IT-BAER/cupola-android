@@ -79,3 +79,7 @@ Active engine only, then open the wallpaper picker preview (second engine, `prev
 & $adb -s $s shell dumpsys meminfo com.baer.cupola.debug | Select-String 'TOTAL PSS|TOTAL  '
 ```
 Run once before the preview, once with the preview open; record both TOTAL PSS values.
+
+## 8. G-PR blind run
+See `tools/gpr/prepare-gpr.ps1` (header: usage, results pull). `-DryRun` validates `holdout.json` and prints counts only. The viewer is
+`am start -n com.baer.cupola.debug/com.baer.cupola.gpr.BlindRunActivity`; result summary on logcat tag `CupolaGpr`.
