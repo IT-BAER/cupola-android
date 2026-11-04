@@ -38,6 +38,7 @@ constexpr int kSkyHorizonNadir = 47;
 constexpr int kSkySunAxis = 48;
 constexpr int kSkyTopNadir = 51;
 constexpr int kCloudFlow = 52;
+constexpr int kFisheyeFov = 55;
 constexpr int kStarRowX = 56;
 constexpr int kStarRowY = 60;
 constexpr int kStarRowZ = 64;

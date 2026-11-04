@@ -13,6 +13,7 @@ import com.baer.cupola.orbit.frames.unaryMinus
 import com.baer.cupola.orbit.sgp4.Vector3
 import java.time.Instant
 import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
@@ -253,5 +254,82 @@ class SceneInputsTest {
         fun define(name: String) = Regex("""#define\s+$name\s+([0-9.eE+-]+)""").find(header)!!.groupValues[1].toDouble()
         assertEquals(define("ATMO_BOTTOM_KM"), Atmosphere.BOTTOM_KM, 0.0)
         assertEquals(define("ATMO_TOP_KM"), Atmosphere.TOP_KM, 0.0)
+    }
+    private val gateTime = Instant.parse("2026-03-20T22:00:00Z")
+    private val gatePos = Frames.geodeticToEcef(Geodetic(Math.toRadians(30.0), Math.toRadians(10.0), heightKm))
+
+    private fun azimuthDeg(p: Vector3, v: Vector3): Double {
+        val e = SceneGeometry.enu(p)
+        return Math.toDegrees(atan2(v dot e.east, v dot e.north)).let { if (it < 0) it + 360 else it }
+    }
+
+    @Test
+    fun poseWithHeadingKeepsTheCabinAndPointsTheNadirRestUpAlongTheVelocity() {
+        val scene = SceneInputs.buildPose(SceneOverride(gateTime, gatePos, headingDeg = 60.0))!!
+        assertNotNull(scene.blenderFromCamera)
+        val inputs = FrameInputs.empty()
+        scene.write(inputs)
+        assertEquals(1f, inputs[FrameInputs.INTERIOR])
+        // NADIR rest: forward = geocentric nadir, image up = LVLH +X = velocity (Blender azimuth 30 deg, README).
+        assertVec(SceneGeometry.unit(-gatePos), -scene.ecefFromCamera.c2, 1e-6)
+        assertEquals(60.0, azimuthDeg(gatePos, scene.ecefFromCamera.c1), 0.5)
+    }
+
+    @Test
+    fun velocityAzimuthFollowsTheInclinationForBothPasses() {
+        val i = Math.toRadians(SceneGeometry.ISS_INCLINATION_DEG)
+        assertEquals(90.0 - 51.64, SceneGeometry.velocityAzimuthDeg(0.0, ascending = true), 1e-9)
+        for (lat in listOf(0.0, 30.0, -40.0, 51.0)) {
+            val expected = cos(i) / cos(Math.toRadians(lat))
+            val asc = Math.toRadians(SceneGeometry.velocityAzimuthDeg(lat, ascending = true))
+            val desc = Math.toRadians(SceneGeometry.velocityAzimuthDeg(lat, ascending = false))
+            assertEquals("asc $lat", expected, sin(asc), 1e-12)
+            assertEquals("desc $lat", expected, sin(desc), 1e-12)
+            assert(cos(asc) > 0 && cos(desc) < 0) { "ascending heads north, descending south at $lat" }
+        }
+    }
+
+    @Test
+    fun rollTurnsTheCameraUpByTheAngle() {
+        for (base in listOf(
+            SceneOverride(gateTime, gatePos, headingDeg = 60.0, rest = RestView.DIAGONAL),
+            SceneOverride(gateTime, gatePos, SceneGeometry.directionFromAzEl(gatePos, 20.0, -30.0)),
+        )) {
+            val flat = SceneInputs.buildPose(base)!!.ecefFromCamera
+            val rolled = SceneInputs.buildPose(base.copy(rollDeg = 25.0))!!.ecefFromCamera
+            assertVec(flat.c2, rolled.c2, 1e-12)
+            // The Blender rest matrices carry float32 precision.
+            assertEquals(25.0, Math.toDegrees(flat.c1.angleTo(rolled.c1)), 1e-5)
+            assert((rolled.c1 dot flat.c0) > 0) { "positive roll turns the camera up toward its right" }
+        }
+        val cabin = SceneInputs.buildPose(SceneOverride(gateTime, gatePos, headingDeg = 60.0, rollDeg = 25.0))!!
+        // The interior lookup turns with the camera.
+        assertVec(cabin.ecefFromCamera.c1, ecefFromBlender(cabin) * cabin.blenderFromCamera!!.c1, 1e-9)
+    }
+
+    private fun ecefFromBlender(scene: Scene) =
+        SceneGeometry.lvlh(scene.cameraEcefKm, SceneGeometry.directionFromAzEl(scene.cameraEcefKm, 60.0, 0.0)) * SceneGeometry.LVLH_FROM_BLENDER
+
+    @Test
+    fun overrideHoldsTheViewAgainstLiveLookAround() {
+        val s = state(10.0, 20.0)
+        val o = SceneOverride(instant = s.instant, rest = RestView.DIAGONAL, lookYawDeg = 5.0, lookPitchDeg = 3.0)
+        val still = SceneInputs.build(s, RestView.NADIR, 0.0, 0.0, o)
+        assertEquals(still, SceneInputs.build(s, RestView.NADIR, 20.0, -10.0, o))
+        assertEquals(SceneInputs.build(s, RestView.DIAGONAL, 5.0, 3.0).ecefFromCamera, still.ecefFromCamera)
+    }
+
+    @Test
+    fun fisheyeBitsOnlyWhenRequested() {
+        val inputs = FrameInputs.empty()
+        SceneInputs.buildPose(SceneOverride(gateTime, gatePos, headingDeg = 60.0))!!.write(inputs)
+        assertEquals(0, inputs[FrameInputs.EFFECTS].toInt() and (FrameInputs.DEBUG_FISHEYE or FrameInputs.DEBUG_NO_STATION))
+        SceneInputs.build(state(10.0, 20.0), RestView.NADIR, 0.0, 0.0).write(inputs)
+        assertEquals(FrameInputs.EFFECTS_ALL.toFloat(), inputs[FrameInputs.EFFECTS])
+        SceneInputs.buildPose(SceneOverride(gateTime, gatePos, headingDeg = 60.0, fisheyeFovDeg = 180.0))!!.write(inputs)
+        val fx = inputs[FrameInputs.EFFECTS].toInt()
+        assertEquals(FrameInputs.DEBUG_FISHEYE or FrameInputs.DEBUG_NO_STATION, fx and (FrameInputs.DEBUG_FISHEYE or FrameInputs.DEBUG_NO_STATION))
+        assertEquals(Math.PI.toFloat(), inputs[FrameInputs.FISHEYE_FOV])
+        assertEquals(1f, inputs[FrameInputs.INTERIOR])
     }
 }

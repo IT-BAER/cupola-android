@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import com.baer.cupola.core.render.NativeRenderer
+import com.baer.cupola.core.render.scene.RestView
 import com.baer.cupola.core.render.scene.SceneGeometry
 import com.baer.cupola.core.render.scene.SceneOverride
 import com.baer.cupola.orbit.frames.Frames
@@ -20,6 +21,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.time.Instant
 import java.time.format.DateTimeParseException
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
@@ -28,7 +30,11 @@ import kotlin.concurrent.thread
  * fault (--es arg orbit|surface|clear), capture (--es arg NAME [--ei w --ei h], or --es arg diff --es a A.png --es b B.png
  * [--ei threshold N]; files in getExternalFilesDir/captures), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
- * the ISS, needs the position; --ef fov field of view on the long screen axis in deg), inputs (every session's last
+ * the ISS, needs the position, Earth only; --ef heading_deg ISS velocity azimuth in deg from north, or --es pass asc|desc
+ * for the 51.64 deg orbit at lat, needs the position, keeps the cabin; --es rest nadir|diagonal --ef yaw --ef pitch the
+ * view relative to the Cupola (default nadir, 0, 0); --ef roll camera roll in deg, up toward right; --ef fov field of
+ * view on the long screen axis in deg; --es projection fisheye [--ef fisheye_fov deg, default 180] equisolid fisheye,
+ * no station exterior; live look-around is ignored while set), inputs (every session's last
  * frame inputs by name and the texture-set mask with the slots on their fallback), wallpaper (--es arg clear: the home
  * screen gets the system default static wallpaper; Cupola comes back only through the picker).
  */
@@ -46,6 +52,8 @@ class GateReceiver : BroadcastReceiver() {
                 Gate.setSceneOverride(if (arg == "clear") null else sceneOverride(intent))
             } catch (e: DateTimeParseException) {
                 Log.w("CupolaGate", "gate bad scene time: ${e.message}")
+            } catch (e: IllegalArgumentException) {
+                Log.w("CupolaGate", "gate bad scene arg: ${e.message}")
             }
             "freeze" -> when (arg) {
                 "on" -> Gate.setFrozen(true)
@@ -171,16 +179,34 @@ class GateReceiver : BroadcastReceiver() {
         val az = float("az")
         val el = float("el")
         val forward = if (position != null && az != null && el != null) SceneGeometry.directionFromAzEl(position, az, el) else null
+        val ascending = when (val pass = intent.getStringExtra("pass")) {
+            null -> null
+            "asc" -> true
+            "desc" -> false
+            else -> throw IllegalArgumentException("pass=$pass")
+        }
+        val fisheye = when (val projection = intent.getStringExtra("projection")) {
+            null, "rectilinear" -> null
+            "fisheye" -> float("fisheye_fov") ?: DEFAULT_FISHEYE_FOV_DEG
+            else -> throw IllegalArgumentException("projection=$projection")
+        }
         return SceneOverride(
             instant = intent.getStringExtra("time")?.let(Instant::parse),
             positionEcefKm = position,
             cameraForwardEcef = forward,
             fovLongDeg = float("fov"),
+            headingDeg = float("heading_deg") ?: if (lat != null && ascending != null) SceneGeometry.velocityAzimuthDeg(lat, ascending) else null,
+            rollDeg = float("roll") ?: 0.0,
+            rest = intent.getStringExtra("rest")?.let { RestView.valueOf(it.uppercase(Locale.ROOT)) },
+            lookYawDeg = float("yaw") ?: 0.0,
+            lookPitchDeg = float("pitch") ?: 0.0,
+            fisheyeFovDeg = fisheye,
         )
     }
 
     private companion object {
         const val DEFAULT_ALT_KM = 420.0
+        const val DEFAULT_FISHEYE_FOV_DEG = 180.0
     }
 }
 

@@ -3,8 +3,11 @@ package com.baer.cupola.wallpaper
 import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.scene.RestView
+import com.baer.cupola.core.render.scene.SceneOverride
 import com.baer.cupola.orbit.OrbitModel
 import com.baer.cupola.orbit.OrbitState
+import com.baer.cupola.orbit.frames.Frames
+import com.baer.cupola.orbit.frames.Geodetic
 import com.baer.cupola.orbit.tle.Tle
 import java.io.File
 import java.time.Instant
@@ -33,6 +36,7 @@ class RenderSessionGateTest {
     @After fun clearGate() {
         Gate.setFrozen(false)
         Gate.setOrbitFault(false)
+        Gate.setSceneOverride(null)
     }
 
     @Test fun freezeRepeatsTheLastFrameUntilReleased() {
@@ -53,6 +57,16 @@ class RenderSessionGateTest {
         assertArrayEquals(before, sceneBlock(session.nextFrameInputs()), 0f)
         Gate.setOrbitFault(false)
         assertFalse("live again", before.contentEquals(sceneBlock(session.nextFrameInputs())))
+    }
+
+    @Test fun cabinPoseOverrideKeepsTheInteriorAndTheFisheyeBits() {
+        val p = Frames.geodeticToEcef(Geodetic(Math.toRadians(30.0), Math.toRadians(10.0), 420.0))
+        Gate.setSceneOverride(SceneOverride(good, p, headingDeg = 60.0, fisheyeFovDeg = 180.0))
+        val inputs = session.nextFrameInputs()
+
+        assertEquals(1f, inputs[FrameInputs.INTERIOR])
+        val bits = FrameInputs.DEBUG_FISHEYE or FrameInputs.DEBUG_NO_STATION
+        assertEquals(bits, inputs[FrameInputs.EFFECTS].toInt() and bits)
     }
 
     @Test fun sceneDumpNamesWhatTheLastFrameShowed() {

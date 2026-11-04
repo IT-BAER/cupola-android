@@ -16,6 +16,15 @@ Commands (explicit component, extras `cmd` and `arg`):
 `Gate --es cmd stats --es arg reset|dump`. Output is on logcat tag `CupolaGate`:
 `gate id=.. preview=.. visible=.. frames=.. fps1s=.. gpu_p50_ms=.. gpu_p95_ms=.. gpu_max_ms=.. load=..`
 (one line per second per surface while frames flow, and on `stats dump`).
+
+Scene override (P3a, G-PR; full list in `GateReceiver` KDoc): `Gate --es cmd scene --es time T --ef lat --ef lon
+--ef alt_km` plus either `--ef az --ef el` (camera direction in the local horizon, Earth only) or `--ef heading_deg H`
+/ `--es pass asc|desc` (ISS velocity azimuth, or derived from the 51.64 deg inclination at lat; keeps the Cupola
+interior, view `--es rest nadir|diagonal --ef yaw --ef pitch` relative to the Cupola). Optional `--ef roll` (deg, up
+toward right), `--ef fov`, `--es projection fisheye --ef fisheye_fov 180` (equisolid, no station exterior, rays past
+the baked interior envelope of 107 deg from nadir are black). Live look-around is ignored while an override is set;
+`--es arg clear` restores the live scene, `--es arg dump` logs `gate scene` lines.
+
 Every `Engine.onCommand` is logged as `gate command action=<a> x= y= z= extras=<keys|null>` (all actions, not only taps).
 
 ## 1. Install and set as wallpaper

@@ -26,6 +26,7 @@ layout(push_constant) uniform Push {
 } pc;
 
 // FrameInputs.DEBUG_* bits; the renderer also sets DEBUG_NO_STATION when it drew no station this frame.
+const int DEBUG_FISHEYE = 1 << 14;  // set together with DEBUG_NO_STATION (Scene.write)
 const int DEBUG_NO_STATION = 1 << 15;
 const int DEBUG_NO_ATMOSPHERE = 1 << 16;
 const int DEBUG_NO_INSCATTER = 1 << 17;
@@ -56,7 +57,7 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 iBack;    // xyz camera back in the interior frame, w = linear exposure
     vec4 skyUp;    // xyz radial up of the camera in the ellipsoid-scaled space, w = nadir angle of the horizon
     vec4 skyAxis;  // xyz the Sun's azimuth axis (perpendicular to skyUp), w = nadir angle of the atmosphere top
-    vec4 clouds;   // CloudFlow: x, y flow phases A and B (cycle + fraction), z days
+    vec4 clouds;   // CloudFlow: x, y flow phases A and B (cycle + fraction), z days; w fisheye fov (rad, DEBUG_FISHEYE)
     vec4 starX;    // xyz rows of the ECEF-to-galactic rotation (StarFrame)
     vec4 starY;
     vec4 starZ;
@@ -241,10 +242,17 @@ vec3 encodeSrgb(vec3 c) {
     return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
 }
 
-// Camera-space ray (unnormalised, z = -1) through the physical pixel position p.
+// Camera-space ray (unnormalised, z = -1) through the physical pixel position p. DEBUG_FISHEYE: unit ray of the
+// equisolid lens r = 2 f sin(theta / 2), theta = fov / 2 at the long half axis; past the image circle theta = pi.
 vec3 cameraRay(vec2 p) {
     vec2 size = vec2(pc.rotation % 2 == 1 ? pc.extent.yx : pc.extent);
     vec2 q = logicalPixel(p);
+    if ((pc.effects & DEBUG_FISHEYE) != 0) {
+        vec2 r = vec2(2.0 * q.x / size.x - 1.0, 1.0 - 2.0 * q.y / size.y) * size / max(size.x, size.y);
+        float rho = length(r);
+        float theta = 2.0 * asin(min(rho * sin(0.25 * s.clouds.w), 1.0));
+        return vec3(rho > 0.0 ? r / rho * sin(theta) : vec2(0.0), -cos(theta));
+    }
     vec2 tanHalf = s.sun.w * size / max(size.x, size.y);
     return vec3((2.0 * q.x / size.x - 1.0) * tanHalf.x, (1.0 - 2.0 * q.y / size.y) * tanHalf.y, -1.0);
 }
@@ -303,8 +311,17 @@ vec4 interiorAt(vec3 d) {
     return vec4(earthlit * s.iUp.w + cabin * STATIC_SCALE, earth.a);
 }
 
-// interiorAt for the camera-space ray c; nothing when the interior is off.
-vec4 interior(vec3 c) { return s.iRight.w == 0.0 ? vec4(0.0) : interiorAt(interiorRay(c)); }
+// Widest baked interior ray: 107 deg from +Z (tools/blender/README.md); past it the face crops only clamp.
+const float ENVELOPE_COS = -0.2924;
+
+// interiorAt for the camera-space ray c; nothing when the interior is off. Fisheye rays past the baked envelope are
+// opaque black.
+vec4 interior(vec3 c) {
+    if (s.iRight.w == 0.0) return vec4(0.0);
+    vec3 d = interiorRay(c);
+    if ((pc.effects & DEBUG_FISHEYE) != 0 && d.z < ENVELOPE_COS * length(d)) return vec4(0.0, 0.0, 0.0, 1.0);
+    return interiorAt(d);
+}
 
 // The cabin's own light along the cabin-frame direction d (static cabin and emissive layers, as in interiorAt); the
 // window reflections use it, since the Earthlit cabin is lost against the bright Earth by day.

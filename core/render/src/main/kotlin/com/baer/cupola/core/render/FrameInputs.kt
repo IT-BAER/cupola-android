@@ -38,6 +38,12 @@ object FrameInputs {
     /** State, not a setting: the system reduces motion (animator scale 0), so nothing flashes (lightning). */
     const val MOTION_REDUCED = 1 shl 8
 
+    /**
+     * Debug (gate): equisolid fisheye of [FISHEYE_FOV] instead of the rectilinear lens. Set with [DEBUG_NO_STATION]:
+     * the rasterised station cannot follow the curved rays.
+     */
+    const val DEBUG_FISHEYE = 1 shl 14
+
     /** Debug: no station exterior (solar wings). Below bit 16: bit 24 would not survive the float next to bit 0. */
     const val DEBUG_NO_STATION = 1 shl 15
 
@@ -118,8 +124,11 @@ object FrameInputs {
     const val SKY_SUN_AXIS = 48
     const val SKY_TOP_NADIR = 51
 
-    /** Cloud time ([scene.CloudFlow]): flow phases A and B (cycle + fraction) and days; the fourth float is unused. */
+    /** Cloud time ([scene.CloudFlow]): flow phases A and B (cycle + fraction) and days; the fourth float is [FISHEYE_FOV]. */
     const val CLOUD_FLOW = 52
+
+    /** Fisheye field of view (rad) across the long axis, read only with [DEBUG_FISHEYE]. */
+    const val FISHEYE_FOV = 55
 
     /** Rows of the ECEF-to-galactic rotation ([scene.StarFrame]) for the stars map; each row's fourth float is unused. */
     const val STAR_ROW_X = 56

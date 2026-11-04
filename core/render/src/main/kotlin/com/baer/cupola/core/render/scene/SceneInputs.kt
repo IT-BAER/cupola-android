@@ -90,13 +90,23 @@ fun OrbitState.toSceneState() = SceneState(
 
 /**
  * Debug override for P3a and G-PR. [instant] is applied by the caller (it propagates the orbit at that time);
- * the others replace the ISS position, the camera direction (look-around is then ignored) and the field of view.
+ * the others replace the ISS position, the camera direction and the field of view. Live look-around is ignored: the
+ * view is [rest] (null: the caller's) turned by [lookYawDeg] and [lookPitchDeg], or [cameraForwardEcef] (Earth only).
+ * [headingDeg] is the azimuth of the ISS velocity (LVLH +X) at the position, deg from north eastwards; with it a pose
+ * keeps the cabin. [rollDeg] > 0 turns the camera up toward its right. A non-null [fisheyeFovDeg] renders an
+ * equisolid fisheye of that field of view on the long axis.
  */
 data class SceneOverride(
     val instant: Instant? = null,
     val positionEcefKm: Vector3? = null,
     val cameraForwardEcef: Vector3? = null,
     val fovLongDeg: Double? = null,
+    val headingDeg: Double? = null,
+    val rollDeg: Double = 0.0,
+    val rest: RestView? = null,
+    val lookYawDeg: Double = 0.0,
+    val lookPitchDeg: Double = 0.0,
+    val fisheyeFovDeg: Double? = null,
 )
 
 /** Monthly colour layers around a date: colour = mix(layer0, layer1, weight). */
@@ -120,7 +130,18 @@ object SceneGeometry {
         Vector3(0.0, 0.0, 1.0),
     )
 
+    const val ISS_INCLINATION_DEG = 51.64
+
     fun unit(v: Vector3) = v * (1.0 / v.norm())
+
+    /**
+     * Azimuth (deg from north, eastwards) of the inertial orbital velocity at [latitudeDeg], spherical Earth:
+     * sin(az) = cos(i) / cos(lat); an ascending pass heads north, a descending one south. Due east past the inclination.
+     */
+    fun velocityAzimuthDeg(latitudeDeg: Double, ascending: Boolean, inclinationDeg: Double = ISS_INCLINATION_DEG): Double {
+        val az = Math.toDegrees(asin((cos(Math.toRadians(inclinationDeg)) / cos(Math.toRadians(latitudeDeg))).coerceIn(-1.0, 1.0)))
+        return if (ascending) az else 180 - az
+    }
 
     /** LVLH axes in ECEF as columns: z = geocentric nadir, y = z x v (minus the orbit normal), x = y x z. */
     fun lvlh(positionEcefKm: Vector3, velocityEcef: Vector3): Mat3 {
@@ -187,6 +208,8 @@ data class Scene(
     val exposure: Double? = null,
     /** [FrameInputs.EFFECTS] bits (user effect switches, plus debug bits in tests). */
     val effects: Int = FrameInputs.EFFECTS_ALL,
+    /** Debug gate: equisolid fisheye field of view on the long axis; null is the rectilinear [fovLongDeg] lens. */
+    val fisheyeFovDeg: Double? = null,
 ) {
     private val tanHalfLong = tan(Math.toRadians(fovLongDeg / 2))
 
@@ -232,7 +255,9 @@ data class Scene(
         inputs[FrameInputs.EARTH_LIGHT] = earthLight().toFloat()
         inputs[FrameInputs.MOON_LIGHT] = moonLight().toFloat()
         inputs[FrameInputs.EXPOSURE] = (exposure ?: Exposure.steady(this)).toFloat()
-        inputs[FrameInputs.EFFECTS] = effects.toFloat()
+        val fisheye = fisheyeFovDeg
+        inputs[FrameInputs.EFFECTS] = (if (fisheye == null) effects else effects or FISHEYE_BITS).toFloat()
+        if (fisheye != null) inputs[FrameInputs.FISHEYE_FOV] = Math.toRadians(fisheye).toFloat()
         writeSkyFrame(inputs)
         val clouds = CloudFlow.of(instant)
         inputs[FrameInputs.CLOUD_FLOW] = clouds.phaseA
@@ -377,6 +402,7 @@ data class Scene(
 
         /** earth.frag WINDOW_GLARE averaged over the forward lobe and the glass share of a view. */
         const val GLASS_GLARE_MEAN = 0.002
+        private const val FISHEYE_BITS = FrameInputs.DEBUG_FISHEYE or FrameInputs.DEBUG_NO_STATION
         private const val CAP_RINGS = 16
         private const val CAP_SECTORS = 32
 
@@ -412,8 +438,9 @@ object SceneInputs {
 
     /**
      * Explicit pose (override with instant and position): Sun and Moon straight from the ephemerides at that instant,
-     * no SGP4, so dates far from the TLE epoch work. Without a camera forward the view looks at nadir (no orbit
-     * velocity, so no LVLH). Null when the override lacks the instant or the position.
+     * no SGP4, so dates far from the TLE epoch work. With a heading the LVLH frame and the cabin follow from it; without
+     * heading or camera forward the view looks at nadir, Earth only. Null when the override lacks the instant or the
+     * position.
      */
     fun buildPose(override: SceneOverride): Scene? {
         val instant = override.instant ?: return null
@@ -422,9 +449,11 @@ object SceneInputs {
         val gmst = Sidereal.gmstRad(TimeScales.julianDateUt1(instant))
         val sunEcef = Sun.apparent(jdTt).positionTemeKm(jdTt).rotatedFrameZ(gmst)
         val moonEcef = Moon.apparent(jdTt).positionTemeKm(jdTt).rotatedFrameZ(gmst)
-        val forward = override.cameraForwardEcef ?: -SceneGeometry.enu(position).up
-        // Velocity is unused: build() takes the camera from the forward direction.
-        val state = SceneState(instant, position, Vector3(0.0, 0.0, 0.0), SceneGeometry.unit(sunEcef), SceneGeometry.unit(moonEcef - position))
+        val heading = override.headingDeg
+        val velocity = if (heading != null) SceneGeometry.directionFromAzEl(position, heading, 0.0) else Vector3(0.0, 0.0, 0.0)
+        val forward = override.cameraForwardEcef ?: if (heading == null) -SceneGeometry.enu(position).up else null
+        // Without a heading the velocity is unused: build() takes the camera from the forward direction.
+        val state = SceneState(instant, position, velocity, SceneGeometry.unit(sunEcef), SceneGeometry.unit(moonEcef - position))
         return build(state, RestView.NADIR, 0.0, 0.0, override.copy(cameraForwardEcef = forward))
     }
 
@@ -445,9 +474,15 @@ object SceneInputs {
     ): Scene {
         val position = override?.positionEcefKm ?: state.positionEcefKm
         val forward = override?.cameraForwardEcef
-        val blenderFromCamera = if (forward != null) null else rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
+        val look = if (override == null) {
+            rest.blenderFromCamera * yaw(-yawDeg) * pitch(pitchDeg)
+        } else {
+            (override.rest ?: rest).blenderFromCamera * yaw(-override.lookYawDeg) * pitch(override.lookPitchDeg)
+        }
+        val rollDeg = override?.rollDeg ?: 0.0
+        val blenderFromCamera = if (forward != null) null else look.rolled(rollDeg)
         val ecefFromCamera = if (blenderFromCamera == null) {
-            lookAlong(position, SceneGeometry.unit(forward!!))
+            lookAlong(position, SceneGeometry.unit(forward!!)).rolled(rollDeg)
         } else {
             SceneGeometry.lvlh(position, state.velocityEcefKmPerSec) * SceneGeometry.LVLH_FROM_BLENDER * blenderFromCamera
         }
@@ -460,6 +495,7 @@ object SceneInputs {
             moonDirEcef = state.moonDirEcef,
             month = monthBlend(state.instant),
             blenderFromCamera = if (interior) blenderFromCamera else null,
+            fisheyeFovDeg = override?.fisheyeFovDeg,
         )
     }
 
@@ -481,6 +517,14 @@ object SceneInputs {
         val right = SceneGeometry.unit(forward cross vertical)
         val up = right cross forward
         return Mat3(right, up, -forward)
+    }
+
+    /** Turns the camera about its view axis, up toward right for positive [deg]. */
+    private fun Mat3.rolled(deg: Double): Mat3 {
+        if (deg == 0.0) return this
+        val c = cos(Math.toRadians(deg))
+        val s = sin(Math.toRadians(deg))
+        return this * Mat3(Vector3(c, -s, 0.0), Vector3(s, c, 0.0), Vector3(0.0, 0.0, 1.0))
     }
 
     private fun yaw(deg: Double): Mat3 {

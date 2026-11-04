@@ -7,7 +7,9 @@
 .DESCRIPTION
   Reads <Holdout>\holdout.json (an array, or {"photos": [...]}). Each entry has the photo file name in `file` (relative to
   <Holdout>; if absent, `nasa_id` plus .jpg/.jpeg/.png) and optionally a `gate` object
-  {time, lat, lon, alt_km, az, el, fov, crop?} (`crop` = [x,y,w,h] in photo pixels). Entries without `gate` are skipped
+  {time, lat, lon, alt_km, fov, crop?} plus either az, el (Earth only) or heading_deg / pass (asc|desc; the Cupola
+  interior, optional rest nadir|diagonal, yaw, pitch), and optional roll, projection (fisheye), fisheye_fov
+  (`crop` = [x,y,w,h] in photo pixels). Entries without `gate` are skipped
   and counted. Pairs are numbered p01.. in shuffled order; the id map exists only in <Holdout>\gpr-map.json. Console
   output holds counts and opaque pair ids only. Needs python with Pillow, else System.Drawing is used.
 
@@ -45,10 +47,12 @@ if (-not (Test-Path -LiteralPath $jsonPath)) { Fail 'holdout.json not found' }
 try { $doc = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json } catch { Fail 'holdout.json is not valid JSON' }
 $entries = @(if ($doc -is [array]) { $doc } else { $doc.photos })
 $gated = @($entries | Where-Object { $_.gate })
-$required = 'time', 'lat', 'lon', 'alt_km', 'az', 'el', 'fov'
+$required = 'time', 'lat', 'lon', 'alt_km', 'fov'
 $bad = 0; $missingPhoto = 0
 foreach ($e in $gated) {
-    if ($required | Where-Object { $null -eq $e.gate.$_ }) { $bad++ }
+    $g = $e.gate
+    $view = ($null -ne $g.az -and $null -ne $g.el) -or $null -ne $g.heading_deg -or $null -ne $g.pass
+    if (($required | Where-Object { $null -eq $g.$_ }) -or -not $view) { $bad++ }
     if (-not (PhotoPath $e)) { $missingPhoto++ }
 }
 $python = Get-Command python -ErrorAction SilentlyContinue
@@ -107,8 +111,12 @@ try {
     for ($i = 0; $i -lt $gated.Count; $i++) {
         $e = $gated[$order[$i]]; $g = $e.gate
         $id = 'p{0:d2}' -f ($i + 1)
-        Adb shell am broadcast -n $Gate --es cmd scene --es time $g.time --ef lat (Num $g.lat) --ef lon (Num $g.lon) --ef alt_km (Num $g.alt_km) `
-            --ef az (Num $g.az) --ef el (Num $g.el) --ef fov (Num $g.fov) | Out-Null
+        $scene = @('--es', 'cmd', 'scene', '--es', 'time', $g.time)
+        foreach ($k in 'lat', 'lon', 'alt_km', 'az', 'el', 'fov', 'heading_deg', 'roll', 'yaw', 'pitch', 'fisheye_fov') {
+            if ($null -ne $g.$k) { $scene += '--ef', $k, (Num $g.$k) }
+        }
+        foreach ($k in 'pass', 'rest', 'projection') { if ($null -ne $g.$k) { $scene += '--es', $k, $g.$k } }
+        Adb shell am broadcast -n $Gate @scene | Out-Null
         Start-Sleep 2
         Adb shell am broadcast -n $Gate --es cmd capture --es arg "gpr-$id" --ei w $w --ei h $h | Out-Null
         Start-Sleep 2
