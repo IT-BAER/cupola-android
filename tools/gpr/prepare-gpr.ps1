@@ -27,6 +27,8 @@ param(
     [string]$Serial = '10.10.70.101:5555',
     [string]$Adb = 'D:\Software\Android\Sdk\platform-tools\adb.exe',
     [string]$Holdout = 'local/reference/holdout',
+    # Exposure adapts over several seconds; an early capture keeps the previous scene's exposure.
+    [int]$SettleSeconds = 12,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -125,7 +127,7 @@ try {
         foreach ($k in $enums.Keys) { if ($null -ne $g.$k) { $scene += '--es', $k, $g.$k } }
         $reply = Adb shell am broadcast -n $Gate @scene 2>&1
         if (-not ($reply -match 'Broadcast completed')) { Fail "scene broadcast failed for $id" }
-        Start-Sleep 2
+        Start-Sleep $SettleSeconds
         Adb shell am broadcast -n $Gate --es cmd capture --es arg "gpr-$id" --ei w $w --ei h $h | Out-Null
         Start-Sleep 2
         $remote = @(Adb shell "ls $Device/captures/gpr-$id-*.png" 2>$null | Where-Object { $_ -like '*.png' }) | Select-Object -First 1
@@ -142,6 +144,9 @@ try {
 }
 $map | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Holdout 'gpr-map.json') -Encoding utf8
 @{ pairs = $pairs } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'trials.json') -Encoding utf8
-Adb shell mkdir -p "$Device/gpr" | Out-Null
+# The folder must belong to the app: one made by the adb shell (uid 2000) is unreadable for it (EACCES).
+Adb shell "run-as com.baer.cupola.debug mkdir -p $Device/gpr" | Out-Null
+$owner = Adb shell "stat -c %u $Device/gpr $Device"
+if (@($owner | Select-Object -Unique).Count -ne 1) { Fail "$Device/gpr is not readable for the app: pull any results-*.csv, then remove the folder and run again" }
 foreach ($f in Get-ChildItem -LiteralPath $out) { Adb push $f.FullName "$Device/gpr/$($f.Name)" | Out-Null }
 Write-Host "pushed $($pairs.Count) pairs, $($pairs.Count * 2) trials; scene override cleared"
