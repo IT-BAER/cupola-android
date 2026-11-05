@@ -108,8 +108,9 @@ const float CLOUD_ALT_KM = 6.0;
 const float CLOUD_ALBEDO = 0.85;
 const float FLOW_PERIOD_H = 6.0;
 const float CLOUD_SHADOW = 0.75;
-// Map cover below this is dropped and the rest rescaled: the 2002 map's thin veils read as grey haze on a phone.
-const float CLOUD_THIN_CUT = 0.4;
+// Map cover below this is dropped and the rest rescaled: the 2002 map's thinnest veils read as grey haze on a phone
+// (above it, cloudCells breaks thin cover into sparse cells instead of a veil).
+const float CLOUD_THIN_CUT = 0.25;
 // P3.4 night side, in shader radiance (night exposure about 1.4e4, Exposure.NIGHT_FLOOR): city light per texel value 1
 // in a sodium / warm LED colour (texel^CITY_GAMMA keeps the cores and drops the dim ASTC block noise around sparse
 // lights), star map radiance per texel value 1, the Moon's albedo and angular radius, and the
@@ -145,12 +146,19 @@ const float STORM_COVER_FULL = (0.8 - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT);
 // brightness (the same by day and night).
 const float MARKER_RING_PX = 11.0;
 const vec3 MARKER = vec3(0.65, 0.9, 1.0) * 0.9;  // cool, apart from the warm city lights
-// P3.5 Sun glare in shader radiance per unit sunlight at the camera: a narrow and a wide bloom lobe and a broad veil
-// on the window glass, each peak / (1 + (theta / width)^2) with widths in rad (no transcendentals: full resolution).
+// P3.5 Sun glare in shader radiance per unit sunlight at the camera: a narrow core lobe peak / (1 + (theta / width)^2)^2,
+// the lens's veiling-glare tail BLOOM_TAIL / theta^2 (theta in rad, G-PR run 1: a wider lobe flooded sunrise frames),
+// SPIKES diffraction spikes of a 7-blade aperture, SPIKE / theta^2 along each spike, fading over SPIKE_FADE_RAD and
+// SPIKE_WIDTH_RAD wide; and a broad veil on the window glass.
 const float BLOOM_NARROW = 4.0;
 const float BLOOM_NARROW_RAD = 0.015;
-const float BLOOM_WIDE = 0.44;
-const float BLOOM_WIDE_RAD = 0.1;
+const float BLOOM_TAIL = 1.0e-5;
+const float HALO = 0.02;  // lens halo around the core, a Gaussian of HALO_RAD
+const float HALO_RAD = 0.05;
+const float SPIKES = 14.0;
+const float SPIKE = 2.0e-4;
+const float SPIKE_WIDTH_RAD = 0.003;
+const float SPIKE_FADE_RAD = 0.12;
 const float WINDOW_GLARE = 0.002;  // a clean pane scatters a few tenths of a percent
 const float WINDOW_GLARE_RAD = 0.6;
 
@@ -225,8 +233,18 @@ vec2 logicalPixel(vec2 p) {
 // Wraps a longitude difference into [-pi, pi], so derivatives stay small across 180 deg.
 float wrapDelta(float d) { return d - 2.0 * PI * round(d / (2.0 * PI)); }
 
-// Filmic tone map (ACES fit, Narkowicz 2015) of exposed linear radiance.
-vec3 toneMap(vec3 x) { return clamp(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+// Filmic tone map of exposed linear radiance: the ACES fit (Narkowicz 2015) on luminance, the colour scaled with it.
+// Where a channel would pass 1 the colour moves towards grey of the same luminance just enough to fit, so highlights
+// end in white like a camera's, not in the clipped channels' mix (per-channel ACES turned warm sunlight yellow).
+vec3 toneMap(vec3 x) {
+    float y = dot(x, vec3(0.2126, 0.7152, 0.0722));
+    if (y <= 0.0) return vec3(0.0);
+    float t = min(y * (2.51 * y + 0.03) / (y * (2.43 * y + 0.59) + 0.14), 1.0);
+    vec3 c = x * (t / y);
+    float peak = max(c.r, max(c.g, c.b));
+    if (peak > 1.0) c = mix(c, vec3(t), (peak - 1.0) / max(peak - t, 1e-6));
+    return clamp(c, 0.0, 1.0);
+}
 
 // The scaled Earth target stores exposed radiance x as x / (1 + x) (8-bit sRGB, unbounded range).
 vec3 encodeHdr(vec3 x) { return x / (1.0 + x); }
@@ -515,22 +533,88 @@ vec2 flowShift(vec2 uv, float latRad, float cycle, float hours) {
     return vec2(km.x / (2.0 * PI * A_KM * max(cos(latRad), 0.2)), -km.y / (2.0 * LAT_MAX * A_KM));
 }
 
+// Cloud map at uv. Magnified (under half a texel per pixel) it is filtered with a cubic B-spline in four bilinear taps:
+// the cover is thresholded afterwards, and bilinear magnification then shows the texel grid as squares (G-PR run 1).
+float cloudMapAt(vec2 uv, vec2 gx, vec2 gy) {
+    vec2 size = vec2(textureSize(cloudMap, 0));
+    if (max(length(gx * size), length(gy * size)) > 0.5) return textureGrad(cloudMap, uv, gx, gy).r;
+    vec2 t = uv * size - 0.5;
+    vec2 f = fract(t);
+    vec2 i = t - f;
+    vec2 f2 = f * f;
+    vec2 f3 = f2 * f;
+    vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    vec2 w3 = f3 / 6.0;
+    vec2 g0 = w0 + w1;
+    vec2 g1 = w2 + w3;
+    vec2 h0 = (i - 0.5 + w1 / g0) / size;
+    vec2 h1 = (i + 1.5 + w3 / g1) / size;
+    return g0.y * (g0.x * textureLod(cloudMap, h0, 0.0).r + g1.x * textureLod(cloudMap, vec2(h1.x, h0.y), 0.0).r) +
+           g1.y * (g0.x * textureLod(cloudMap, vec2(h0.x, h1.y), 0.0).r + g1.x * textureLod(cloudMap, h1, 0.0).r);
+}
+
+// Sub-texel cloud structure: three octaves of tiling noise (alpha channel) on ground tiles of 4, 1 and 1/4
+// CLOUD_DETAIL_KM, each faded out as a pixel grows past its finest cell (the noise has no mips). Returns the detail
+// offset (zero mean) and its weight 0..1.
+const float CLOUD_DETAIL_KM = 20.0;
+const float CLOUD_DETAIL = 2.5;   // spreads the threshold over about 0..1 (fBm clusters near its mean)
+const float CLOUD_EDGE = 0.08;    // half width of a cloud edge in cover at full detail
+vec2 cloudDetail(vec2 uv, float latRad, float kmPerPx) {
+    vec2 km = vec2(uv.x * 2.0 * PI * A_KM * cos(latRad), uv.y * 2.0 * LAT_MAX * A_KM);
+    float cell = CLOUD_DETAIL_KM / 32.0;  // finest lattice cell of the middle octave's tile
+    float a0 = 1.0 - smoothstep(2.0 * cell, 8.0 * cell, kmPerPx);
+    float a1 = 1.0 - smoothstep(0.5 * cell, 2.0 * cell, kmPerPx);
+    float a2 = 1.0 - smoothstep(0.125 * cell, 0.5 * cell, kmPerPx);
+    // Octaves turned 31, 77 and 143 deg with offsets: the value-noise lattice is axis-aligned, and one tile size alone
+    // repeats as a visible grid of cells.
+    vec2 k0 = mat2(0.857, 0.515, -0.515, 0.857) * km * (0.25 / CLOUD_DETAIL_KM);
+    vec2 k1 = mat2(0.225, 0.974, -0.974, 0.225) * km / CLOUD_DETAIL_KM + vec2(0.37, 0.61);
+    vec2 k2 = mat2(-0.799, 0.602, -0.602, -0.799) * km * (4.0 / CLOUD_DETAIL_KM) + vec2(0.13, 0.29);
+    float n0 = a0 > 0.0 ? textureLod(noiseTex, k0, 0.0).a - 0.5 : 0.0;
+    float n1 = a1 > 0.0 ? textureLod(noiseTex, k1, 0.0).a - 0.5 : 0.0;
+    float n2 = a2 > 0.0 ? textureLod(noiseTex, k2, 0.0).a - 0.5 : 0.0;
+    return vec2(0.5 * a0 * n0 + 0.32 * a1 * n1 + 0.18 * a2 * n2, a0);
+}
+
+// Map cover c with the detail at map uv: x = opacity 0..1, y = brightness of the cloud top 0..1. The detail is a
+// threshold spread over about 0..1, so a point is cloud with a probability near c (the mean cover stays) and partial
+// cover breaks into cells. The cover above the threshold acts as thickness: thin rims are translucent and dimmer,
+// cores bright and lumpy (the finest octave). Edges are crisp at full detail and as soft as the map without it.
+vec2 cloudCells(float c, vec2 uv, float latRad, float kmPerPx) {
+    vec2 d = cloudDetail(uv, latRad, kmPerPx);
+    float w = mix(0.5, CLOUD_EDGE, d.y);
+    float t = clamp(0.5 + CLOUD_DETAIL * d.x, w, 1.0 - w);
+    float thick = smoothstep(t - w, t + w + 4.0 * CLOUD_EDGE * d.y, c);
+    return vec2(smoothstep(t - w, t + w, c), mix(1.0, 0.55 + 0.45 * thick, d.y));
+}
+
 // Cloud cover 0..1 at map uv: the Blue Marble 2002 map advected in two flow phases half a period apart (each fades
-// out where it restarts), thinned or thickened over days by a slowly moving low-frequency field.
-float cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
-    if (abs(latRad) > LAT_MAX) return 0.0;
+// out where it restarts), its lookup warped by CLOUD_WARP_KM of noise so edges turn fractal, thinned or thickened over
+// days by a slowly moving low-frequency field, then broken into cells by the detail (once, on the blended cover:
+// eroding each phase alone left ghost copies in the cross-fade).
+const float CLOUD_WARP_KM = 2.5;
+// x = opacity, y = cloud-top brightness (cloudCells).
+vec2 cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy) {
+    if (abs(latRad) > LAT_MAX) return vec2(0.0, 1.0);
+    vec2 kmScale = vec2(2.0 * PI * A_KM * cos(latRad), 2.0 * LAT_MAX * A_KM);
+    float kmPerPx = max(length(gx * kmScale), length(gy * kmScale));
+    vec2 km = uv * kmScale;
+    vec2 warp = textureLod(noiseTex, mat2(0.940, -0.342, 0.342, 0.940) * km / 30.0 + vec2(0.71, 0.17), 0.0).rg - 0.5;
+    uv += warp * (2.0 * CLOUD_WARP_KM) / kmScale * (1.0 - smoothstep(2.0, 8.0, kmPerPx));
     float fa = fract(s.clouds.x);
     float fb = fract(s.clouds.y);
     vec2 ua = uv - flowShift(uv, latRad, floor(s.clouds.x), fa * FLOW_PERIOD_H);
     vec2 ub = uv - flowShift(uv, latRad, floor(s.clouds.y), fb * FLOW_PERIOD_H);
-    float c = mix(textureGrad(cloudMap, ub, gx, gy).r, textureGrad(cloudMap, ua, gx, gy).r, 1.0 - abs(2.0 * fa - 1.0));
+    float c = mix(cloudMapAt(ub, gx, gy), cloudMapAt(ua, gx, gy), 1.0 - abs(2.0 * fa - 1.0));
     // clamp, not max(c - CUT, 0.0) / (1 - CUT): the A35 Mali-G68 driver compiled that form into grey cover on clear
     // ground (EarthRenderTest.thinCloudCutLeavesClearGround).
     c = clamp((c - CLOUD_THIN_CUT) / (1.0 - CLOUD_THIN_CUT), 0.0, 1.0);
     float d = textureLod(noiseTex, vec2(uv.x, uv.y * 0.4) + s.clouds.z * vec2(1.0 / 64.0, 1.0 / 128.0), 0.0).b;
     float thin = max(d - 0.5, 0.0) * 0.5;
     float thick = max(0.5 - d, 0.0) * 0.6;
-    return clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0);
+    return cloudCells(clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0), uv, latRad, kmPerPx);
 }
 
 // Stars map coordinate of an ECEF direction (galactic plate carree, l increasing to the left).
@@ -778,7 +862,8 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
 
     // Clouds and their shadows: the shadow is the cover where the ray to the Sun crosses the cloud layer.
     bool clouds = (pc.effects & DEBUG_NO_CLOUDS) == 0;
-    float cover = clouds ? cloudCover(uv, lat, gx, gy) : 0.0;
+    vec2 cells = clouds ? cloudCover(uv, lat, gx, gy) : vec2(0.0, 1.0);
+    float cover = cells.x;
     float shadow = 1.0;
     if (clouds && (pc.effects & DEBUG_NO_CLOUD_SHADOWS) == 0 && muS > 0.0) {
         vec2 toSun = vec2(dot(l, east), dot(l, north));
@@ -786,7 +871,7 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
         vec2 km = horizontal > 1e-4 ? toSun / horizontal * CLOUD_ALT_KM * min(horizontal / max(muS, 0.05), 20.0)
                                     : vec2(0.0);
         vec2 suv = uv + vec2(km.x / (2.0 * PI * A_KM * max(cos(lat), 0.2)), -km.y / (2.0 * LAT_MAX * A_KM));
-        shadow = 1.0 - CLOUD_SHADOW * cloudCover(suv, lat + km.y / A_KM, gx, gy);
+        shadow = 1.0 - CLOUD_SHADOW * cloudCover(suv, lat + km.y / A_KM, gx, gy).x;
     }
     vec3 diffuse = albedo * (max(dot(relief, l), 0.0) * sun * shadow + sky);
 
@@ -803,7 +888,7 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     float rc = RG + CLOUD_ALT_KM;
     float muHc = -sqrt(max(1.0 - (RG / rc) * (RG / rc), 0.0));
     vec3 cloudSun = atmosphere ? sunlight(rc, muS) : vec3(daylight);
-    vec3 cloud = CLOUD_ALBEDO * (clamp((muS - muHc) / (1.0 - muHc), 0.0, 1.0) * cloudSun + sky);
+    vec3 cloud = CLOUD_ALBEDO * cells.y * (clamp((muS - muHc) / (1.0 - muHc), 0.0, 1.0) * cloudSun + sky);
 
     // Moonlight on the ground and the cloud tops (Scene.moonLight, relative to the Sun), through the same air.
     float moonLight = (pc.effects & DEBUG_NO_MOONLIGHT) == 0 ? s.moon.w : 0.0;
@@ -884,9 +969,20 @@ vec3 bloom(vec2 p, float open) {
     if ((pc.effects & EFFECT_BLOOM) == 0 || open <= 0.0 || max(s.sunLight.r, max(s.sunLight.g, s.sunLight.b)) <= 0.0) {
         return vec3(0.0);
     }
-    float theta2 = sunAngle2(p);
-    return s.sunLight.xyz * open * (BLOOM_NARROW / (1.0 + theta2 / (BLOOM_NARROW_RAD * BLOOM_NARROW_RAD)) +
-                                    BLOOM_WIDE / (1.0 + theta2 / (BLOOM_WIDE_RAD * BLOOM_WIDE_RAD)));
+    vec3 sunCam = vec3(dot(s.sun.xyz, s.right.xyz), dot(s.sun.xyz, s.up.xyz), dot(s.sun.xyz, s.back.xyz));
+    vec3 r = normalize(cameraRay(p));
+    float theta2 = 2.0 * (1.0 - dot(r, sunCam));
+    // Spike azimuth around the Sun, from the camera's right; lateral distance from the nearest spike in rad.
+    vec3 b1 = normalize(cross(vec3(0.0, 1.0, 0.0), sunCam) + vec3(1e-6, 0.0, 0.0));
+    vec3 d = r - sunCam * dot(r, sunCam);
+    float phi = atan(dot(d, cross(sunCam, b1)), dot(d, b1));
+    float spacing = 2.0 * PI / SPIKES;
+    float lateral = sqrt(theta2) * abs(phi - spacing * round(phi / spacing));
+    float tail = theta2 + BLOOM_NARROW_RAD * BLOOM_NARROW_RAD;
+    float spike = SPIKE * exp(-lateral * lateral / (SPIKE_WIDTH_RAD * SPIKE_WIDTH_RAD) - sqrt(theta2) / SPIKE_FADE_RAD) / tail;
+    float core = 1.0 + theta2 / (BLOOM_NARROW_RAD * BLOOM_NARROW_RAD);
+    float halo = HALO * exp(-0.5 * theta2 / (HALO_RAD * HALO_RAD));
+    return s.sunLight.xyz * open * (BLOOM_NARROW / (core * core) + halo + BLOOM_TAIL / tail + spike);
 }
 
 // Share of the light the pane with normal n reflects for interior ray d (Schlick).

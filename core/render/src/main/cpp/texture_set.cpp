@@ -139,9 +139,9 @@ VkResult uploadLut(Device& device, const atmosphere::Lut& lut, Texture* out) {
                          half.size() * sizeof(uint16_t), out);
 }
 
-// Tiling noise, 4 independent channels: value noise on periodic lattices of 4, 8, 16 and 32 cells (fBm, gains
-// 1/2), stretched to 0..1. Deterministic integer hash.
-constexpr uint32_t kNoiseSize = 256;
+// Tiling noise, 4 channels: R, G, B value noise on periodic lattices of 4, 8, 16 and 32 cells (fBm, gains 1/2),
+// stretched to 0..1; A cloud-cell noise (cloudNoise). Deterministic integer hash.
+constexpr uint32_t kNoiseSize = 512;
 
 uint32_t hash(uint32_t x) {
     x ^= x >> 16;
@@ -168,11 +168,44 @@ float valueNoise(uint32_t channel, uint32_t period, float x, float y) {
     return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
 }
 
+// Distance (in cells) from (x, y) to the nearest feature point of a periodic Worley lattice of `period` cells, one
+// hashed point per cell.
+float worleyF1(uint32_t period, float x, float y) {
+    const int cx = static_cast<int>(std::floor(x)), cy = static_cast<int>(std::floor(y));
+    float best = 2.0f;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            const uint32_t ix = static_cast<uint32_t>(cx + dx + static_cast<int>(period)) % period;
+            const uint32_t iy = static_cast<uint32_t>(cy + dy + static_cast<int>(period)) % period;
+            const uint32_t h = hash(ix + 1024u * iy + 0x100000u * period + 0x4000000u * 7u);
+            const float px = static_cast<float>(cx + dx) + static_cast<float>(h & 0xFFFFu) / 65535.0f;
+            const float py = static_cast<float>(cy + dy) + static_cast<float>(h >> 16) / 65535.0f;
+            best = std::fmin(best, std::hypot(x - px, y - py));
+        }
+    }
+    return best;
+}
+
+// Cloud cells: billows (1 - Worley F1, round puffs) on 8, 16 and 32 cells, gains 0.55 / 0.3 / 0.15, with a quarter
+// value noise of 16 and 32 cells so puffs differ in shape; stretched to 0..1 like the other channels.
+float cloudNoise(float u, float v) {
+    float billow = 0.0f;
+    const float gains[3] = {0.55f, 0.3f, 0.15f};
+    for (uint32_t i = 0, period = 8; i < 3; ++i, period *= 2) {
+        billow += gains[i] * (1.0f - std::fmin(1.0f, worleyF1(period, u * period, v * period)));
+    }
+    const float value = (2.0f * valueNoise(3, 16, u * 16, v * 16) + valueNoise(3, 32, u * 32, v * 32)) / 3.0f;
+    const float n = 0.75f * billow + 0.25f * value;
+    return std::fmin(1.0f, std::fmax(0.0f, (n - 0.5f) * 2.0f + 0.5f));
+}
+
 VkResult createNoise(Device& device, Texture* out) {
     std::vector<uint8_t> texels(kNoiseSize * kNoiseSize * 4);
     for (uint32_t y = 0; y < kNoiseSize; ++y) {
         for (uint32_t x = 0; x < kNoiseSize; ++x) {
-            for (uint32_t c = 0; c < 4; ++c) {
+            const float cell = cloudNoise((x + 0.5f) / kNoiseSize, (y + 0.5f) / kNoiseSize);
+            texels[(y * kNoiseSize + x) * 4 + 3] = static_cast<uint8_t>(std::lround(cell * 255.0f));
+            for (uint32_t c = 0; c < 3; ++c) {
                 float sum = 0, amp = 0.5f, norm = 0;
                 for (uint32_t period = 4; period <= 32; period *= 2) {
                     const float scale = static_cast<float>(period) / kNoiseSize;

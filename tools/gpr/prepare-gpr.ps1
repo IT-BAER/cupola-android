@@ -146,7 +146,8 @@ $map | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Holdout 'gpr-map.js
 @{ pairs = $pairs } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'trials.json') -Encoding utf8
 # The folder must belong to the app: one made by the adb shell (uid 2000) is unreadable for it (EACCES).
 Adb shell "run-as com.baer.cupola.debug mkdir -p $Device/gpr" | Out-Null
-$owner = Adb shell "stat -c %u $Device/gpr $Device"
-if (@($owner | Select-Object -Unique).Count -ne 1) { Fail "$Device/gpr is not readable for the app: pull any results-*.csv, then remove the folder and run again" }
+# run-as cannot reach /sdcard on some builds (Pixel, Android 17), so the mkdir can fail; a missing folder must fail here.
+$owner = @(Adb shell "stat -c %u $Device/gpr $Device 2>/dev/null")
+if ($owner.Count -ne 2 -or @($owner | Select-Object -Unique).Count -ne 1) { Fail "$Device/gpr is missing or not owned by the app: pull any results-*.csv, remove the folder, and if run-as cannot create it, move the app-made captures folder (empty it first) to gpr; then run again" }
 foreach ($f in Get-ChildItem -LiteralPath $out) { Adb push $f.FullName "$Device/gpr/$($f.Name)" | Out-Null }
 Write-Host "pushed $($pairs.Count) pairs, $($pairs.Count * 2) trials; scene override cleared"

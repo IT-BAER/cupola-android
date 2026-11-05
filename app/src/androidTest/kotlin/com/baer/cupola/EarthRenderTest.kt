@@ -620,7 +620,8 @@ class EarthRenderTest {
             for (dy in 0..1) for (dx in 0..1) {
                 val i = at(x + dx, y + dy)
                 if (maxOf(ch(img, i), ch(img, i + 1), ch(img, i + 2)) >= 254) return null
-                r += linear(img, i); g += linear(img, i + 1); b += linear(img, i + 2)
+                val l = linearRgb(img, i)
+                r += l[0]; g += l[1]; b += l[2]
             }
             val sum = r + g + b
             return if (sum < 0.02) null else Triple(r / sum, b / sum, ln(0.2126 * r + 0.7152 * g + 0.0722 * b))
@@ -679,6 +680,36 @@ class EarthRenderTest {
         val spread = (maxOf(r, g, b) - minOf(r, g, b)) / maxOf(r, g, b)
         assertTrue("clouds white, not tinted: rgb $r $g $b", spread < 0.15)
         assertTrue("clouds add light", meanLuma(cloudy) > meanLuma(clear) + 5)
+    }
+
+    /**
+     * G-PR run 1: magnified 50-fold (30 deg view at nadir, about 0.1 km per pixel against 4.9 km cloud texels), cloud
+     * edges must not follow the texel grid. Measured as the 4-fold coherence |sum w e^(4i theta)| / sum w of the edge
+     * orientations theta (w = squared luma gradient): squares give a high value, natural edges a low one.
+     */
+    @Test
+    fun magnifiedCloudEdgesDoNotFollowTheTexelGrid() {
+        val p = Frames.geodeticToEcef(Geodetic(0.0, Math.toRadians(10.0), ALT_KM))
+        val state = (orbit.stateAt(DAY) as OrbitState).toSceneState()
+        val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0,
+            SceneOverride(DAY, p, SceneGeometry.directionFromAzEl(p, 0.0, -90.0), fovLongDeg = 30.0))
+        val img = render(scene, interior = false)
+        save("clouds_magnified", img)
+        var re = 0.0
+        var im = 0.0
+        var sum = 0.0
+        for (y in 2 until H - 2 step 2) for (x in 2 until W - 2 step 2) {
+            val gx = luma(img, x + 1, y) - luma(img, x - 1, y)
+            val gy = luma(img, x, y + 1) - luma(img, x, y - 1)
+            val w = gx * gx + gy * gy
+            if (w < 4.0) continue
+            val t = 4 * atan2(gy, gx)
+            re += w * cos(t); im += w * sin(t); sum += w
+        }
+        val coherence = sqrt(re * re + im * im) / sum
+        Log.i(TAG, "magnified cloud edges: 4-fold coherence $coherence, edge weight $sum")
+        assertTrue("no cloud edges", sum > 5e4)
+        assertTrue("cloud edges follow the texel grid: $coherence", coherence < 0.08)
     }
 
     /** Clouds drift: a minute changes almost nothing, six hours (one flow period) change the field clearly. */
@@ -939,6 +970,44 @@ class EarthRenderTest {
         assertTrue("disc saturated: ${luma(plain, W / 2, H / 2)}", luma(plain, W / 2, H / 2) >= 250)
         assertTrue("no halo without bloom: ${ring(plain)}", ring(plain) < 15)
         assertTrue("bloom halo: ${ring(bloom)} vs ${ring(plain)}", ring(bloom) > ring(plain) + 30)
+    }
+
+    /**
+     * G-PR run 1 (orbital sunrise photos): with the reddened Sun just above the limb in a wide view, a camera shows a
+     * dark frame with a white core and spikes, not a frame flooded with yellow light. Pixels more than 25 deg from the
+     * Sun stay dark; the brightest pixels stay near neutral.
+     */
+    @Test
+    fun sunriseOnTheLimbStaysWhiteAndFloodsNoFrame() {
+        val s = sunDir(DAY)
+        val e = SceneGeometry.unit(s cross Vector3(0.0, 0.0, 1.0))
+        val a = Math.toRadians(-19.5) // Sun 0.75 deg above the 420 km horizon dip (20.25 deg)
+        val up = e * cos(a) + s * sin(a)
+        val state = (orbit.stateAt(DAY) as OrbitState).toSceneState()
+        val p = Frames.geodeticToEcef(Geodetic(asin(up.z), atan2(up.y, up.x), ALT_KM))
+        val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(DAY, p, s, fovLongDeg = 78.0))
+        val img = render(scene, interior = false, effects = FrameInputs.EFFECTS_ALL)
+        save("sunrise_limb", img)
+        var far = 0.0
+        var farN = 0
+        var coreSat = 0.0
+        var coreN = 0
+        for (y in 0 until H step 3) for (x in 0 until W step 3) {
+            val i = at(x, y)
+            if (Math.toDegrees(scene.rayEcef(x + 0.5, y + 0.5, W, H).angleTo(s)) > 25) {
+                far += luma(img, x, y); farN++
+            }
+            val mx = maxOf(ch(img, i), ch(img, i + 1), ch(img, i + 2))
+            if (luma(img, x, y) >= 200) {
+                coreSat += (mx - minOf(ch(img, i), ch(img, i + 1), ch(img, i + 2))).toDouble() / mx; coreN++
+            }
+        }
+        val farMean = far / farN
+        val sat = if (coreN > 0) coreSat / coreN else 0.0
+        Log.i(TAG, "sunrise limb: far mean luma $farMean ($farN), core $coreN px saturation $sat")
+        assertTrue("frame flooded: far mean luma $farMean", farMean < 25)
+        assertTrue("core missing", coreN > 0)
+        assertTrue("core not white: saturation $sat", sat < 0.2)
     }
 
     /** W3 eclipse: from the anti-solar point the Sun is behind the Earth: no disc and no glare. */
@@ -1549,19 +1618,25 @@ class EarthRenderTest {
     private fun luma(img: ByteArray, x: Int, y: Int) =
         at(x, y).let { 0.2126 * ch(img, it) + 0.7152 * ch(img, it + 1) + 0.0722 * ch(img, it + 2) }
 
-    /** Exposed linear channel before the tone map: sRGB decode, then the inverse of earth.frag's ACES fit (254 at most). */
-    private fun linear(img: ByteArray, i: Int): Double {
-        val c = minOf(ch(img, i), 254) / 255.0
-        val t = if (c <= 0.04045) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
+    /**
+     * Exposed linear colour before the tone map at pixel index [i]: sRGB decode, then the inverse of earth.frag's
+     * luminance ACES fit (exact where no channel reached the white blend; channels at most 254).
+     */
+    private fun linearRgb(img: ByteArray, i: Int): DoubleArray {
+        val c = DoubleArray(3) {
+            val v = minOf(ch(img, i + it), 254) / 255.0
+            if (v <= 0.04045) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
+        }
+        val t = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        if (t <= 0.0) return DoubleArray(3)
         val a = 2.43 * t - 2.51
         val b = 0.59 * t - 0.03
-        return (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
+        val y = (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
+        return DoubleArray(3) { c[it] * y / t }
     }
 
-    private fun linearLuma(img: ByteArray, x: Int, y: Int): Double {
-        val i = at(x, y)
-        return 0.2126 * linear(img, i) + 0.7152 * linear(img, i + 1) + 0.0722 * linear(img, i + 2)
-    }
+    private fun linearLuma(img: ByteArray, x: Int, y: Int): Double =
+        linearRgb(img, at(x, y)).let { 0.2126 * it[0] + 0.7152 * it[1] + 0.0722 * it[2] }
 
     private fun meanLuma(img: ByteArray): Double {
         var sum = 0.0
