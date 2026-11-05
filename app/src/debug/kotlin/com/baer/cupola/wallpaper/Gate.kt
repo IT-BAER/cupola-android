@@ -115,6 +115,7 @@ internal object Gate {
     val TEXTURE_SLOTS = listOf(
         "day_detail", "monthly_colour", "clouds", "city_lights", "terrain_normal", "stars", "water_mask",
         "interior_earth", "interior_cabin", "interior_emissive", "interior_ambient", "station_albedo", "station_orm",
+        "cloud_detail",
     )
 
     /** The renderer's texture-set mask and the slots it replaced by their neutral fallback. */

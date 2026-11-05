@@ -25,6 +25,7 @@ enum TextureSlot : uint32_t {
     kInteriorAmbient,
     kStationAlbedo,
     kStationOrm,
+    kCloudDetail,
     kTextureSlots,
 };
 
@@ -54,12 +55,15 @@ struct TextureSet {
     Texture textures[kTextureSlots];
     VkSampler wrapU = VK_NULL_HANDLE;  // REPEAT on u, CLAMP_TO_EDGE on v (equirectangular maps)
     VkSampler clamp = VK_NULL_HANDLE;  // CLAMP_TO_EDGE on u and v (day_detail tiles, interior atlases, LUTs)
-    VkSampler wrap = VK_NULL_HANDLE;   // REPEAT on u and v (noise)
+    VkSampler wrap = VK_NULL_HANDLE;   // REPEAT on u and v (noise, cloud_detail tile)
     Texture generated[kGeneratedSlots];
     // Bit per slot loaded from its asset; the others hold a neutral 1 x 1 fallback.
     uint32_t loadedMask = 0;
 
-    VkSampler sampler(uint32_t slot) const { return slot == kDayDetail || slot >= kInteriorEarth ? clamp : wrapU; }
+    VkSampler sampler(uint32_t slot) const {
+        if (slot == kCloudDetail) return wrap;
+        return slot == kDayDetail || slot >= kInteriorEarth ? clamp : wrapU;
+    }
     VkSampler generatedSampler(uint32_t slot) const { return slot == kNoise ? wrap : clamp; }
 };
 
