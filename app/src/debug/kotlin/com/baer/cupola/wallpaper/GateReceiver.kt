@@ -8,20 +8,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import com.baer.cupola.core.render.NativeRenderer
-import com.baer.cupola.core.render.scene.RestView
-import com.baer.cupola.core.render.scene.SceneGeometry
 import com.baer.cupola.core.render.scene.SceneOverride
-import com.baer.cupola.orbit.frames.Frames
-import com.baer.cupola.orbit.frames.Geodetic
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.io.File
 import java.nio.ByteBuffer
-import java.time.Instant
 import java.time.format.DateTimeParseException
-import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
@@ -167,47 +161,10 @@ class GateReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun sceneOverride(intent: Intent): SceneOverride {
-        fun float(name: String) = if (intent.hasExtra(name)) intent.getFloatExtra(name, 0f).toDouble() else null
-        val lat = float("lat")
-        val lon = float("lon")
-        val position = if (lat != null && lon != null) {
-            Frames.geodeticToEcef(Geodetic(Math.toRadians(lat), Math.toRadians(lon), float("alt_km") ?: DEFAULT_ALT_KM))
-        } else {
-            null
-        }
-        val az = float("az")
-        val el = float("el")
-        val forward = if (position != null && az != null && el != null) SceneGeometry.directionFromAzEl(position, az, el) else null
-        val ascending = when (val pass = intent.getStringExtra("pass")) {
-            null -> null
-            "asc" -> true
-            "desc" -> false
-            else -> throw IllegalArgumentException("pass=$pass")
-        }
-        val fisheye = when (val projection = intent.getStringExtra("projection")) {
-            null, "rectilinear" -> null
-            "fisheye" -> float("fisheye_fov") ?: DEFAULT_FISHEYE_FOV_DEG
-            else -> throw IllegalArgumentException("projection=$projection")
-        }
-        return SceneOverride(
-            instant = intent.getStringExtra("time")?.let(Instant::parse),
-            positionEcefKm = position,
-            cameraForwardEcef = forward,
-            fovLongDeg = float("fov"),
-            headingDeg = float("heading_deg") ?: if (lat != null && ascending != null) SceneGeometry.velocityAzimuthDeg(lat, ascending) else null,
-            rollDeg = float("roll") ?: 0.0,
-            rest = intent.getStringExtra("rest")?.let { RestView.valueOf(it.uppercase(Locale.ROOT)) },
-            lookYawDeg = float("yaw") ?: 0.0,
-            lookPitchDeg = float("pitch") ?: 0.0,
-            fisheyeFovDeg = fisheye,
-        )
-    }
-
-    private companion object {
-        const val DEFAULT_ALT_KM = 420.0
-        const val DEFAULT_FISHEYE_FOV_DEG = 180.0
-    }
+    private fun sceneOverride(intent: Intent): SceneOverride = gateSceneOverride(
+        { if (intent.hasExtra(it)) intent.getFloatExtra(it, 0f).toDouble() else null },
+        intent::getStringExtra,
+    )
 }
 
 @EntryPoint

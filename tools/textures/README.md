@@ -52,6 +52,7 @@ Common to every file:
 | `day_detail` | `ASTC_12x12_SRGB_BLOCK` | 7168 x 5734, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 1792 x 1433, 11 | 8 | sRGB | RGB surface colour (July 2004), A = 1 |
 | `monthly_colour` | `ASTC_6x6_SRGB_BLOCK` | 2048 x 819, 12 | `ETC2_R8G8B8_SRGB_BLOCK` | 1024 x 409, 11 | 12 | sRGB | RGB surface colour, A = 1 |
 | `clouds` | `ASTC_8x8_UNORM_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_UNORM_BLOCK` | 4096 x 1638, 13 | 1 (no array) | linear | R = G = B = cloud brightness/coverage 0..1 as in the source, A = 1 |
+| `cloud_detail` | `ASTC_6x6_UNORM_BLOCK` | 2048 x 2048, 12 | `ETC2_R8G8B8_UNORM_BLOCK` | 1024 x 1024, 11 | 1 (no array) | linear | R = G = B = standard normal G / 7 + 0.5, A = 1; tiles (REPEAT on u and v), not equirectangular |
 | `city_lights` | `ASTC_8x8_SRGB_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_SRGB_BLOCK` | 4096 x 1638, 13 | 1 (no array) | sRGB | R = G = B = night-light radiance (sampled value is linear), A = 1 |
 | `terrain_normal` | `ASTC_6x6_UNORM_BLOCK` | 4096 x 1638, 13 | `ETC2_R8G8B8A8_UNORM_BLOCK` | 2048 x 819, 12 | 1 (no array) | linear | RGB = X, A = Y; Z reconstructed |
 | `water_mask` | `ASTC_8x8_UNORM_BLOCK` | 4096 x 1638, 13 | `ETC2_R8G8B8_UNORM_BLOCK` | 2048 x 819, 12 | 1 (no array) | linear | R = G = B = water coverage 0..1, A = 1 |
@@ -92,6 +93,15 @@ Source `cloud_combined_8192.tif` (8192 x 4096, three bands, measured identical, 
 bicubic index map (output row j samples source row `409.6 + (j + 0.5) * 3276.8/3277 - 0.5`) instead of
 an integer crop; the +-72 deg edges are exact. Values are the source code values, treated as linear
 coverage (use as alpha / brightness directly).
+
+### cloud_detail
+
+Source: MODIS Terra true colour of 2 February 2020 from NASA GIBS (WMS, 2304 x 2304 px at 250 m, 12.25..17.3125 N,
+52.75..47.6875 W, trade cumulus over open sea). `cloud_detail.py`: luma plus its 1 and 4 km blur, ranked, mapped to a
+standard normal G, the last 256 px cross-faded into the first 256 (cos / sin weights in G, both axes) so the
+2048 px tile (512 km) wraps, then re-ranked to an exact standard normal and stored as G / 7 + 0.5 (clipped share
+0.0005). The east-west scale is not corrected for cos(14.8 deg) (3 %). earth.frag blends three rotated copies per
+256 km triangle grid (Heitz and Neyret 2018) and thresholds the normal CDF of the result against the map cover.
 
 ### city_lights
 

@@ -75,6 +75,7 @@ class EarthpackLoadTest {
             "interior_ambient" to ok(ASTC_8X8_SRGB, 512, 1824, 1, 1),
             "station_albedo" to ok(ASTC_6X6_SRGB, 1024, 1024, 1, 11),
             "station_orm" to ok(ASTC_8X8_UNORM, 1024, 1024, 1, 11),
+            "cloud_detail" to ok(ASTC_6X6_UNORM, 2048, 2048, 1, 12),
         )
         val ETC2 = mapOf(
             "day_detail" to ok(ETC2_RGB_SRGB, 1792, 1433, 8, 11),
@@ -90,6 +91,7 @@ class EarthpackLoadTest {
             "interior_ambient" to ok(ETC2_RGB_SRGB, 256, 912, 1, 1),
             "station_albedo" to ok(ETC2_RGB_SRGB, 512, 512, 1, 10),
             "station_orm" to ok(ETC2_RGB_UNORM, 512, 512, 1, 10),
+            "cloud_detail" to ok(ETC2_RGB_UNORM, 1024, 1024, 1, 11),
         )
     }
 }

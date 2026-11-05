@@ -3,8 +3,8 @@
 # The runtime contract for every output is in README.md next to this script.
 # Intermediates live in local\textures\work\<asset> and are wiped at the start of each asset.
 param(
-    [ValidateSet('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars', 'interior')]
-    [string[]]$Assets = @('day', 'monthly', 'clouds', 'lights', 'normal', 'water', 'stars', 'interior'),
+    [ValidateSet('day', 'monthly', 'clouds', 'clouddetail', 'lights', 'normal', 'water', 'stars', 'interior')]
+    [string[]]$Assets = @('day', 'monthly', 'clouds', 'clouddetail', 'lights', 'normal', 'water', 'stars', 'interior'),
     # Interior panorama bake (tools/blender/bake_panorama.py output with manifest.json and ldr\).
     [string]$BakeDir = '',
     # Exaggeration of the physical terrain slope in the normal map (1 = true slope).
@@ -276,6 +276,17 @@ function Build-Clouds {
     Write-Outputs 'clouds' @(, $layer) @(, $layer[1..($layer.Count - 1)]) '8x8' @('-cl', '-esw', 'rrr1') 'ASTC_8x8_UNORM_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_UNORM_BLOCK' 8 '-dl'
 }
 
+# Tiling 512 km cumulus detail (README "cloud_detail"): ranks of a MODIS 250 m crop, made by cloud_detail.py.
+function Build-CloudDetail {
+    $dir = New-AssetDir 'clouddetail'
+    $src = Get-Source 'modis-cumulus/MODIS_Terra_TrueColor_2020-02-02_12.25N_52.75W_2304.png'
+    $master = Join-Path $dir 'detail.png'
+    Run 'python' @((Join-Path $PSScriptRoot 'cloud_detail.py'), $src, $master)
+    Assert-Dims $master 2048 2048
+    $layer = Write-Levels $master $dir 'detail' $false
+    Write-Outputs 'cloud_detail' @(, $layer) @(, $layer[1..($layer.Count - 1)]) '6x6' @('-cl', '-esw', 'rrr1') 'ASTC_6x6_UNORM_BLOCK' 'ETC2_RGB' 'ETC2_R8G8B8_UNORM_BLOCK' 8 '-dl'
+}
+
 function Build-Lights {
     $dir = New-AssetDir 'lights'
     $src = Get-Source 'blackmarble2016/BlackMarble_2016_3km_gray.jpg'
@@ -424,7 +435,7 @@ function Build-Interior {
 
 foreach ($d in 'astc', 'etc2', 'preview') { New-Item -ItemType Directory -Force (Join-Path $Out $d) | Out-Null }
 New-Item -ItemType Directory -Force $Work | Out-Null
-$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; lights = 'Build-Lights'; normal = 'Build-Normal'; water = 'Build-Water'; stars = 'Build-Stars'; interior = 'Build-Interior' }
+$builders = @{ day = 'Build-Day'; monthly = 'Build-Monthly'; clouds = 'Build-Clouds'; clouddetail = 'Build-CloudDetail'; lights = 'Build-Lights'; normal = 'Build-Normal'; water = 'Build-Water'; stars = 'Build-Stars'; interior = 'Build-Interior' }
 foreach ($asset in $Assets) {
     $t = [Diagnostics.Stopwatch]::StartNew()
     & $builders[$asset]
