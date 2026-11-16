@@ -35,6 +35,7 @@ import com.baer.cupola.orbit.sgp4.Vector3
 import com.baer.cupola.orbit.tle.Tle
 import com.baer.cupola.wallpaper.RendererHost
 import com.baer.cupola.wallpaper.RendererHostEntryPoint
+import com.baer.cupola.wallpaper.gateSceneOverride
 import dagger.hilt.android.EntryPointAccessors
 import java.io.File
 import java.nio.ByteBuffer
@@ -419,18 +420,16 @@ class EarthRenderTest {
     @Test
     fun starsKeepFullResolutionAtRenderScale() {
         val scene = scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, 20.0)
-        val full = render(scene, interior = false)
-        val scaled = render(scene, 0.6f, interior = false)
+        // City lights off: the Earth at the bottom of the view comes from the scaled pass, and its lights would count.
+        val full = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
+        val scaled = render(scene, 0.6f, interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
         save("stars_night_s060", scaled)
         var peaks = 0
         var diff = 0.0
         for (y in 2 until H - 2) for (x in 2 until W - 2) {
-            val l = luma(full, x, y)
-            if (l > 60 && l > luma(full, x - 2, y) + 25 && l > luma(full, x + 2, y) + 25 &&
-                l > luma(full, x, y - 2) + 25 && l > luma(full, x, y + 2) + 25
-            ) {
+            if (starPeak(full, x, y)) {
                 peaks++
-                diff += abs(luma(scaled, x, y) - l)
+                diff += abs(luma(scaled, x, y) - luma(full, x, y))
             }
         }
         Log.i(TAG, "star peaks $peaks mean |scaled - full| ${diff / peaks}")
@@ -723,6 +722,16 @@ class EarthRenderTest {
     }
 
     /**
+     * A star core at (x, y): luma above [STAR_PEAK_MIN] and [STAR_PEAK_CONTRAST] above the pixels 2 px away on both axes.
+     * The night photos' brightest stars reach luma 35 (p08 sky p99.9), so the cores sit at about 30-60.
+     */
+    private fun starPeak(img: ByteArray, x: Int, y: Int): Boolean {
+        val l = luma(img, x, y)
+        return l > STAR_PEAK_MIN && l > luma(img, x - 2, y) + STAR_PEAK_CONTRAST && l > luma(img, x + 2, y) + STAR_PEAK_CONTRAST &&
+            l > luma(img, x, y - 2) + STAR_PEAK_CONTRAST && l > luma(img, x, y + 2) + STAR_PEAK_CONTRAST
+    }
+
+    /**
      * 4-fold coherence |sum w e^(4i theta)| / sum w of the luma gradient orientations theta (w = squared Scharr gradient,
      * pixels with w < 4 skipped) and sum w: squares give a high value, natural edges a low one.
      */
@@ -862,21 +871,42 @@ class EarthRenderTest {
         assertTrue("day diff $diff", diff < 0.3)
     }
 
-    /** Stars and the Milky Way fill night space (looking 20 deg up), and vanish at day exposure. */
+    /**
+     * G-PR fix F3 (dev pair p08: Nile delta at night under the waning Moon, 78 deg view 37.6 deg below the horizontal,
+     * built from the gate like DevSceneRenderTest): the star field is as faint as in the photo. The photo's sky above the
+     * airglow reads luma p99 19, p99.9 35 and 0.07 % of pixels above 40 (p06 at sunrise: p99 17, none above 40); the
+     * render read p99 108 and 13 % above 40 with STAR_RADIANCE 6e-5.
+     */
+    @Test
+    fun nightSkyIsAsFaintAsInPhotos() {
+        val override = gateSceneOverride(
+            mapOf("lat" to 26.63, "lon" to 32.96, "alt_km" to 344.0, "fov" to 78.1, "az" to 333.0, "el" to -37.6)::get,
+            mapOf("time" to "2010-10-28T23:38:48Z")::get,
+        )
+        val pose = checkNotNull(SceneInputs.buildPose(override))
+        val img = render(pose.copy(exposure = Exposure.steady(pose)), interior = false)
+        save("night_sky_p08", img)
+        val sky = ArrayList<Double>()
+        for (y in 0 until NIGHT_SKY_ROWS step 2) for (x in 0 until W step 2) sky += luma(img, x, y)
+        sky.sort()
+        val p99 = sky[(sky.size * 0.99).toInt()]
+        val bright = sky.count { it > 40 }.toDouble() / sky.size
+        Log.i(TAG, "night sky p08: median ${sky[sky.size / 2]} p99 $p99 share above 40 $bright")
+        assertTrue("night sky p99 $p99", p99 <= NIGHT_SKY_P99_MAX)
+        assertTrue("night sky share above 40: $bright", bright <= NIGHT_SKY_BRIGHT_MAX)
+    }
+
+    /** Stars show in night space (looking 20 deg up, city lights off so they cannot count), and vanish at day exposure. */
     @Test
     fun starsShowInNightSpaceOnly() {
         fun points(img: ByteArray): Int {
             var count = 0
-            for (y in 2 until H - 2 step 2) for (x in 2 until W - 2 step 2) {
-                val l = luma(img, x, y)
-                if (l > 60 && l > luma(img, x - 2, y) + 25 && l > luma(img, x + 2, y) + 25 &&
-                    l > luma(img, x, y - 2) + 25 && l > luma(img, x, y + 2) + 25
-                ) count++
-            }
+            for (y in 2 until H - 2 step 2) for (x in 2 until W - 2 step 2) if (starPeak(img, x, y)) count++
             return count
         }
-        val night = render(scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, 20.0), interior = false)
-        val day = render(scene(DAY, 25.0, 32.0, 0.0, 20.0), interior = false)
+        val night = render(scene(Instant.parse("2026-10-25T21:00:00Z"), 48.0, 10.0, 0.0, 20.0), interior = false,
+            debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
+        val day = render(scene(DAY, 25.0, 32.0, 0.0, 20.0), interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
         save("stars_night", night)
         Log.i(TAG, "star points night ${points(night)} day ${points(day)}")
         assertTrue("night stars ${points(night)}", points(night) > 40)
@@ -1788,6 +1818,11 @@ class EarthRenderTest {
         private const val CLOUD_SIDE_ANGLE_MAX_DEG = 30.0 // MODIS cumulus: 7-26 deg (thresholds 30-50: up to 29)
         private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
         private const val GROUND_GRID_COHERENCE_MAX = 0.05 // BMNG source 0.036 at the same scale, ASTC 12x12 bilinear 0.164
+        private const val STAR_PEAK_MIN = 30.0
+        private const val STAR_PEAK_CONTRAST = 12.0
+        private const val NIGHT_SKY_ROWS = 500 // p08 view: limb near row 685, airglow up to about row 600
+        private const val NIGHT_SKY_P99_MAX = 25.0 // photos p99 19 (p08) and 17 (p06)
+        private const val NIGHT_SKY_BRIGHT_MAX = 0.002 // photos 0.0007 (p08) and 0 (p06) of sky pixels above luma 40
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.

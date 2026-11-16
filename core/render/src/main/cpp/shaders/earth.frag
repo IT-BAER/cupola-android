@@ -118,7 +118,7 @@ const float CLOUD_THIN_CUT = 0.25;
 // airglow shell (OI 557.7 nm) between AIRGLOW_LOW_KM and AIRGLOW_HIGH_KM with its radiance per km of path.
 const vec3 CITY_LIGHT = vec3(1.0, 0.72, 0.42) * 1.5e-4;
 const float CITY_GAMMA = 1.5;
-const float STAR_RADIANCE = 6.0e-5;
+const float STAR_RADIANCE = 7.5e-6;  // the night sky of ISS photos (G-PR F3: dev p08 sky p99 19 at 7.5e-6, 108 at 6e-5)
 const float MOON_ALBEDO = 0.12;
 const float MOON_RADIUS = 0.004756;  // rad, 0.2725 deg
 const float AIRGLOW_LOW_KM = 85.0;
