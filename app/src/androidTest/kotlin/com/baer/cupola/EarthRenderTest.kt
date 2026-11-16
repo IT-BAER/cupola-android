@@ -699,6 +699,34 @@ class EarthRenderTest {
             SceneOverride(DAY, p, SceneGeometry.directionFromAzEl(p, 0.0, -90.0), fovLongDeg = 30.0))
         val img = render(scene, interior = false)
         save("clouds_magnified", img)
+        val (coherence, sum) = fourFoldCoherence(img)
+        Log.i(TAG, "magnified cloud edges: 4-fold coherence $coherence, edge weight $sum")
+        assertTrue("no cloud edges", sum > 5e4)
+        assertTrue("cloud edges follow the texel grid: $coherence", coherence < CLOUD_GRID_COHERENCE_MAX)
+    }
+
+    /**
+     * G-PR fix F3 (dev pair p05, Andes at nadir through the cabin window): magnified about 5-fold (0.28 km per pixel
+     * against 1.4 km day_detail texels), the ground must show neither the texel grid nor compression blocks. Same 4-fold
+     * coherence as [magnifiedCloudEdgesDoNotFollowTheTexelGrid], clouds off. Host reference (BMNG 500 m source of a 2 x 2
+     * deg box here, Lanczos to the same scale): 0.036; the 7168 px ASTC 12x12 map magnified bilinear reads 0.164.
+     */
+    @Test
+    fun magnifiedGroundDoesNotFollowTheTexelGrid() {
+        val img = render(scene(ANDES_DAY, -33.1, -69.9, 0.0, -90.0, fovDeg = 75.0), interior = false,
+            debug = FrameInputs.DEBUG_NO_CLOUDS)
+        save("ground_magnified", img)
+        val (coherence, sum) = fourFoldCoherence(img)
+        Log.i(TAG, "magnified ground: 4-fold coherence $coherence, edge weight $sum")
+        assertTrue("no ground edges", sum > 5e4)
+        assertTrue("ground follows the texel grid: $coherence", coherence < GROUND_GRID_COHERENCE_MAX)
+    }
+
+    /**
+     * 4-fold coherence |sum w e^(4i theta)| / sum w of the luma gradient orientations theta (w = squared Scharr gradient,
+     * pixels with w < 4 skipped) and sum w: squares give a high value, natural edges a low one.
+     */
+    private fun fourFoldCoherence(img: ByteArray): Pair<Double, Double> {
         var re = 0.0
         var im = 0.0
         var sum = 0.0
@@ -712,10 +740,7 @@ class EarthRenderTest {
             val t = 4 * atan2(gy, gx)
             re += w * cos(t); im += w * sin(t); sum += w
         }
-        val coherence = sqrt(re * re + im * im) / sum
-        Log.i(TAG, "magnified cloud edges: 4-fold coherence $coherence (re ${re / sum}), edge weight $sum")
-        assertTrue("no cloud edges", sum > 5e4)
-        assertTrue("cloud edges follow the texel grid: $coherence", coherence < CLOUD_GRID_COHERENCE_MAX)
+        return sqrt(re * re + im * im) / sum to sum
     }
 
     /** Clouds drift: a minute changes almost nothing, six hours (one flow period) change the field clearly. */
@@ -1762,11 +1787,13 @@ class EarthRenderTest {
         private const val CLOUD_SIDE_COHERENCE_MIN = 0.035 // MODIS cumulus at Sun zenith 41 deg: 0.018-0.035
         private const val CLOUD_SIDE_ANGLE_MAX_DEG = 30.0 // MODIS cumulus: 7-26 deg (thresholds 30-50: up to 29)
         private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
+        private const val GROUND_GRID_COHERENCE_MAX = 0.05 // BMNG source 0.036 at the same scale, ASTC 12x12 bilinear 0.164
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
         private val DAY = Instant.parse("2026-10-25T09:50:00Z")
         private val GLINT = Instant.parse("2026-10-25T20:25:00Z")
+        private val ANDES_DAY = Instant.parse("2026-10-25T19:30:00Z") // 14:50 local solar time at 69.9 W
 
         private val context = InstrumentationRegistry.getInstrumentation().targetContext
         private lateinit var host: RendererHost

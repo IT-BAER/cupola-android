@@ -44,12 +44,11 @@ Common to every file:
 - Earth maps cover latitude +72 deg (top edge of row 0) to -72 deg (bottom edge of the last row), linear in
   latitude: `v = (72 - lat) / 144`. Outside that band the shader needs a fallback (the ISS never sees it).
 - ETC2 files are the ASTC file without its level 0: half width and height, one level fewer, same layers,
-  orientation, channel layout and latitude range. Exception: `day_detail` ETC2 drops ASTC levels 0 and 1
-  (quarter size, two levels fewer).
+  orientation, channel layout and latitude range.
 
 | Name | ASTC VkFormat | ASTC size, levels | ETC2 VkFormat | ETC2 size, levels | Layers | Colour space | Channels |
 |---|---|---|---|---|---|---|---|
-| `day_detail` | `ASTC_12x12_SRGB_BLOCK` | 7168 x 5734, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 1792 x 1433, 11 | 8 | sRGB | RGB surface colour (July 2004), A = 1 |
+| `day_detail` | `ASTC_8x8_SRGB_BLOCK` | 4680 x 3744, 13 | `ETC2_R8G8B8_SRGB_BLOCK` | 2340 x 1872, 12 | 8 | sRGB | RGB surface colour (July 2004), A = 1 |
 | `monthly_colour` | `ASTC_6x6_SRGB_BLOCK` | 2048 x 819, 12 | `ETC2_R8G8B8_SRGB_BLOCK` | 1024 x 409, 11 | 12 | sRGB | RGB surface colour, A = 1 |
 | `clouds` | `ASTC_8x8_UNORM_BLOCK` | 8192 x 3277, 14 | `ETC2_R8G8B8_UNORM_BLOCK` | 4096 x 1638, 13 | 1 (no array) | linear | R = G = B = cloud brightness/coverage 0..1 as in the source, A = 1 |
 | `cloud_detail` | `ASTC_6x6_UNORM_BLOCK` | 2048 x 2048, 12 | `ETC2_R8G8B8_UNORM_BLOCK` | 1024 x 1024, 11 | 1 (no array) | linear | R = G = B = standard normal G / 7 + 0.5, A = 1; tiles (REPEAT on u and v), not equirectangular |
@@ -79,7 +78,8 @@ A1 B1 C1 D1 A2 B2 C2 D2 of the BMNG tiles:
 
 Within a layer: `u = (lon - lon0) / 90`, `v = (lat_top - lat) / 72`. Each layer is resampled and mipmapped
 on its own, so sample with `CLAMP_TO_EDGE` and pick the layer per fragment; seams match to within one
-texel of filtering. The build checks the tile order by comparing the assembled layers with the July 2004
+texel of filtering. 52 texels per degree (2.1 km at the equator) in ASTC 8x8: ASTC 12x12 at 80 texels per degree
+drew 12-texel blocks with false colour tints when magnified (G-PR F3); the shader magnifies with a cubic B-spline. The build checks the tile order by comparing the assembled layers with the July 2004
 21600 px map (mean absolute difference printed; it fails above 4 of 255; measured 0.96, versus 10.3 with A1 and B1 swapped and 45.4 with the rows swapped).
 
 ### monthly_colour (12-layer array)

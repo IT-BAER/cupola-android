@@ -837,9 +837,36 @@ vec3 auroraRadiance(vec3 dir) {
     return sum * dt * AURORA_RADIANCE;
 }
 
+// Cubic B-spline of layer `layer` of an array texture at uv (level 0), four bilinear taps as bsplineAt.
+vec3 bsplineRgb(sampler2DArray tex, vec2 uv, float layer) {
+    vec2 size = vec2(textureSize(tex, 0).xy);
+    vec2 t = uv * size - 0.5;
+    vec2 f = fract(t);
+    vec2 i = t - f;
+    vec2 f2 = f * f;
+    vec2 f3 = f2 * f;
+    vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    vec2 w3 = f3 / 6.0;
+    vec2 g0 = w0 + w1;
+    vec2 g1 = w2 + w3;
+    vec2 h0 = (i - 0.5 + w1 / g0) / size;
+    vec2 h1 = (i + 1.5 + w3 / g1) / size;
+    return g0.y * (g0.x * textureLod(tex, vec3(h0, layer), 0.0).rgb + g1.x * textureLod(tex, vec3(h1.x, h0.y, layer), 0.0).rgb) +
+           g1.y * (g0.x * textureLod(tex, vec3(h0.x, h1.y, layer), 0.0).rgb + g1.x * textureLod(tex, vec3(h1, layer), 0.0).rgb);
+}
+
+// day_detail at uv of a layer; b = weight of the B-spline (magnified: bilinear magnification draws the texel grid as
+// squares, G-PR F3 p05), 1 - b of the mipmapped lookup.
+vec3 dayTexel(vec2 uv, float layer, vec2 gx, vec2 gy, float b) {
+    vec3 c = b < 1.0 ? textureGrad(dayDetail, vec3(uv, layer), gx, gy).rgb : vec3(0.0);
+    return b > 0.0 ? mix(c, bsplineRgb(dayDetail, uv, layer), b) : c;
+}
+
 // day_detail (4 x 2 tiles of 90 x 72 deg, one per layer, CLAMP_TO_EDGE). Within half a filtered texel of an inner tile
-// edge the neighbour tile's edge texels are blended in, as one continuous texture would filter: clamping alone repeats
-// each side's edge texel and leaves a seam band (R7 seam sweep).
+// edge (1.5 texels for the B-spline) the neighbour tile's edge texels are blended in, as one continuous texture would
+// filter: clamping alone repeats each side's edge texel and leaves a seam band (R7 seam sweep).
 vec3 dayDetailAt(float lon, float lat, vec2 dLonLatX, vec2 dLonLatY) {
     float colF = (lon + PI) / (0.5 * PI);
     float col = clamp(floor(colF), 0.0, 3.0);
@@ -849,22 +876,23 @@ vec3 dayDetailAt(float lon, float lat, vec2 dLonLatX, vec2 dLonLatY) {
     vec2 gx = dLonLatX * scaleTile;
     vec2 gy = dLonLatY * scaleTile;
     float layer = col + 4.0 * row;
-    vec3 c = textureGrad(dayDetail, vec3(uv, layer), gx, gy).rgb;
     vec2 size = vec2(textureSize(dayDetail, 0).xy);
-    vec2 halfTexel = 0.5 * max(vec2(1.0), max(abs(gx), abs(gy)) * size) / size;
+    float b = 1.0 - smoothstep(0.5, 1.0, max(length(gx * size), length(gy * size)));
+    vec3 c = dayTexel(uv, layer, gx, gy, b);
+    vec2 halfTexel = 0.5 * max(vec2(1.0 + 2.0 * b), max(abs(gx), abs(gy)) * size) / size;
     if (uv.x < halfTexel.x) {
-        vec3 n = textureGrad(dayDetail, vec3(1.0, uv.y, mod(col + 3.0, 4.0) + 4.0 * row), gx, gy).rgb;
+        vec3 n = dayTexel(vec2(1.0, uv.y), mod(col + 3.0, 4.0) + 4.0 * row, gx, gy, b);
         c = mix(n, c, 0.5 + 0.5 * uv.x / halfTexel.x);
     } else if (uv.x > 1.0 - halfTexel.x) {
-        vec3 n = textureGrad(dayDetail, vec3(0.0, uv.y, mod(col + 1.0, 4.0) + 4.0 * row), gx, gy).rgb;
+        vec3 n = dayTexel(vec2(0.0, uv.y), mod(col + 1.0, 4.0) + 4.0 * row, gx, gy, b);
         c = mix(n, c, 0.5 + 0.5 * (1.0 - uv.x) / halfTexel.x);
     }
     // The equator is the only inner edge in v (72 deg is the map's end).
     if (row == 0.0 && uv.y > 1.0 - halfTexel.y) {
-        vec3 n = textureGrad(dayDetail, vec3(uv.x, 0.0, col + 4.0), gx, gy).rgb;
+        vec3 n = dayTexel(vec2(uv.x, 0.0), col + 4.0, gx, gy, b);
         c = mix(n, c, 0.5 + 0.5 * (1.0 - uv.y) / halfTexel.y);
     } else if (row == 1.0 && uv.y < halfTexel.y) {
-        vec3 n = textureGrad(dayDetail, vec3(uv.x, 1.0, col), gx, gy).rgb;
+        vec3 n = dayTexel(vec2(uv.x, 1.0), col, gx, gy, b);
         c = mix(n, c, 0.5 + 0.5 * uv.y / halfTexel.y);
     }
     return c;
