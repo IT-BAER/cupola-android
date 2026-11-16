@@ -1024,7 +1024,7 @@ class EarthRenderTest {
             val effects = (pose.effects and FrameInputs.EFFECTS_ALL.inv()) or RenderSettings().effects
             val scene = pose.copy(effects = effects).let { it.copy(exposure = Exposure.steady(it)) }
             val inputs = FrameInputs.empty().also { scene.write(it) }
-            inputs[FrameInputs.RENDER_SCALE] = 0.6f
+            inputs[FrameInputs.RENDER_SCALE] = RenderSettings().maxRenderScale
             val img = renderer.renderOffscreen(w, h, inputs)
             val lumas = (0 until w * h).filter { counts(id, it % w, it / w) }.map {
                 0.2126 * ch(img, it * 4) + 0.7152 * ch(img, it * 4 + 1) + 0.0722 * ch(img, it * 4 + 2)

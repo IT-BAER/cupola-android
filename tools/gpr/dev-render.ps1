@@ -11,13 +11,13 @@
   -Rectilinear renders every gate without its fisheye projection (same fov), as the product camera sees it.
 
   Usage:
-    pwsh .\tools\gpr\dev-render.ps1 [-Serial 28101FDH3004AP] [-Scale 0.6] [-Rectilinear]
+    pwsh .\tools\gpr\dev-render.ps1 [-Serial 28101FDH3004AP] [-Scale 0.5] [-Rectilinear]
 #>
 param(
     [string]$Serial = '28101FDH3004AP',
     [string]$Adb = 'D:\Software\Android\Sdk\platform-tools\adb.exe',
     [string]$Dev = 'local/reference/dev-run1',
-    [double]$Scale = 0.6,
+    [double]$Scale = 0.5,  # the shipped Quality High cap
     [switch]$Rectilinear
 )
 $ErrorActionPreference = 'Stop'

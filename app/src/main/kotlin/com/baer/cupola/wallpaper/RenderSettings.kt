@@ -19,7 +19,7 @@ data class RenderSettings(
     /** Frame rate while the view rests. */
     val stillFps: Int = Settings.STILL_FPS_DEFAULT,
     /** Cap on the Earth render scale (Settings quality); the thermal governor can go lower. */
-    val maxRenderScale: Float = 0.6f,
+    val maxRenderScale: Float = 0.5f,
     val clouds: Boolean = true,
 ) {
     companion object {
@@ -48,8 +48,8 @@ fun Settings.toRenderSettings() = RenderSettings(
     fovLongDeg = fieldOfViewDeg.toDouble(),
     stillFps = stillFps,
     maxRenderScale = when (quality) {
-        Quality.HIGH -> 0.6f
-        Quality.MEDIUM -> 0.5f
+        Quality.HIGH -> 0.5f
+        Quality.MEDIUM -> 0.45f
         Quality.LOW -> 0.4f
     },
     clouds = clouds,

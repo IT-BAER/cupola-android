@@ -63,8 +63,9 @@ class RenderSettingsTest {
 
     @Test
     fun qualityCapsTheRenderScale() {
-        assertEquals(0.6f, Settings().toRenderSettings().maxRenderScale)
-        assertEquals(0.5f, Settings(quality = Quality.MEDIUM).toRenderSettings().maxRenderScale)
+        // High 0.5 (owner, 16 Nov: G-PERF at 0.6 had 0.54 % of frames above 33.4 ms and GPU p95 16.99 ms on the A35).
+        assertEquals(0.5f, Settings().toRenderSettings().maxRenderScale)
+        assertEquals(0.45f, Settings(quality = Quality.MEDIUM).toRenderSettings().maxRenderScale)
         assertEquals(0.4f, Settings(quality = Quality.LOW).toRenderSettings().maxRenderScale)
         // The thermal governor can still go below the cap, never above it.
         assertEquals(0.4f, renderScale(governorStep = 2, maxScale = 0.4f))

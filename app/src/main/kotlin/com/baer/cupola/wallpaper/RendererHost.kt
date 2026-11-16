@@ -133,7 +133,7 @@ class RendererHost @Inject constructor(
     }
 }
 
-/** Earth render scale per governor step; the default (highest) step is 0.6. */
+/** Earth render scale per governor step; Settings quality caps it (High 0.5). */
 private val RENDER_SCALES = floatArrayOf(0.4f, 0.5f, 0.6f)
 
 /** The governor step's scale, capped by the Settings quality. */
