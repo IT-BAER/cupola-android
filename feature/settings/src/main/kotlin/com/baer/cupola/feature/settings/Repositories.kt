@@ -27,6 +27,7 @@ interface SettingsRepository {
     suspend fun setWindowGlare(value: Boolean)
     suspend fun setReflections(value: Boolean)
     suspend fun setDust(value: Boolean)
+    suspend fun setCameraLook(value: Boolean)
     suspend fun setHomeCity(id: String?)
     suspend fun setOnlineOrbitUpdates(value: Boolean)
 }

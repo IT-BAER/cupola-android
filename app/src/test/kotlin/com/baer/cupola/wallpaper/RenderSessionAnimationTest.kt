@@ -30,11 +30,12 @@ class RenderSessionAnimationTest {
     /** ST4-ST7: the Settings effect switches reach the shader's EFFECTS bits. */
     @Test
     fun settingsEffectsReachTheShader() {
-        val only = RenderSettings(effects = RenderSettings.BLOOM or RenderSettings.DUST)
+        val only = RenderSettings(effects = RenderSettings.BLOOM or RenderSettings.DUST or RenderSettings.CAMERA)
         val inputs = RenderSession(orbit, { only }, { orbit.epoch.toEpochMilli() + 3_600_000 })
             .apply { apply(EngineState(visible = true), FrameScheduler()) }.nextFrameInputs()
-        val all = FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_WINDOW_GLARE or FrameInputs.EFFECT_REFLECTIONS or FrameInputs.EFFECT_DUST
-        assertEquals(FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_DUST, inputs.effects() and all)
+        val all = FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_WINDOW_GLARE or FrameInputs.EFFECT_REFLECTIONS or
+            FrameInputs.EFFECT_DUST or FrameInputs.EFFECT_CAMERA
+        assertEquals(FrameInputs.EFFECT_BLOOM or FrameInputs.EFFECT_DUST or FrameInputs.EFFECT_CAMERA, inputs.effects() and all)
     }
 
     /** The Settings field of view reaches the shader's TAN_HALF_FOV_LONG. */

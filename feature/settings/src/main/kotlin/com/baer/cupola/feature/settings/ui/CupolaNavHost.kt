@@ -81,6 +81,7 @@ fun CupolaNavHost(
                             onStillFps = settings::setStillFps,
                             onQuality = settings::setQuality,
                             onClouds = settings::setClouds,
+                            onCameraLook = settings::setCameraLook,
                         ),
                     )
                 }

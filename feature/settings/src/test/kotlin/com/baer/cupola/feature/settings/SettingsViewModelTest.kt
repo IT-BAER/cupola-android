@@ -57,7 +57,7 @@ class SettingsViewModelTest {
     fun resetRestoresDefaultsAndKeepsTheHomeCity() = runTest {
         val home = CityEntry(GRAZ).id
         val changed = Settings(RestDirection.NADIR, 0.2f, false, false, false, false, false, false, home, fieldOfViewDeg = 70f, stillFps = 5,
-            quality = Quality.LOW, clouds = false)
+            quality = Quality.LOW, clouds = false, cameraLook = true)
         val vm = SettingsViewModel(FakeSettingsRepository(changed), FakeCityRepository(listOf(GRAZ)))
         vm.uiState.test {
             var s = awaitItem()

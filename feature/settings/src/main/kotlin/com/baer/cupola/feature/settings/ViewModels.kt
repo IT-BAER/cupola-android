@@ -55,6 +55,7 @@ class SettingsViewModel @Inject constructor(
     fun setWindowGlare(value: Boolean) = launch { repository.setWindowGlare(value) }
     fun setReflections(value: Boolean) = launch { repository.setReflections(value) }
     fun setDust(value: Boolean) = launch { repository.setDust(value) }
+    fun setCameraLook(value: Boolean) = launch { repository.setCameraLook(value) }
     fun clearHomeCity() = launch { repository.setHomeCity(null) }
     fun setOnlineOrbitUpdates(value: Boolean) = launch { repository.setOnlineOrbitUpdates(value) }
 
@@ -73,6 +74,7 @@ class SettingsViewModel @Inject constructor(
         repository.setWindowGlare(d.windowGlare)
         repository.setReflections(d.reflections)
         repository.setDust(d.dust)
+        repository.setCameraLook(d.cameraLook)
     }
 
     private fun launch(block: suspend () -> Unit) {

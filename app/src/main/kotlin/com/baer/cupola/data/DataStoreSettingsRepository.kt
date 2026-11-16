@@ -36,6 +36,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
             stillFps = p[STILL_FPS]?.takeIf { it in Settings.STILL_FPS_CHOICES } ?: defaults.stillFps,
             quality = p[QUALITY]?.let { name -> Quality.entries.firstOrNull { it.name == name } } ?: defaults.quality,
             clouds = p[CLOUDS] ?: defaults.clouds,
+            cameraLook = p[CAMERA_LOOK] ?: defaults.cameraLook,
         )
     }
 
@@ -54,6 +55,7 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
     override suspend fun setWindowGlare(value: Boolean) = put { it[GLARE] = value }
     override suspend fun setReflections(value: Boolean) = put { it[REFLECTIONS] = value }
     override suspend fun setDust(value: Boolean) = put { it[DUST] = value }
+    override suspend fun setCameraLook(value: Boolean) = put { it[CAMERA_LOOK] = value }
     override suspend fun setHomeCity(id: String?) = put { if (id == null) it.remove(HOME_CITY) else it[HOME_CITY] = id }
     override suspend fun setOnlineOrbitUpdates(value: Boolean) = put { it[ONLINE_ORBIT] = value }
 
@@ -81,5 +83,6 @@ class DataStoreSettingsRepository(private val store: DataStore<Preferences>) : S
         val STILL_FPS = intPreferencesKey("still_fps")
         val QUALITY = stringPreferencesKey("quality")
         val CLOUDS = booleanPreferencesKey("clouds")
+        val CAMERA_LOOK = booleanPreferencesKey("effect_camera_look")
     }
 }

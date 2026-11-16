@@ -266,8 +266,16 @@ class ScreensTest {
     }
 
     @Test
+    fun cameraLookSwitchReachesTheRepository() {
+        val repo = FakeSettingsRepository()
+        host(repo = repo)
+        rule.onNodeWithText("Camera look").performScrollTo().performClick()
+        rule.waitUntil(5_000) { runBlocking { repo.settings.first() }.cameraLook }
+    }
+
+    @Test
     fun resetButtonRestoresDefaultsThroughTheViewModel() {
-        val repo = FakeSettingsRepository(Settings(bloom = false, dust = false))
+        val repo = FakeSettingsRepository(Settings(bloom = false, dust = false, cameraLook = true))
         host(repo = repo)
         rule.onNodeWithText("Reset to defaults").performScrollTo().performClick()
         rule.waitUntil(5_000) { runBlocking { repo.settings.first() } == Settings() }

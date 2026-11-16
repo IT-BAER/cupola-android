@@ -79,6 +79,16 @@ class DataStoreSettingsRepositoryTest {
     }
 
     @Test
+    fun cameraLookDefaultsOffAndRoundTrips() = runBlocking {
+        val r = repo()
+        assertEquals(false, r.settings.first().cameraLook)
+        r.setCameraLook(true)
+        assertEquals(true, r.settings.first().cameraLook)
+        r.setCameraLook(false)
+        assertEquals(false, r.settings.first().cameraLook)
+    }
+
+    @Test
     fun failedWriteKeepsTheOldValueInsteadOfThrowing() = runBlocking {
         val r = repo()
         r.setDust(false)

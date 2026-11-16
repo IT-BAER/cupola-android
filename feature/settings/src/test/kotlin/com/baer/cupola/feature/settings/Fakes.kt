@@ -29,6 +29,7 @@ class FakeSettingsRepository(initial: Settings = Settings()) : SettingsRepositor
     override suspend fun setWindowGlare(value: Boolean) = state.update { it.copy(windowGlare = value) }
     override suspend fun setReflections(value: Boolean) = state.update { it.copy(reflections = value) }
     override suspend fun setDust(value: Boolean) = state.update { it.copy(dust = value) }
+    override suspend fun setCameraLook(value: Boolean) = state.update { it.copy(cameraLook = value) }
     override suspend fun setHomeCity(id: String?) = state.update { it.copy(homeCityId = id) }
     override suspend fun setOnlineOrbitUpdates(value: Boolean) = state.update { it.copy(onlineOrbitUpdates = value) }
 }

@@ -27,6 +27,7 @@ data class RenderSettings(
         const val WINDOW_GLARE = 2
         const val REFLECTIONS = 4
         const val DUST = 8
+        const val CAMERA = 16
     }
 }
 
@@ -41,7 +42,8 @@ fun Settings.toRenderSettings() = RenderSettings(
     effects = (if (bloom) RenderSettings.BLOOM else 0) or
         (if (windowGlare) RenderSettings.WINDOW_GLARE else 0) or
         (if (reflections) RenderSettings.REFLECTIONS else 0) or
-        (if (dust) RenderSettings.DUST else 0),
+        (if (dust) RenderSettings.DUST else 0) or
+        (if (cameraLook) RenderSettings.CAMERA else 0),
     homeCity = homeCityId?.let(::homeCityLatLon),
     fovLongDeg = fieldOfViewDeg.toDouble(),
     stillFps = stillFps,

@@ -43,6 +43,7 @@ const int EFFECT_BLOOM = 1;
 const int EFFECT_WINDOW_GLARE = 2;
 const int EFFECT_REFLECTIONS = 4;
 const int EFFECT_DUST = 8;
+const int EFFECT_CAMERA = 16;
 
 // FrameInputs floats from SCENE_BLOCK (frame_inputs.h); ECEF, km, unit directions.
 layout(set = 0, binding = 0, std140) uniform Scene {
@@ -1126,6 +1127,29 @@ vec3 throughGlass(vec2 p, vec3 earth, vec2 stepPx) {
     return earth;
 }
 
+// Camera look (EFFECT_CAMERA, G-PR F4): lens vignette on the exposed radiance, 1 - CAMERA_VIGNETTE r^2 with r the
+// distance from the image centre over the half-diagonal; sensor grain after the tone map, luma noise of
+// CAMERA_GRAIN (0.5 + sqrt(level)) 8-bit levels times 1 + 0.5 log10(exposure) (dark scenes need a higher ISO), fading
+// out in the highlights. The dev photos read 1.0-2.5 levels by day and 3.5-4.8 at night (p08). The noise is fixed per
+// screen pixel, so a resting view never flickers.
+const float CAMERA_VIGNETTE = 0.3;
+const float CAMERA_GRAIN = 1.6;
+
+float cameraVignette(vec2 p) {
+    vec2 h = 0.5 * vec2(pc.extent);
+    vec2 d = p - h;
+    return 1.0 - CAMERA_VIGNETTE * dot(d, d) / dot(h, h);
+}
+
+vec3 cameraGrain(vec2 p, vec3 c) {
+    vec3 u = patchRandom(ivec2(p) + ivec2(7919, 104729));
+    float n = (u.x + u.y + u.z - 1.5) * 2.0;  // unit variance
+    float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float iso = 1.0 + 0.5 * max(0.0, log2(max(s.iBack.w, 1.0)) * 0.30103);
+    float sigma = CAMERA_GRAIN * (0.5 + sqrt(y)) * iso * clamp((1.0 - y) / 0.15, 0.0, 1.0);
+    return clamp(c + n * sigma / 255.0, 0.0, 1.0);
+}
+
 void main() {
     if (MODE == 3) {
         vec3 inscatter;
@@ -1184,5 +1208,7 @@ void main() {
         open = sunOpen();
     }
     vec3 glare = bloom(p, open) * s.iBack.w;
-    outColor = vec4(encodeSrgb(toneMap(earth * (1.0 - inside.a) + inside.rgb * s.iBack.w + glare)), 1.0);
+    bool camera = (pc.effects & EFFECT_CAMERA) != 0;
+    vec3 c = encodeSrgb(toneMap((earth * (1.0 - inside.a) + inside.rgb * s.iBack.w + glare) * (camera ? cameraVignette(p) : 1.0)));
+    outColor = vec4(camera ? cameraGrain(p, c) : c, 1.0);
 }

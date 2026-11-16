@@ -73,6 +73,7 @@ data class SettingsActions(
     val onStillFps: (Int) -> Unit = {},
     val onQuality: (Quality) -> Unit = {},
     val onClouds: (Boolean) -> Unit = {},
+    val onCameraLook: (Boolean) -> Unit = {},
 )
 
 object SettingsTags {
@@ -147,6 +148,7 @@ fun SettingsScreen(
             SwitchRow(R.string.effect_glare, s.windowGlare, actions.onWindowGlare)
             SwitchRow(R.string.effect_reflections, s.reflections, actions.onReflections)
             SwitchRow(R.string.effect_dust, s.dust, actions.onDust)
+            SwitchRow(R.string.effect_camera_look, s.cameraLook, actions.onCameraLook)
             SwitchRow(R.string.effect_clouds, s.clouds, actions.onClouds)
             TextButton(onClick = actions.onReset) { Text(stringResource(R.string.reset_defaults)) }
 

@@ -30,11 +30,21 @@ class RenderSettingsTest {
             windowGlare = false,
             reflections = true,
             dust = false,
+            cameraLook = false,
         ).toRenderSettings()
         assertEquals(RestView.NADIR, r.rest)
         assertEquals(0.25, r.lookStrength, 1e-6)
         assertFalse(r.idleFloat)
         assertEquals(RenderSettings.BLOOM or RenderSettings.REFLECTIONS, r.effects)
+    }
+
+    /** G-PR F4: the camera look (grain, vignette) is off by default (owner, 16 Nov) and maps to EFFECT_CAMERA. */
+    @Test
+    fun cameraLookMapsToTheCameraBit() {
+        assertEquals(0, Settings().toRenderSettings().effects and RenderSettings.CAMERA)
+        assertEquals(0, RenderSettings().effects and RenderSettings.CAMERA)
+        assertEquals(RenderSettings.CAMERA, Settings(cameraLook = true).toRenderSettings().effects and RenderSettings.CAMERA)
+        assertEquals(FrameInputs.EFFECT_CAMERA, RenderSettings.CAMERA)
     }
 
     @Test

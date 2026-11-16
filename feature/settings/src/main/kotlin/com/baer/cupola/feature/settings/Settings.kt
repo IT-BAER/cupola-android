@@ -30,6 +30,8 @@ data class Settings(
     val stillFps: Int = STILL_FPS_DEFAULT,
     val quality: Quality = Quality.HIGH,
     val clouds: Boolean = true,
+    /** Sensor grain and lens vignette of a real camera over the view; off by default (owner, 16 Nov 2026). */
+    val cameraLook: Boolean = false,
 ) {
     companion object {
         const val STILL_FPS_DEFAULT = 15

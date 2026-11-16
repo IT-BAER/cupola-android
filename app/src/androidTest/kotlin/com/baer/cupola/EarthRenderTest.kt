@@ -896,6 +896,67 @@ class EarthRenderTest {
         assertTrue("night sky share above 40: $bright", bright <= NIGHT_SKY_BRIGHT_MAX)
     }
 
+    /**
+     * G-PR F4 camera look (EFFECT_CAMERA): sensor grain at the level of the dev photos and a lens vignette. Grain = the
+     * 5 x 5 high-pass of (camera on - off) in 8-bit luma: photos read 1.0-2.5 by day in mid-tones (p02-p04) and 3.5-4.8
+     * at night in dark areas (p08, high ISO). Vignette: on/off brightness in the corners against the centre.
+     */
+    @Test
+    fun cameraLookAddsPhotoGrainAndVignette() {
+        val day = cloudScene()
+        val dayOn = render(day, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS, effects = FrameInputs.EFFECT_CAMERA)
+        val dayOff = render(day, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        save("camera_day", dayOn)
+        val (daySigma, dayLevel) = grain(dayOn, dayOff, W / 4, H / 4, 3 * W / 4, 3 * H / 4, 0.0..255.0)
+        fun boxRatio(x0: Int, y0: Int): Double {
+            var on = 0.0
+            var off = 0.0
+            for (y in y0 until y0 + 100) for (x in x0 until x0 + 100) { on += luma(dayOn, x, y); off += luma(dayOff, x, y) }
+            return on / off
+        }
+        val centre = boxRatio(W / 2 - 50, H / 2 - 50)
+        val corners = listOf(boxRatio(4, 4), boxRatio(W - 104, 4), boxRatio(4, H - 104), boxRatio(W - 104, H - 104))
+        val vignette = corners.average() / centre
+        val override = gateSceneOverride(
+            mapOf("lat" to 26.63, "lon" to 32.96, "alt_km" to 344.0, "fov" to 78.1, "az" to 333.0, "el" to -37.6)::get,
+            mapOf("time" to "2010-10-28T23:38:48Z")::get,
+        )
+        val pose = checkNotNull(SceneInputs.buildPose(override))
+        val night = pose.copy(exposure = Exposure.steady(pose))
+        val nightOn = render(night, interior = false, effects = FrameInputs.EFFECT_CAMERA)
+        save("camera_night", nightOn)
+        val (nightSigma, nightLevel) = grain(nightOn, render(night, interior = false), 0, 0, W, H, 3.0..30.0)
+        Log.i(TAG, "camera look: day grain $daySigma at luma $dayLevel, vignette $vignette (centre $centre corners $corners), " +
+            "night grain $nightSigma at luma $nightLevel")
+        assertTrue("day grain $daySigma", daySigma in 0.8..2.5)
+        assertTrue("night grain $nightSigma", nightSigma >= 2.5)
+        assertTrue("vignette $vignette", vignette in 0.75..0.93)
+    }
+
+    /**
+     * Grain of [on] against [off] in the box: standard deviation of the 5 x 5 high-pass of (on - off) in 8-bit luma over
+     * pixels whose [off] luma lies in [levels] (2 px border kept), and their mean [off] luma.
+     */
+    private fun grain(on: ByteArray, off: ByteArray, x0: Int, y0: Int, x1: Int, y1: Int, levels: ClosedRange<Double>): Pair<Double, Double> {
+        val w = x1 - x0
+        val h = y1 - y0
+        val d = DoubleArray(w * h) { luma(on, x0 + it % w, y0 + it / w) - luma(off, x0 + it % w, y0 + it / w) }
+        var sum = 0.0
+        var sum2 = 0.0
+        var level = 0.0
+        var n = 0
+        for (y in 2 until h - 2) for (x in 2 until w - 2) {
+            val l = luma(off, x0 + x, y0 + y)
+            if (l !in levels) continue
+            var m = 0.0
+            for (dy in -2..2) for (dx in -2..2) m += d[(y + dy) * w + x + dx]
+            val hp = d[y * w + x] - m / 25
+            sum += hp; sum2 += hp * hp; level += l; n++
+        }
+        val mean = sum / n
+        return sqrt((sum2 / n - mean * mean) * 25.0 / 24.0) to level / n
+    }
+
     /** Stars show in night space (looking 20 deg up, city lights off so they cannot count), and vanish at day exposure. */
     @Test
     fun starsShowInNightSpaceOnly() {
@@ -1118,7 +1179,8 @@ class EarthRenderTest {
         val state = (orbit.stateAt(DAY) as OrbitState).toSceneState()
         val anti = Frames.geodeticToEcef(Geodetic(asin(-s.z), atan2(-s.y, -s.x), ALT_KM))
         val scene = SceneInputs.build(state, RestView.NADIR, 0.0, 0.0, SceneOverride(DAY, anti, s, fovLongDeg = 60.0))
-        val all = render(scene, interior = false, effects = FrameInputs.EFFECTS_ALL)
+        // Every light effect; the camera look's grain would count as a difference everywhere.
+        val all = render(scene, interior = false, effects = FrameInputs.EFFECTS_ALL and FrameInputs.EFFECT_CAMERA.inv())
         val none = render(scene, interior = false, effects = 0)
         save("sun_eclipse", all)
         val diff = meanAbsDiff(all, none)
@@ -1306,7 +1368,9 @@ class EarthRenderTest {
             val inputs = FrameInputs.empty()
             scene.write(inputs)
             inputs[FrameInputs.TIME_SECONDS] = anim
-            inputs[FrameInputs.EFFECTS] = (inputs[FrameInputs.EFFECTS].toInt() or FrameInputs.EFFECTS_ALL).toFloat()
+            // The shipped look: every effect but the camera look (off by default).
+            inputs[FrameInputs.EFFECTS] =
+                ((inputs[FrameInputs.EFFECTS].toInt() or FrameInputs.EFFECTS_ALL) and FrameInputs.EFFECT_CAMERA.inv()).toFloat()
             val img = renderer.renderOffscreen(gw, gh, inputs)
             val bitmap = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(img))

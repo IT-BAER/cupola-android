@@ -33,7 +33,9 @@ object FrameInputs {
     const val EFFECT_WINDOW_GLARE = 2
     const val EFFECT_REFLECTIONS = 4
     const val EFFECT_DUST = 8
-    const val EFFECTS_ALL = EFFECT_BLOOM or EFFECT_WINDOW_GLARE or EFFECT_REFLECTIONS or EFFECT_DUST
+    /** Camera look: sensor grain and lens vignette (G-PR F4). */
+    const val EFFECT_CAMERA = 16
+    const val EFFECTS_ALL = EFFECT_BLOOM or EFFECT_WINDOW_GLARE or EFFECT_REFLECTIONS or EFFECT_DUST or EFFECT_CAMERA
 
     /** State, not a setting: the system reduces motion (animator scale 0), so nothing flashes (lightning). */
     const val MOTION_REDUCED = 1 shl 8
