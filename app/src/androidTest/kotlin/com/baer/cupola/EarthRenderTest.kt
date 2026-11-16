@@ -734,9 +734,12 @@ class EarthRenderTest {
     /**
      * G-PR fix F2: at low Sun (north India, Sun elevation about 29 deg, 90 deg view: about 0.4 km per pixel as in ISS
      * photos, where the cloud detail is resolved) cumulus tops are lit on the side facing the Sun
-     * and shaded on the far side, so the luma gradients inside dense cloud share one direction: |mean gradient| / mean
-     * |gradient| is above [CLOUD_SIDE_COHERENCE_MIN]. Flat, symmetric tops give about 0 (edges point inwards from every
-     * side and are excluded anyway). Ground shadows are off so they cannot add a direction.
+     * and shaded on the far side, so the luma gradients inside dense cloud share one direction: the mean gradient points
+     * within [CLOUD_SIDE_ANGLE_MAX_DEG] of the Sun on screen and |mean gradient| / mean |gradient| is above
+     * [CLOUD_SIDE_COHERENCE_MIN]. Flat, symmetric tops give about 0 (edges point inwards from every side and are
+     * excluded anyway). Ground shadows are off so they cannot add a direction. Reference: the same metric on the MODIS
+     * Terra cumulus scene of cloud_detail (Sun zenith 41 deg, clear ocean = local 10th luma percentile, 0.24 to 0.72 km
+     * per pixel) reads 0.018-0.035, mean gradient 7-26 deg off the Sun; a lower Sun only strengthens the sides.
      */
     @Test
     fun cloudTopsAreLitTowardsTheLowSun() {
@@ -744,6 +747,7 @@ class EarthRenderTest {
         val clear = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUD_SHADOWS or FrameInputs.DEBUG_NO_CLOUDS)
         val cloudy = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUD_SHADOWS)
         save("cloud_sides", cloudy)
+        save("cloud_sides_clear", clear)
         fun dense(x: Int, y: Int) = luma(cloudy, x, y) - luma(clear, x, y) > 40
         var sx = 0.0
         var sy = 0.0
@@ -756,9 +760,15 @@ class EarthRenderTest {
             sx += gx; sy += gy; sum += sqrt(gx * gx + gy * gy); n++
         }
         val coherence = sqrt(sx * sx + sy * sy) / sum
-        Log.i(TAG, "cloud sides at low sun: gradient coherence $coherence over $n dense samples")
+        // The Sun on screen (x right, y down) for this nadir view: its component along the camera's right and down axes.
+        val sunX = scene.sunDirEcef dot scene.ecefFromCamera.c0
+        val sunY = -(scene.sunDirEcef dot scene.ecefFromCamera.c1)
+        val offSunDeg = Math.toDegrees(abs(atan2(sx * sunY - sy * sunX, sx * sunX + sy * sunY)))
+        Log.i(TAG, "cloud sides at low sun: gradient coherence $coherence over $n dense samples, mean gradient " +
+            "${Math.toDegrees(atan2(sy, sx))} deg, Sun ${Math.toDegrees(atan2(sunY, sunX))} deg on screen")
         assertTrue("dense cloud samples $n", n > 2000)
-        assertTrue("cloud tops not lit towards the Sun: $coherence", coherence > CLOUD_SIDE_COHERENCE_MIN)
+        assertTrue("cloud tops not lit towards the Sun: $offSunDeg deg off", offSunDeg < CLOUD_SIDE_ANGLE_MAX_DEG)
+        assertTrue("cloud sides too weak: $coherence", coherence > CLOUD_SIDE_COHERENCE_MIN)
     }
 
     /**
@@ -1749,7 +1759,8 @@ class EarthRenderTest {
         private const val DAY_DARK_SHARE_MIN = 0.40
         private const val COLOUR_DETAIL_MIN = 0.07
         private const val CLEAR_GROUND_SHARE_MIN = 0.4 // Pixel 7 Pro 0.539 at cut 0.4, the grey veil gives 0
-        private const val CLOUD_SIDE_COHERENCE_MIN = 0.2
+        private const val CLOUD_SIDE_COHERENCE_MIN = 0.035 // MODIS cumulus at Sun zenith 41 deg: 0.018-0.035
+        private const val CLOUD_SIDE_ANGLE_MAX_DEG = 30.0 // MODIS cumulus: 7-26 deg (thresholds 30-50: up to 29)
         private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
 private const val STAR_PEAK_TOLERANCE = 6.0
 
