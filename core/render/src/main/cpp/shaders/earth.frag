@@ -982,8 +982,11 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 north = cross(n, east);
     vec3 relief = normalize(east * nxy.x + north * nxy.y + n * sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
 
-    // Water: flat surface of one colour; the box-filtered mask blends the coastline.
-    albedo = mix(albedo, OCEAN_ALBEDO, water);
+    // Water: the deep ocean one colour (the no-bathymetry day map paints it one flat dark tone, green about 0.0015);
+    // shallow banks and the coast keep the map's true colour (turquoise over sand, G-PR F3 p03), faded in by the map's
+    // green above that tone. The box-filtered mask blends the coastline.
+    float shallow = smoothstep(0.004, 0.02, detail.g);
+    albedo = mix(albedo, mix(OCEAN_ALBEDO, albedo, shallow), water);
     relief = normalize(mix(relief, n, water));
 
     if (abs(lat) > LAT_MAX) {

@@ -223,7 +223,9 @@ function Build-Day {
     $tiles = 'A1', 'B1', 'C1', 'D1', 'A2', 'B2', 'C2', 'D2'
     $layers = @(); $masters = @()
     foreach ($t in $tiles) {
-        $src = Get-Source "bmng2004-200407-86400/world.topo.bathy.200407.3x21600x21600.$t.jpg"
+        # Without bathymetry: water keeps MODIS true colour on shallow banks (turquoise over sand, G-PR F3 p03) and one
+        # flat dark tone on the deep ocean, which the shader replaces by its ocean albedo.
+        $src = Get-Source "bmng2004-200407-86400-topo/world.topo.200407.3x21600x21600.$t.jpg"
         $master = Join-Path $dir "$t.v"
         $top = if ($t.EndsWith('1')) { 4320 } else { 0 }
         New-Master $src $top 17280 4680 3744 $master $true
@@ -236,7 +238,7 @@ function Build-Day {
     $a = Join-Path $dir 'order_a.v'; $b = Join-Path $dir 'order_b.v'
     V thumbnail $mosaic $a 1024 --height 410 --size force
     $july = Join-Path $dir 'order_july.v'
-    New-Master (Get-Source 'bmng2004-monthly/world.topo.bathy.200407.3x21600x10800.jpg') 1080 8640 1024 410 $july $true
+    New-Master (Get-Source 'bmng2004-monthly-topo/world.topo.200407.3x21600x10800.jpg') 1080 8640 1024 410 $july $true
     $diff = Join-Path $dir 'order_diff.v'; $abs = Join-Path $dir 'order_abs.v'
     V subtract $a $july $diff; V abs $diff $abs
     $mad = VNum avg $abs

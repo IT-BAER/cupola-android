@@ -949,6 +949,56 @@ class EarthRenderTest {
     }
 
     /**
+     * G-PR fix F3 (dev pair p03, Bahamas): shallow banks keep their turquoise, the deep trough between them stays deep
+     * blue. Nadir over Andros in the morning (Sun low in the east, glint outside the view), clouds off. Boxes from the BMNG
+     * no-bathymetry July tile: the bank west of Andros (24.0-24.5 N, 79.0-78.6 W, source RGB 1/91/120) and the Tongue of
+     * the Ocean (24.25-24.6 N, 77.45-77.3 W, 2/5/20): bank luma at least 1.15x the deep's (photo p03: turquoise median
+     * luma 111.8 vs deep 86.5, 1.29x), bank green at least 1.5x its red (photo 133 / 42). One flat ocean albedo read 1.04x
+     * and 1.43x.
+     */
+    @Test
+    fun shallowBanksKeepTheirTurquoise() {
+        val scene = scene(Instant.parse("2026-10-25T13:30:00Z"), 24.3, -78.0, 0.0, -90.0, fovDeg = 60.0)
+        val img = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        save("bahamas_banks", img)
+        val bank = DoubleArray(4)
+        val deep = DoubleArray(4)
+        for (y in 0 until H step 3) for (x in 0 until W step 3) {
+            val (lat, lon) = groundLatLonDeg(scene.cameraEcefKm, scene.rayEcef(x + 0.5, y + 0.5, W, H)) ?: continue
+            val box = when {
+                lat in 24.0..24.5 && lon in -79.0..-78.6 -> bank
+                lat in 24.25..24.6 && lon in -77.45..-77.3 -> deep
+                else -> continue
+            }
+            val i = at(x, y)
+            box[0] += ch(img, i); box[1] += ch(img, i + 1); box[2] += luma(img, x, y); box[3] += 1.0
+        }
+        Log.i(TAG, "banks: bank rgb ${bank[0] / bank[3]} ${bank[1] / bank[3]} luma ${bank[2] / bank[3]} (${bank[3]} px), " +
+            "deep luma ${deep[2] / deep[3]} (${deep[3]} px)")
+        assertTrue("boxes not in view: ${bank[3]} / ${deep[3]}", bank[3] > 100 && deep[3] > 20)
+        assertTrue("bank not brighter than the deep: ${bank[2] / bank[3]} vs ${deep[2] / deep[3]}",
+            bank[2] / bank[3] >= 1.15 * deep[2] / deep[3])
+        assertTrue("bank not turquoise: red ${bank[0] / bank[3]} green ${bank[1] / bank[3]}", bank[1] >= 1.5 * bank[0])
+    }
+
+    /** Geodetic latitude and longitude (deg) where the ray from [cam] along unit [d] meets the WGS-84 ellipsoid. */
+    private fun groundLatLonDeg(cam: Vector3, d: Vector3): Pair<Double, Double>? {
+        val a = 6378.137
+        val k = a / 6356.752314
+        val q = Vector3(cam.x, cam.y, cam.z * k)
+        val e = Vector3(d.x, d.y, d.z * k)
+        val ee = e dot e
+        val b = (q dot e) / ee
+        val c = ((q dot q) - a * a) / ee
+        val disc = b * b - c
+        if (disc < 0) return null
+        val t = -b - sqrt(disc)
+        val p = cam + d * t
+        val lat = atan2(p.z, (1 - 0.00669438) * sqrt(p.x * p.x + p.y * p.y))
+        return Math.toDegrees(lat) to Math.toDegrees(atan2(p.y, p.x))
+    }
+
+    /**
      * G-PR fix F3 tone curve: dark scenes are as bright as the photos. Dev gates p05 (cabin at nadir over the Andes) and
      * p08 (Nile at night under the Moon), rendered like DevSceneRenderTest in the dev frame (1170 x 1080, default
      * effects, scale 0.6): median luma within [DARK_MEDIAN_RATIO] of the photo's: p05 over the cabin frame outside the

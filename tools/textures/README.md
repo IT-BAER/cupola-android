@@ -66,7 +66,8 @@ Single-layer files have `layerCount = 0` (plain 2D texture); the two arrays have
 ### day_detail (8-layer array, 4 x 2 tiles)
 
 Layer `k` covers column `k % 4` and row `k / 4` of a 4 x 2 grid over the +-72 deg band; layer order
-A1 B1 C1 D1 A2 B2 C2 D2 of the BMNG tiles:
+A1 B1 C1 D1 A2 B2 C2 D2 of the BMNG July 2004 tiles without bathymetry (`world.topo.200407`: shallow banks keep their
+MODIS true colour, the deep ocean is one flat dark tone that the shader replaces by its ocean albedo):
 
 | Layer | Longitude | Latitude |
 |---|---|---|
