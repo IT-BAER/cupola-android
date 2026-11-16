@@ -14,11 +14,17 @@ object Exposure {
     const val MIN = 0.01
     const val MAX = 1.0e6
 
-    /** Linear exposure that maps the estimated mean radiance to this value before the tone map. */
-    const val KEY = 0.35
+    /**
+     * Linear exposure that maps the estimated mean radiance to this value before the tone map (linear below its
+     * shoulder). 0.49 matched the median luma of the G-PR dev photos best (0.35 with the earlier ACES fit).
+     */
+    const val KEY = 0.49
 
-    /** Interior lights and the night side at night (city lights, airglow), shader units. */
-    const val NIGHT_FLOOR = 2.5e-5
+    /**
+     * Interior lights and the night side at night (city lights, airglow), shader units. 3.5e-5 keeps the night exposure
+     * of the ACES era (2.5e-5 at KEY 0.35): with the linear tone curve the dev p08 night view read +1.2 EV over its photo.
+     */
+    const val NIGHT_FLOOR = 3.5e-5
 
     fun luminance(scene: Scene): Double =
         scene.earthLight() + scene.airLight() + Scene.EARTH_ALBEDO * 0.5 * scene.moonLight() + scene.glassGlare() + scene.sunGlare() + NIGHT_FLOOR

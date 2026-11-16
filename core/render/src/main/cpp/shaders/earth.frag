@@ -119,7 +119,7 @@ const float CLOUD_THIN_CUT = 0.25;
 // airglow shell (OI 557.7 nm) between AIRGLOW_LOW_KM and AIRGLOW_HIGH_KM with its radiance per km of path.
 const vec3 CITY_LIGHT = vec3(1.0, 0.72, 0.42) * 1.5e-4;
 const float CITY_GAMMA = 1.5;
-const float STAR_RADIANCE = 7.5e-6;  // the night sky of ISS photos (G-PR F3: dev p08 sky p99 19 at 7.5e-6, 108 at 6e-5)
+const float STAR_RADIANCE = 3.2e-6;  // the night sky of ISS photos (G-PR F3: dev p08 sky p99 19; camera-like tone curve)
 const float MOON_ALBEDO = 0.12;
 const float MOON_RADIUS = 0.004756;  // rad, 0.2725 deg
 const float AIRGLOW_LOW_KM = 85.0;
@@ -187,9 +187,10 @@ const float STATIC_SCALE = 2.0e-4;
 const vec3 NODE3_CABIN = vec3(1.0, 0.92, 0.82);
 // Earthlight gains over the mean Earth radiance (Scene.earthLight): the Earthlight layer, and the uniform fill
 // (ambient layer) standing in for the bounce light the bake's low albedos lose. Tuned to the Earth-lit photos
-// iss022e066972 / iss029e043374 (EarthRenderTest.dayCabinToneMatchesTheEarthLitPhotos).
-const float EARTHLIGHT_GAIN = 6.5;
-const float EARTH_FILL_GAIN = 1.0;
+// iss022e066972 / iss029e043374 (EarthRenderTest.dayCabinToneMatchesTheEarthLitPhotos); a quarter of the values the
+// ACES toe needed (6.5, 1.0) x 0.37, between those photos and the dev p05 cabin frame (photo median 10.1).
+const float EARTHLIGHT_GAIN = 2.4;
+const float EARTH_FILL_GAIN = 0.37;
 // P4.5 glass (tools/blender/build_cupola.py, cabin frame in m): the eye EYE_TO_GLASS below the round top pane at
 // TOP_GLASS_Z (radius TOP_PANE_R), seen within TOP_WINDOW_COS of +Z; six side panes on facets tilted FACET_TILT from the top plane at
 // 60 deg steps, HEX_APOTHEM from the axis at Z_TOP, the pane SIDE_DEPTH outwards. GLASS_F0: the pane stack's normal
@@ -235,13 +236,17 @@ vec2 logicalPixel(vec2 p) {
 // Wraps a longitude difference into [-pi, pi], so derivatives stay small across 180 deg.
 float wrapDelta(float d) { return d - 2.0 * PI * round(d / (2.0 * PI)); }
 
-// Filmic tone map of exposed linear radiance: the ACES fit (Narkowicz 2015) on luminance, the colour scaled with it.
+// Camera-like tone map of exposed linear radiance on luminance, the colour scaled with it: linear (a sensor's response)
+// up to TONE_SHOULDER, then the Khronos PBR Neutral shoulder towards 1. The luminance ACES fit had a toe that darkened
+// dark tones about 4x against mid-tones (G-PR F3: dev p05 cabin median 15 and p08 night 19 vs photos 31 and 32).
 // Where a channel would pass 1 the colour moves towards grey of the same luminance just enough to fit, so highlights
-// end in white like a camera's, not in the clipped channels' mix (per-channel ACES turned warm sunlight yellow).
+// end in white like a camera's, not in the clipped channels' mix (per-channel curves turned warm sunlight yellow).
+const float TONE_SHOULDER = 0.76;
 vec3 toneMap(vec3 x) {
     float y = dot(x, vec3(0.2126, 0.7152, 0.0722));
     if (y <= 0.0) return vec3(0.0);
-    float t = min(y * (2.51 * y + 0.03) / (y * (2.43 * y + 0.59) + 0.14), 1.0);
+    float d = 1.0 - TONE_SHOULDER;
+    float t = y <= TONE_SHOULDER ? y : 1.0 - d * d / (y + d - TONE_SHOULDER);
     vec3 c = x * (t / y);
     float peak = max(c.r, max(c.g, c.b));
     if (peak > 1.0) c = mix(c, vec3(t), (peak - 1.0) / max(peak - t, 1e-6));
@@ -1037,6 +1042,21 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
         vec3 moonCloud = atmosphere ? sunlight(rc, muM) : vec3(step(muHc, muM));
         diffuse += albedo * max(dot(relief, m), 0.0) * moonGround * moonLight * shadow;
         cloud += CLOUD_ALBEDO * clamp((muM - muHc) / (1.0 - muHc), 0.0, 1.0) * moonCloud * moonLight;
+        // Moon glint on water: the Sun's Beckmann lobe for the Moon.
+        vec3 hm = normalize(m + v);
+        float nhm2 = max(dot(n, hm), 1e-4) * max(dot(n, hm), 1e-4);
+        float bm = exp((nhm2 - 1.0) / (GLINT_M2 * nhm2)) / (PI * GLINT_M2 * nhm2 * nhm2);
+        float fm = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - max(dot(v, hm), 0.0), 5.0);
+        glint += water * fm * bm * PI / (4.0 * nv) * moonGround * moonLight * step(0.0, muM) * shadow;
+        // Moonlit air (the sky LUT holds sunlight only): single Rayleigh scattering of a plane-parallel layer of optical
+        // depth RAYLEIGH_SCATTER x scale height, reflectance P(theta) / (4 (mu + mu0)) (1 - exp(-tau (1/mu + 1/mu0))).
+        if (atmosphere && (pc.effects & DEBUG_NO_INSCATTER) == 0 && muM > 0.0) {
+            float cosT = -dot(m, v);
+            float mu = max(dot(n, v), 0.02);
+            vec3 tau = RAYLEIGH_SCATTER * ATMO_RAYLEIGH_HEIGHT_KM;
+            inscatter += muM * moonLight * 0.75 * (1.0 + cosT * cosT) / (4.0 * (mu + muM)) *
+                         (1.0 - exp(-tau * (1.0 / mu + 1.0 / muM)));
+        }
     }
 
     // City lights from civil twilight on, glowing dimmer through clouds.

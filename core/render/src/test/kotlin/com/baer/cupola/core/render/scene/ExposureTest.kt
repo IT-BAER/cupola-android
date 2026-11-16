@@ -102,7 +102,8 @@ class ExposureTest {
     fun airlightBoundsTheTerminatorExposure() {
         val scene = scene(93.25)
         assertTrue("airlight ${scene.airLight()} earthLight ${scene.earthLight()}", scene.airLight() > scene.earthLight())
-        assertTrue("exposure ${Exposure.steady(scene)}", Exposure.steady(scene) < 40.0)
+        // Exposure below 40 at the key of 0.35 the bound was set with; the key moves with the tone curve.
+        assertTrue("luminance ${Exposure.luminance(scene)}", Exposure.luminance(scene) > 0.35 / 40.0)
     }
 
     @Test

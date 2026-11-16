@@ -34,6 +34,7 @@ import com.baer.cupola.orbit.frames.unaryMinus
 import com.baer.cupola.orbit.sgp4.Vector3
 import com.baer.cupola.orbit.tle.Tle
 import com.baer.cupola.wallpaper.RendererHost
+import com.baer.cupola.wallpaper.RenderSettings
 import com.baer.cupola.wallpaper.RendererHostEntryPoint
 import com.baer.cupola.wallpaper.gateSceneOverride
 import dagger.hilt.android.EntryPointAccessors
@@ -160,7 +161,8 @@ class EarthRenderTest {
         var sx = 0.0
         var sy = 0.0
         var n = 0
-        for (y in y0..y1) for (x in x0..x1) if (luma(img, x, y) >= 0.9 * max) {
+        // The saturated core: the tone curve's highlight shoulder spreads the screen's glow into a plateau below it.
+        for (y in y0..y1) for (x in x0..x1) if (luma(img, x, y) >= 0.98 * max) {
             sx += x + 0.5; sy += y + 0.5; n++
         }
         val dist = sqrt((sx / n - px) * (sx / n - px) + (sy / n - py) * (sy / n - py))
@@ -897,6 +899,94 @@ class EarthRenderTest {
     }
 
     /**
+     * G-PR fix F3 (dev p08: the photo's moonlit sea is blue, luma 41, the render's black, 1.7). Open Pacific at night
+     * near the sub-lunar point (12.6 N 162.8 W at DAY), clouds and city lights off, 60 deg nadir views:
+     * - Moon at the zenith (camera over the sub-lunar point): a moon glint at the specular point, the frame centre
+     *   brighter than the frame's median by at least 8 levels.
+     * - Moon about 30 deg up (camera 60 deg of longitude west, glint far outside the view): the moonlit air (single
+     *   Rayleigh scattering; the Sun's inscatter is zero at night) = render minus render with DEBUG_NO_INSCATTER adds
+     *   at least 1.5 levels of mean luma and is blue (mean blue step at least twice the red). Model estimate about
+     *   3 levels, blue/red about 4.
+     */
+    @Test
+    fun moonlitSeaShowsAMoonGlintAndBlueAir() {
+        val state = (orbit.stateAt(DAY) as OrbitState).toSceneState()
+        val m = state.moonDirEcef
+        val lat = asin(m.z)
+        val lon = atan2(m.y, m.x)
+        fun scene(lonRad: Double): Scene {
+            val p = Frames.geodeticToEcef(Geodetic(lat, lonRad, ALT_KM))
+            return SceneInputs.build(state, RestView.NADIR, 0.0, 0.0,
+                SceneOverride(DAY, p, SceneGeometry.directionFromAzEl(p, 0.0, -90.0), fovLongDeg = 60.0))
+        }
+        val off = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_CITY_LIGHTS
+        val zenith = render(scene(lon), interior = false, debug = off)
+        save("moonlit_sea", zenith)
+        val sorted = (0 until W * H step 7).map { luma(zenith, it % W, it / W) }.sorted()
+        val median = sorted[sorted.size / 2]
+        var centre = 0.0
+        for (dy in -10..10) for (dx in -10..10) centre += luma(zenith, W / 2 + dx, H / 2 + dy)
+        centre /= 441.0
+        val low = scene(lon - Math.toRadians(60.0))
+        val withAir = render(low, interior = false, debug = off)
+        val noAir = render(low, interior = false, debug = off or FrameInputs.DEBUG_NO_INSCATTER)
+        save("moonlit_sea_low", withAir)
+        var dl = 0.0
+        var dr = 0.0
+        var db = 0.0
+        var n = 0
+        for (y in 0 until H step 4) for (x in 0 until W step 4) {
+            val i = at(x, y)
+            dl += luma(withAir, x, y) - luma(noAir, x, y)
+            dr += ch(withAir, i) - ch(noAir, i)
+            db += ch(withAir, i + 2) - ch(noAir, i + 2)
+            n++
+        }
+        Log.i(TAG, "moonlit sea: zenith median $median centre $centre; low Moon air luma ${dl / n} red ${dr / n} blue ${db / n}")
+        assertTrue("no moon glint: centre $centre vs median $median", centre >= median + 8.0)
+        assertTrue("no moonlit air: ${dl / n}", dl / n >= 1.5)
+        assertTrue("moonlit air not blue: red ${dr / n} blue ${db / n}", db >= 2.0 * dr)
+    }
+
+    /**
+     * G-PR fix F3 tone curve: dark scenes are as bright as the photos. Dev gates p05 (cabin at nadir over the Andes) and
+     * p08 (Nile at night under the Moon), rendered like DevSceneRenderTest in the dev frame (1170 x 1080, default
+     * effects, scale 0.6): median luma within [DARK_MEDIAN_RATIO] of the photo's: p05 over the cabin frame outside the
+     * nadir window (photo 10.1; the whole frame depends on the window's size in the frame), p08 over the frame (32).
+     * The luminance ACES fit read 4.0 and 19: its toe darkens dark tones about 4x against mid-tones.
+     */
+    @Test
+    fun darkScenesAreAsBrightAsThePhotos() {
+        val gates = mapOf(
+            "p05" to Triple(mapOf("lat" to -33.1, "lon" to -69.9, "alt_km" to 404.0, "fov" to 43.5, "heading_deg" to 125.2,
+                "yaw" to -2.35, "pitch" to -0.88, "roll" to 138.6), mapOf("time" to "2015-05-14T19:56:29Z", "pass" to "desc",
+                "rest" to "nadir"), 10.1),
+            "p08" to Triple(mapOf("lat" to 26.63, "lon" to 32.96, "alt_km" to 344.0, "fov" to 78.1, "az" to 333.0,
+                "el" to -37.6), mapOf("time" to "2010-10-28T23:38:48Z"), 32.0),
+        )
+        // p05: pixels outside the nadir window disc (centre and radius in the dev frame).
+        fun counts(id: String, x: Int, y: Int) = id != "p05" || (x - 525) * (x - 525) + (y - 497) * (y - 497) > 345 * 345
+        val w = 1170
+        val h = 1080
+        val failures = ArrayList<String>()
+        for ((id, g) in gates) {
+            val pose = checkNotNull(SceneInputs.buildPose(gateSceneOverride(g.first::get, g.second::get)))
+            val effects = (pose.effects and FrameInputs.EFFECTS_ALL.inv()) or RenderSettings().effects
+            val scene = pose.copy(effects = effects).let { it.copy(exposure = Exposure.steady(it)) }
+            val inputs = FrameInputs.empty().also { scene.write(it) }
+            inputs[FrameInputs.RENDER_SCALE] = 0.6f
+            val img = renderer.renderOffscreen(w, h, inputs)
+            val lumas = (0 until w * h).filter { counts(id, it % w, it / w) }.map {
+                0.2126 * ch(img, it * 4) + 0.7152 * ch(img, it * 4 + 1) + 0.0722 * ch(img, it * 4 + 2)
+            }.sorted()
+            val median = lumas[lumas.size / 2]
+            Log.i(TAG, "dark scene $id: median luma $median, photo ${g.third}")
+            if (median / g.third !in DARK_MEDIAN_RATIO) failures += "$id median $median vs photo ${g.third}"
+        }
+        assertTrue(failures.joinToString(), failures.isEmpty())
+    }
+
+    /**
      * G-PR fix F3 (dev pair p08, Nile at night): city lights are settlements, points of light with dark gaps, not smooth
      * blobs of the 4.9 km map. Over pixels whose 9 x 9 mean luma is above 60: relative spottiness mean |luma - mean| /
      * mean (photo 0.177, render before the fix 0.076 in the dev frame), and the share of the frame above luma 128 (photo
@@ -1584,7 +1674,7 @@ class EarthRenderTest {
     /**
      * Decision 11 steady exposure: the analytic luminance estimate lies within a factor 3 of the mean linear radiance
      * of the Earth pixels actually rendered (atmosphere on), by day at nadir and at the terminator, where the sunlit
-     * air outshines the ground. The frame is rendered 2 EV under the steady exposure and decoded (sRGB, ACES fit).
+     * air outshines the ground. The frame is rendered 2 EV under the steady exposure and decoded (sRGB, inverse tone curve).
      */
     @Test
     fun steadyExposureMatchesTheRenderedEarth() {
@@ -1820,7 +1910,8 @@ class EarthRenderTest {
 
     /**
      * Exposed linear colour before the tone map at pixel index [i]: sRGB decode, then the inverse of earth.frag's
-     * luminance ACES fit (exact where no channel reached the white blend; channels at most 254).
+     * luminance tone curve (linear up to 0.76, PBR Neutral shoulder above; exact where no channel reached the white
+     * blend; channels at most 254).
      */
     private fun linearRgb(img: ByteArray, i: Int): DoubleArray {
         val c = DoubleArray(3) {
@@ -1829,9 +1920,8 @@ class EarthRenderTest {
         }
         val t = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
         if (t <= 0.0) return DoubleArray(3)
-        val a = 2.43 * t - 2.51
-        val b = 0.59 * t - 0.03
-        val y = (-b - sqrt(b * b - 4 * a * 0.14 * t)) / (2 * a)
+        val d = 1.0 - 0.76
+        val y = if (t <= 0.76) t else d * d / (1.0 - t) - d + 0.76
         return DoubleArray(3) { c[it] * y / t }
     }
 
@@ -1917,6 +2007,8 @@ class EarthRenderTest {
         private const val CLOUD_SIDE_ANGLE_MAX_DEG = 30.0 // MODIS cumulus: 7-26 deg (thresholds 30-50: up to 29)
         private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
         private const val GROUND_GRID_COHERENCE_MAX = 0.05 // BMNG source 0.036 at the same scale, ASTC 12x12 bilinear 0.164
+        // One photo per scene: the two Earth-lit cabin photos alone differ 3x in frame median (7 vs 21). ACES read 0.40 / 0.58.
+        private val DARK_MEDIAN_RATIO = 0.67..1.5
         private const val CITY_SPOTTINESS_MIN = 0.13 // photo p08 0.177
         private const val CITY_LIT_MAX = 0.03 // photo p08 0.022 of the frame above luma 128
         private const val STAR_PEAK_MIN = 30.0
