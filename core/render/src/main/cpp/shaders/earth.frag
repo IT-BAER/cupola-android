@@ -899,6 +899,39 @@ vec3 dayDetailAt(float lon, float lat, vec2 dLonLatX, vec2 dLonLatY) {
     return c;
 }
 
+// City lights as settlements (G-PR F3, dev p08: the 4.9 km map drew smooth blobs where photos show points of light with
+// dark gaps). Rows CITY_CELL_KM apart in latitude, cells CITY_CELL_KM wide along each row, one light per cell at a random
+// spot, lit with probability q = clamp(t / CITY_FULL, CITY_Q_MIN, 1) and 1 / q as bright, so the mean keeps the map's
+// value t; each light a Gaussian of CITY_SPOT_KM widened to 0.6 pixel footprints, so sub-pixel lights dim instead of
+// popping. The factor on the map's light fades to 1 as the lights grow to half a cell (3 x 3 cells hold the kernel).
+const float CITY_CELL_KM = 2.5;
+const float CITY_SPOT_KM = 0.35;
+const float CITY_FULL = 0.5;
+const float CITY_Q_MIN = 0.08;
+float cityPoints(vec2 lonLat, float t, float kmPerPx) {
+    float sigma = max(CITY_SPOT_KM, 0.6 * kmPerPx);
+    float a = 1.0 - smoothstep(0.25, 0.5, sigma / CITY_CELL_KM);
+    if (a <= 0.0) return 1.0;
+    float q = clamp(t / CITY_FULL, CITY_Q_MIN, 1.0);
+    float rowRad = CITY_CELL_KM / A_KM;
+    float iy = floor(lonLat.y / rowRad);
+    float sum = 0.0;
+    for (int j = -1; j <= 1; ++j) {
+        float row = iy + float(j);
+        float cellRad = rowRad / max(cos((row + 0.5) * rowRad), 0.05);
+        float ix = floor(lonLat.x / cellRad);
+        for (int i = -1; i <= 1; ++i) {
+            float col = ix + float(i);
+            vec3 h = patchRandom(ivec2(int(col), int(row)) + ivec2(131071, 524287));
+            if (h.z >= q) continue;
+            vec2 d = vec2(wrapDelta(lonLat.x - (col + h.x) * cellRad) * cos(lonLat.y), lonLat.y - (row + h.y) * rowRad) * A_KM;
+            sum += exp(-dot(d, d) / (2.0 * sigma * sigma));
+        }
+    }
+    // Lit cells carry 1 / q each; a Gaussian of sigma integrates to 2 pi sigma^2 against a cell of CITY_CELL_KM^2.
+    return mix(1.0, sum / q * CITY_CELL_KM * CITY_CELL_KM / (2.0 * PI * sigma * sigma), a);
+}
+
 // Linear Earth radiance at physical pixel position p; stepPx = one rendered pixel in physical pixels.
 // Texture footprints come from the neighbouring pixels' ground points, not dFdx, so callers may branch.
 vec3 earthRadiance(vec2 p, vec2 stepPx) {
@@ -1010,7 +1043,10 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     vec3 lights = vec3(0.0);
     if ((pc.effects & DEBUG_NO_CITY_LIGHTS) == 0 && muS < 0.0) {
         float night = 1.0 - smoothstep(-0.10, 0.0, muS);
-        lights = pow(textureGrad(cityLights, uv, gx, gy).r, CITY_GAMMA) * CITY_LIGHT * night * (1.0 - 0.6 * cover);
+        float t = textureGrad(cityLights, uv, gx, gy).r;
+        vec2 kmScale = vec2(2.0 * PI * A_KM * cos(lat), 2.0 * LAT_MAX * A_KM);
+        float points = t > 1e-3 ? cityPoints(ll, t, max(length(gx * kmScale), length(gy * kmScale))) : 1.0;
+        lights = pow(t, CITY_GAMMA) * points * CITY_LIGHT * night * (1.0 - 0.6 * cover);
     }
     if ((pc.effects & (DEBUG_NO_LIGHTNING | MOTION_REDUCED)) == 0 && muS < -0.05 && cover > STORM_COVER_MIN) {
         lights += lightning(lon, lat, cover);

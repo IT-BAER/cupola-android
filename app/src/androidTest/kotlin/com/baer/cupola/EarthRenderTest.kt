@@ -897,6 +897,41 @@ class EarthRenderTest {
     }
 
     /**
+     * G-PR fix F3 (dev pair p08, Nile at night): city lights are settlements, points of light with dark gaps, not smooth
+     * blobs of the 4.9 km map. Over pixels whose 9 x 9 mean luma is above 60: relative spottiness mean |luma - mean| /
+     * mean (photo 0.177, render before the fix 0.076 in the dev frame), and the share of the frame above luma 128 (photo
+     * 2.2 %, render 3.8 %).
+     */
+    @Test
+    fun cityLightsAreSettlementsNotBlobs() {
+        val override = gateSceneOverride(
+            mapOf("lat" to 26.63, "lon" to 32.96, "alt_km" to 344.0, "fov" to 78.1, "az" to 333.0, "el" to -37.6)::get,
+            mapOf("time" to "2010-10-28T23:38:48Z")::get,
+        )
+        val pose = checkNotNull(SceneInputs.buildPose(override))
+        val img = render(pose.copy(exposure = Exposure.steady(pose)), interior = false)
+        save("city_lights_p08", img)
+        val y = DoubleArray(W * H) { luma(img, it % W, it / W) }
+        val r = 4
+        var spot = 0.0
+        var mean = 0.0
+        var n = 0
+        for (py in r until H - r step 2) for (px in r until W - r step 2) {
+            var m = 0.0
+            for (dy in -r..r) for (dx in -r..r) m += y[(py + dy) * W + px + dx]
+            m /= 81.0
+            if (m <= 60.0) continue
+            spot += abs(y[py * W + px] - m); mean += m; n++
+        }
+        val spottiness = spot / mean
+        val lit = y.count { it > 128 }.toDouble() / y.size
+        Log.i(TAG, "city lights p08: spottiness $spottiness over $n px, share above 128 $lit")
+        assertTrue("no city lights", n > 1000)
+        assertTrue("city lights are smooth blobs: spottiness $spottiness", spottiness >= CITY_SPOTTINESS_MIN)
+        assertTrue("city lights cover too much: $lit", lit <= CITY_LIT_MAX)
+    }
+
+    /**
      * G-PR F4 camera look (EFFECT_CAMERA): sensor grain at the level of the dev photos and a lens vignette. Grain = the
      * 5 x 5 high-pass of (camera on - off) in 8-bit luma: photos read 1.0-2.5 by day in mid-tones (p02-p04) and 3.5-4.8
      * at night in dark areas (p08, high ISO). Vignette: on/off brightness in the corners against the centre.
@@ -1882,6 +1917,8 @@ class EarthRenderTest {
         private const val CLOUD_SIDE_ANGLE_MAX_DEG = 30.0 // MODIS cumulus: 7-26 deg (thresholds 30-50: up to 29)
         private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
         private const val GROUND_GRID_COHERENCE_MAX = 0.05 // BMNG source 0.036 at the same scale, ASTC 12x12 bilinear 0.164
+        private const val CITY_SPOTTINESS_MIN = 0.13 // photo p08 0.177
+        private const val CITY_LIT_MAX = 0.03 // photo p08 0.022 of the frame above luma 128
         private const val STAR_PEAK_MIN = 30.0
         private const val STAR_PEAK_CONTRAST = 12.0
         private const val NIGHT_SKY_ROWS = 500 // p08 view: limb near row 685, airglow up to about row 600
