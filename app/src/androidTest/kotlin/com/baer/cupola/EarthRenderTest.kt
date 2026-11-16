@@ -687,6 +687,9 @@ class EarthRenderTest {
      * G-PR run 1: magnified 50-fold (30 deg view at nadir, about 0.1 km per pixel against 4.9 km cloud texels), cloud
      * edges must not follow the texel grid. Measured as the 4-fold coherence |sum w e^(4i theta)| / sum w of the edge
      * orientations theta (w = squared luma gradient): squares give a high value, natural edges a low one.
+     * The gradient is Scharr's: a plain central difference weights a sharp diagonal edge 1.4 times an axis-aligned one,
+     * so isotropic edges up to 4 px wide read 0.12-0.21 with it and 0.015-0.024 with Scharr (host check on a thresholded
+     * isotropic Gaussian field). B-spline magnified 51 px map texels, thresholded, read 0.096.
      */
     @Test
     fun magnifiedCloudEdgesDoNotFollowTheTexelGrid() {
@@ -700,17 +703,19 @@ class EarthRenderTest {
         var im = 0.0
         var sum = 0.0
         for (y in 2 until H - 2 step 2) for (x in 2 until W - 2 step 2) {
-            val gx = luma(img, x + 1, y) - luma(img, x - 1, y)
-            val gy = luma(img, x, y + 1) - luma(img, x, y - 1)
+            val gx = (3 * (luma(img, x + 1, y - 1) - luma(img, x - 1, y - 1)) + 10 * (luma(img, x + 1, y) - luma(img, x - 1, y)) +
+                3 * (luma(img, x + 1, y + 1) - luma(img, x - 1, y + 1))) / 16
+            val gy = (3 * (luma(img, x - 1, y + 1) - luma(img, x - 1, y - 1)) + 10 * (luma(img, x, y + 1) - luma(img, x, y - 1)) +
+                3 * (luma(img, x + 1, y + 1) - luma(img, x + 1, y - 1))) / 16
             val w = gx * gx + gy * gy
             if (w < 4.0) continue
             val t = 4 * atan2(gy, gx)
             re += w * cos(t); im += w * sin(t); sum += w
         }
         val coherence = sqrt(re * re + im * im) / sum
-        Log.i(TAG, "magnified cloud edges: 4-fold coherence $coherence, edge weight $sum")
+        Log.i(TAG, "magnified cloud edges: 4-fold coherence $coherence (re ${re / sum}), edge weight $sum")
         assertTrue("no cloud edges", sum > 5e4)
-        assertTrue("cloud edges follow the texel grid: $coherence", coherence < 0.08)
+        assertTrue("cloud edges follow the texel grid: $coherence", coherence < CLOUD_GRID_COHERENCE_MAX)
     }
 
     /** Clouds drift: a minute changes almost nothing, six hours (one flow period) change the field clearly. */
@@ -1745,6 +1750,7 @@ class EarthRenderTest {
         private const val COLOUR_DETAIL_MIN = 0.07
         private const val CLEAR_GROUND_SHARE_MIN = 0.4 // Pixel 7 Pro 0.539 at cut 0.4, the grey veil gives 0
         private const val CLOUD_SIDE_COHERENCE_MIN = 0.2
+        private const val CLOUD_GRID_COHERENCE_MAX = 0.05 // isotropic edges 0.015-0.024, map texel diamonds 0.096
 private const val STAR_PEAK_TOLERANCE = 6.0
 
         // Inside the bundled TLE's validity (epoch 2026-10-18). Egypt near local noon; subsolar point over the Pacific.
