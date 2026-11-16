@@ -12,10 +12,11 @@
   (`crop` = [x,y,w,h] in photo pixels). Entries without `gate` are skipped
   and counted. Pairs are numbered p01.. in shuffled order; the id map exists only in <Holdout>\gpr-map.json. Console
   output holds counts and opaque pair ids only. Needs python with Pillow, else System.Drawing is used.
+  Blind runs take rectilinear photos only (owner decision, 5 Nov 2026): a fisheye gate fails unless -AllowFisheye.
 
   Usage:
     pwsh .\tools\gpr\prepare-gpr.ps1 -DryRun                    # validate holdout.json, counts only
-    pwsh .\tools\gpr\prepare-gpr.ps1 [-Serial 10.10.70.101:5555] # build and push the set
+    pwsh .\tools\gpr\prepare-gpr.ps1 [-Serial 28101FDH3004AP]    # build and push the set
   Run the viewer (no ids on screen):
     adb -s <serial> shell am start -n com.baer.cupola.debug/com.baer.cupola.gpr.BlindRunActivity
   Pull the results (CSV + summary line; logcat tag CupolaGpr), then remove the photos from the phone:
@@ -24,11 +25,13 @@
     & $adb -s $s shell "rm -r $d"
 #>
 param(
-    [string]$Serial = '10.10.70.101:5555',
+    # Pixel 7 Pro: G-PR runs there; the A35 (10.10.70.101:5555) is off-limits.
+    [string]$Serial = '28101FDH3004AP',
     [string]$Adb = 'D:\Software\Android\Sdk\platform-tools\adb.exe',
     [string]$Holdout = 'local/reference/holdout',
     # Exposure adapts over several seconds; an early capture keeps the previous scene's exposure.
     [int]$SettleSeconds = 12,
+    [switch]$AllowFisheye,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -69,8 +72,10 @@ foreach ($e in $gated) {
 $python = Get-Command python -ErrorAction SilentlyContinue
 $pillow = $false
 if ($python) { & $python.Source -I -c 'import PIL' 2>$null; $pillow = $LASTEXITCODE -eq 0 }
-Write-Host "entries=$($entries.Count) gated=$($gated.Count) skipped_no_gate=$($entries.Count - $gated.Count) incomplete_gate=$bad photo_missing=$missingPhoto pillow=$pillow"
+$fisheye = @($gated | Where-Object { $_.gate.projection -ceq 'fisheye' }).Count
+Write-Host "entries=$($entries.Count) gated=$($gated.Count) skipped_no_gate=$($entries.Count - $gated.Count) incomplete_gate=$bad photo_missing=$missingPhoto fisheye=$fisheye pillow=$pillow"
 if ($bad -or $missingPhoto -or -not $gated.Count) { Fail 'holdout.json is not ready' }
+if ($fisheye -and -not $AllowFisheye) { Fail 'fisheye gates in a blind run: use rectilinear photos (or pass -AllowFisheye)' }
 if ($DryRun) { Write-Host 'dry run: nothing rendered, nothing pushed'; return }
 
 function Adb { & $Adb -s $Serial @args }
