@@ -24,6 +24,7 @@ Asked with AskUserQuestion and answered by the owner on 18 October 2026.
 | D5 | ASTC texture budget after 0455b09 (payload 100.43 MiB) | 104 MiB approved, 4 November 2026 |
 | D6 | Station exterior (P3.6) for v1 | Build it for v1, 4 November 2026 |
 | D7 | G-PERF budget after the A35 run of 4 November 2026 (GPU p95 16.6 ms, pacing 96.5 %) | Accepted 5 November 2026: the pacing rules exclude the designed 15 fps idle hold; at most 0.2 % of intervals above 33.4 ms and none above 116 ms (was: none above 33.4 ms); the GPU p95 budget is the 60 Hz frame (16.7 ms). If D3 (battery) fails, the default render scale goes down first |
+| D8 | G-PR iteration limit | Time box, 17 November 2026: one more fix round (round 2, started 17 November 2026) and one more blind run. After that run the gate closes whatever the result; cues still open go to the ledger as ranked items. Replaces "no iteration cap" (decision 27) for G-PR |
 
 Defaults taken without a question (the owner can override any of them):
 
@@ -597,7 +598,9 @@ No store screenshots, no video and no production release before G-PR passes.
 - Viewer: the owner alone (D2). Reduced-bias rule: if the owner recognises a hold-out photo
   before the run, that pair is replaced by another unseen photo.
 - On failure: find the cue that gives the render away (interior, nadir softness, atmosphere,
-  clouds, exposure), fix it, rerun the full set. No iteration cap (decision 27). A texture budget
+  clouds, exposure), fix it, rerun the full set. Time box (D8): fix round 2 is the last fix round
+  and one more blind run follows; after it the gate closes whatever the result, the rule above
+  stops blocking, and cues still open go to the ledger with a rank. A texture budget
   above 96 MiB needs the owner's approval.
 
 ---
