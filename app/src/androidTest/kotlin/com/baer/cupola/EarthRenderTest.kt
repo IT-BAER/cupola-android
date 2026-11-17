@@ -519,32 +519,105 @@ class EarthRenderTest {
     }
 
     /**
-     * Full frame GPU time at the shipped defaults (NADIR, scale 0.6, interior, all effects) with one feature off at a
-     * time, day and night; the default runs first and last of each scene so drift shows. Logged, compared by hand.
+     * GPU cost per feature at the shipped defaults (RenderSettings: scale cap, interior, default effects), per rest
+     * view, day and night. Frames go back-to-back to an ImageReader surface without CPU readback, so the GPU stays
+     * busy and its clock ramps up (offscreen renders leave it idle between frames at about half clock). Each feature
+     * alternates with the default in [BUSY_ROUNDS] blocks, so thermal drift cancels in the paired difference. Logged,
+     * compared by hand. Needs the screen on and the wallpaper hidden behind an activity, else the wallpaper competes.
      */
     @Test
     fun gpuTimePerFeature() {
-        val all = FrameInputs.EFFECTS_ALL
+        data class Config(val effects: Int, val debug: Int = 0, val interior: Boolean = true, val scale: Float)
+        val shipped = RenderSettings()
+        val all = shipped.effects
+        val scale = shipped.maxRenderScale
+        fun debug(bit: Int) = Config(all, bit, scale = scale)
         val features = listOf(
-            "default" to Triple(true, all, 0),
-            "no bloom" to Triple(true, all and FrameInputs.EFFECT_BLOOM.inv(), 0),
-            "no glare" to Triple(true, all and FrameInputs.EFFECT_WINDOW_GLARE.inv(), 0),
-            "no reflections" to Triple(true, all and FrameInputs.EFFECT_REFLECTIONS.inv(), 0),
-            "no dust" to Triple(true, all and FrameInputs.EFFECT_DUST.inv(), 0),
-            "no effects" to Triple(true, 0, 0),
-            "no clouds" to Triple(true, all, FrameInputs.DEBUG_NO_CLOUDS),
-            "no lightning" to Triple(true, all, FrameInputs.DEBUG_NO_LIGHTNING),
-            "no ground contrast" to Triple(true, all, FrameInputs.DEBUG_NO_GROUND_CONTRAST),
-            "no interior" to Triple(false, all, 0),
-            "default again" to Triple(true, all, 0),
+            "no bloom" to Config(all and FrameInputs.EFFECT_BLOOM.inv(), scale = scale),
+            "no glare" to Config(all and FrameInputs.EFFECT_WINDOW_GLARE.inv(), scale = scale),
+            "no reflections" to Config(all and FrameInputs.EFFECT_REFLECTIONS.inv(), scale = scale),
+            "no dust" to Config(all and FrameInputs.EFFECT_DUST.inv(), scale = scale),
+            "no effects" to Config(0, scale = scale),
+            "camera look" to Config(all or FrameInputs.EFFECT_CAMERA, scale = scale),
+            "no clouds" to debug(FrameInputs.DEBUG_NO_CLOUDS),
+            "no cloud shadows" to debug(FrameInputs.DEBUG_NO_CLOUD_SHADOWS),
+            "no atmosphere" to debug(FrameInputs.DEBUG_NO_ATMOSPHERE),
+            "no inscatter" to debug(FrameInputs.DEBUG_NO_INSCATTER),
+            "no city lights" to debug(FrameInputs.DEBUG_NO_CITY_LIGHTS),
+            "no moonlight" to debug(FrameInputs.DEBUG_NO_MOONLIGHT),
+            "no aurora" to debug(FrameInputs.DEBUG_NO_AURORA),
+            "no lightning" to debug(FrameInputs.DEBUG_NO_LIGHTNING),
+            "no ground contrast" to debug(FrameInputs.DEBUG_NO_GROUND_CONTRAST),
+            "no station" to debug(FrameInputs.DEBUG_NO_STATION),
+            "no interior" to Config(all, interior = false, scale = scale),
+            "full resolution" to Config(all, scale = 1f),
+            "default" to debug(0),
         )
-        for ((name, instant) in listOf("day" to DAY, "night" to nightInstant())) {
-            val scene = restScene(instant, RestView.NADIR)
-            for ((feature, cfg) in features) {
-                val (interior, effects, debug) = cfg
-                logGpu("$name $feature") { render(scene, 0.6f, interior, debug, animSeconds = 0f, effects = effects) }
+        val reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 3, HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        try {
+            renderer.attachSurface(SURFACE_ID, reader.surface)
+            renderer.updateScheduler(SURFACE_ID) { setVisible(false) }
+            for (rest in listOf(RestView.NADIR, RestView.DIAGONAL)) {
+                for ((name, instant) in listOf("day" to DAY, "night" to nightInstant())) {
+                    val scene = restScene(instant, rest)
+                    val base = inputs(scene, scale, effects = all)
+                    busyFrames(reader, base, BUSY_RAMP)
+                    for ((feature, c) in features) {
+                        val with = inputs(scene, c.scale, c.interior, c.debug, effects = c.effects)
+                        val a = mutableListOf<DoubleArray>()
+                        val b = mutableListOf<DoubleArray>()
+                        repeat(BUSY_ROUNDS) {
+                            a += busyFrames(reader, base)
+                            b += busyFrames(reader, with)
+                        }
+                        fun p50(v: List<DoubleArray>, f: (DoubleArray) -> Double) = v.map(f).sorted()[(v.size - 1) / 2]
+                        // Earth pass in ms at the top clock: the pass is compute-bound and scales with the clock, which
+                        // DVFS changes between lighter and heavier blocks.
+                        fun parts(v: List<DoubleArray>) = doubleArrayOf(
+                            p50(v) { it[0] }, p50(v) { it[1] }, p50(v) { it[0] - it[1] - it[2] }, p50(v) { it[3] },
+                            p50(v) { it[1] * it[3] / GPU_TOP_MHZ },
+                        )
+                        val (d, f) = parts(a) to parts(b)
+                        Log.i(
+                            TAG,
+                            ("busy gpu $rest $name $feature n=${a.size}/${b.size} default p50=%.2f earth=%.2f composite=%.2f mhz=%.0f earth@top=%.2f" +
+                                " | feature p50=%.2f earth=%.2f composite=%.2f mhz=%.0f earth@top=%.2f | delta earth@top=%+.2f")
+                                .format(d[0], d[1], d[2], d[3], d[4], f[0], f[1], f[2], f[3], f[4], f[4] - d[4]),
+                        )
+                    }
+                }
             }
+        } finally {
+            renderer.detachSurface(SURFACE_ID)
+            reader.close()
         }
+    }
+
+    /**
+     * Renders [warmup] + [count] frames of [inputs] back-to-back on [reader]'s surface, releasing each image unread;
+     * returns (total, earth, sky) GPU ms and the GPU clock in MHz of the counted frames that have timestamps and a clock.
+     */
+    private fun busyFrames(reader: ImageReader, inputs: FloatArray, count: Int = BUSY_FRAMES, warmup: Int = BUSY_WARMUP): List<DoubleArray> {
+        renderer.setFrameInputs(SURFACE_ID, inputs)
+        val out = ArrayList<DoubleArray>(count)
+        repeat(warmup + count) { i ->
+            renderer.renderFrame(SURFACE_ID)
+            reader.acquireLatestImage()?.close()
+            if (i < warmup) return@repeat
+            val t = renderer.lastGpuTimeNanos()
+            val e = renderer.lastEarthPassGpuTimeNanos()
+            val s = renderer.lastSkyPassGpuTimeNanos()
+            val mhz = gpuClockMhz()
+            if (t >= 0 && e >= 0 && s >= 0 && mhz > 0) out += doubleArrayOf(t / 1e6, e / 1e6, s / 1e6, mhz)
+        }
+        return out
+    }
+
+    /** Current GPU clock in MHz from the Samsung Mali sysfs node (world-readable on the A35), or -1. */
+    private fun gpuClockMhz(): Double = try {
+        File("/sys/kernel/gpu/gpu_clock").readText().trim().toDouble() / 1000
+    } catch (e: Exception) {
+        -1.0
     }
 
     /**
@@ -2160,6 +2233,11 @@ class EarthRenderTest {
         private const val TOP_KM = 6478.137 // atmosphere_params.h ATMO_TOP_KM
         private const val GPU_SAMPLES = 30
         private const val GPU_WARMUP = 10
+        private const val BUSY_RAMP = 300 // about 4 s: the GPU clock ramps up within a second of busy frames
+        private const val BUSY_WARMUP = 10 // frames after an inputs change that may still time the previous inputs
+        private const val BUSY_FRAMES = 60
+        private const val BUSY_ROUNDS = 3
+        private const val GPU_TOP_MHZ = 949.0 // A35 Mali-G68 /sys/kernel/gpu/gpu_max_clock
         private const val STATION_GPU_SAMPLES = 200
         private var wingViewCache: Pair<Scene, List<DoubleArray>>? = null // the search renders 2 x ~340 views
         private const val STATION_MIN_PX = 400

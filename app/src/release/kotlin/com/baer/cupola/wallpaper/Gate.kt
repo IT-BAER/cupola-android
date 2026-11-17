@@ -21,7 +21,7 @@ internal object Gate {
 
     fun traceOrientation(nowNs: Long): Orientation? = null
 
-    fun onFrame(id: Int, gpuNanos: Long) = Unit
+    fun onFrame(id: Int, gpuNanos: Long, renderScale: Float) = Unit
 
     fun onCommand(action: String, x: Int, y: Int, z: Int, extras: Bundle?) = Unit
 

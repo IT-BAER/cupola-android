@@ -147,10 +147,10 @@ internal object Gate {
     }
 
     /** Render thread, once per rendered frame of [id]; [gpuNanos] is the renderer's last GPU time or -1. */
-    fun onFrame(id: Int, gpuNanos: Long) {
+    fun onFrame(id: Int, gpuNanos: Long, renderScale: Float) {
         val now = System.nanoTime()
         val stat = stats.getOrPut(id) { GateStats() }
-        stat.record(now, if (gpuNanos >= 0) gpuNanos / 1e6 else -1.0)
+        stat.record(now, if (gpuNanos >= 0) gpuNanos / 1e6 else -1.0, renderScale)
         if (now - lastLogNs(id) >= 1_000_000_000L) {
             lastLog[id] = now
             log(id, now)

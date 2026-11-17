@@ -4,7 +4,7 @@ import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.ceil
 
-/** Frame total, last-second frame rate and GPU-time percentiles of one surface. Thread-safe. */
+/** Frame total, last-second frame rate, GPU-time percentiles and render scale (last, minimum since the reset) of one surface. Thread-safe. */
 internal class GateStats {
     private val stamps = ArrayDeque<Long>()
     private var gpuMs = DoubleArray(INITIAL_CAPACITY)
@@ -15,12 +15,17 @@ internal class GateStats {
         @Synchronized get
         private set
 
-    /** [gpuMs] below zero means unknown: the frame counts, the percentiles skip it. */
+    private var scale = 0f
+    private var scaleMin = Float.NaN
+
+    /** [gpuMs] below zero means unknown: the frame counts, the percentiles skip it. [renderScale] is the frame's Earth scale. */
     @Synchronized
-    fun record(nowNs: Long, gpuMs: Double) {
+    fun record(nowNs: Long, gpuMs: Double, renderScale: Float) {
         frames++
         stamps.addLast(nowNs)
         trim(nowNs)
+        scale = renderScale
+        scaleMin = if (scaleMin.isNaN()) renderScale else minOf(scaleMin, renderScale)
         if (gpuMs < 0) return
         if (gpuCount == this.gpuMs.size) this.gpuMs = this.gpuMs.copyOf(gpuCount * 2)
         this.gpuMs[gpuCount++] = gpuMs
@@ -29,6 +34,7 @@ internal class GateStats {
     @Synchronized
     fun reset() {
         gpuCount = 0
+        scaleMin = Float.NaN
     }
 
     @Synchronized
@@ -43,8 +49,9 @@ internal class GateStats {
         fun percentile(p: Double) = if (sorted.isEmpty()) 0.0 else sorted[ceil(p * sorted.size).toInt().coerceAtLeast(1) - 1]
         return String.format(
             Locale.ROOT,
-            "gate id=%d preview=%b visible=%b frames=%d fps1s=%d gpu_p50_ms=%.2f gpu_p95_ms=%.2f gpu_max_ms=%.2f load=%d",
+            "gate id=%d preview=%b visible=%b frames=%d fps1s=%d gpu_p50_ms=%.2f gpu_p95_ms=%.2f gpu_max_ms=%.2f load=%d scale=%.2f scale_min=%.2f",
             id, preview, visible, frames, fps1s(nowNs), percentile(0.5), percentile(0.95), sorted.lastOrNull() ?: 0.0, load,
+            scale, scaleMin,
         )
     }
 

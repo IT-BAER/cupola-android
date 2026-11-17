@@ -119,9 +119,10 @@ class RendererHost @Inject constructor(
             if (lastGpuNanos >= 0) governor.onFrame(lastGpuNanos / 1e6, 1000.0 / fps)
             governor.onThermalHeadroom(thermal.current())
         }
-        Gate.onFrame(surfaceId, lastGpuNanos)
+        val scale = renderScale(governor.step, settings.maxRenderScale)
+        Gate.onFrame(surfaceId, lastGpuNanos, scale)
         val inputs = session.nextFrameInputs()
-        inputs[FrameInputs.RENDER_SCALE] = renderScale(governor.step, settings.maxRenderScale)
+        inputs[FrameInputs.RENDER_SCALE] = scale
         if (session.moving != session.scheduledMoving) {
             renderer?.updateScheduler(surfaceId) { session.applyMoving(this) }
         }
