@@ -95,7 +95,9 @@ class CupolaWallpaperService : WallpaperService() {
                 batterySaver = powerManager.isPowerSaveMode,
                 reducedMotion = !ValueAnimator.areAnimatorsEnabled(),
             )
-            registerReceiver(
+            // Application context: the service context's final cleanup can drop its receivers before this
+            // engine's onDestroy runs, and the unregister there would then throw "Receiver not registered".
+            applicationContext.registerReceiver(
                 powerSaveReceiver,
                 IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
                 Context.RECEIVER_NOT_EXPORTED,
@@ -196,7 +198,7 @@ class CupolaWallpaperService : WallpaperService() {
             mainHandler.removeCallbacks(tapTick)
             mainHandler.removeCallbacks(paletteTick)
             paletteExecutor.shutdownNow()
-            unregisterReceiver(powerSaveReceiver)
+            applicationContext.unregisterReceiver(powerSaveReceiver)
             sensor.stop()
             if (attached) {
                 attached = false
