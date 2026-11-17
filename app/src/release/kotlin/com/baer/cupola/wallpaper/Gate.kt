@@ -13,6 +13,8 @@ internal object Gate {
 
     fun sceneOverride(): SceneOverride? = null
 
+    fun clockOffsetMs() = 0L
+
     fun frozen() = false
 
     fun orbitFault() = false

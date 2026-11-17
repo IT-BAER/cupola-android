@@ -30,10 +30,10 @@ class QualityGovernorTest {
     @Test fun stillStepsDownWhenP95ExceedsBudget() {
         still(119, 8.0)
         assertEquals(3, g.step)
-        still(1, 13.0) // 1 slow of 120 does not move p95
+        still(1, 17.0) // 1 slow of 120 does not move p95
         assertEquals(3, g.step)
         still(120, 8.0)
-        still(10, 13.0) // 10 of 120 slow = p95 over budget
+        still(10, 17.0) // 10 of 120 slow = p95 over budget
         assertEquals(2, g.step)
     }
 
@@ -100,10 +100,16 @@ class QualityGovernorTest {
         assertEquals(3, g.step)
     }
 
+    /** A35 still mode (15 fps, low GPU clock): p95 49-60 ms = 12.3-15 ms scaled, inside the D7 limit of 16.7 ms. */
+    @Test fun stillFramesAtTheA35IdleClockStayAtTheDefaultStep() {
+        still(600, 15.0)
+        assertEquals(3, g.step)
+    }
+
     @Test fun stillFramesThatFillTheirIntervalStepDown() {
         repeat(130) {
             now += 66_666_667L
-            g.onFrame(55.0, intervalMs = 1000.0 / 15)
+            g.onFrame(68.0, intervalMs = 1000.0 / 15)
         }
         assertEquals(2, g.step)
     }
@@ -167,16 +173,25 @@ class QualityGovernorTest {
     @Test fun midHeadroomBlocksStepUp() {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
-        g.onThermalHeadroom(0.7f)
+        g.onThermalHeadroom(0.75f)
         frames(3000, 5.0, dtMs = 10.0)
         assertEquals(2, g.step)
+    }
+
+    /** A35 headroom at rest reads 0.58-0.83 (LIGHT throttling starts at 0.867). */
+    @Test fun headroomBelowThreeQuartersAllowsStepUp() {
+        g.onThermalHeadroom(0.9f)
+        frames(1, 5.0)
+        g.onThermalHeadroom(0.74f)
+        frames(3000, 5.0, dtMs = 10.0)
+        assertEquals(3, g.step)
     }
 
     @Test fun stillP95AboveThreeQuartersOfBudgetBlocksStepUp() {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.3f)
-        still(3000, 10.0)
+        still(3000, 13.0)
         assertEquals(2, g.step)
     }
 
@@ -185,7 +200,7 @@ class QualityGovernorTest {
         frames(1, 5.0)
         g.onThermalHeadroom(0.3f)
         frames(240 + 800, 5.0, dtMs = 10.0)
-        g.onThermalHeadroom(0.7f)
+        g.onThermalHeadroom(0.8f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.3f)
         frames(800, 5.0, dtMs = 10.0)

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.baer.cupola.core.render.FrameInputs
 import com.baer.cupola.core.render.NativeRenderer
 import com.baer.cupola.core.render.scene.SceneOverride
 import dagger.hilt.EntryPoint
@@ -15,12 +16,14 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.io.File
 import java.nio.ByteBuffer
+import java.time.Instant
 import java.time.format.DateTimeParseException
 import kotlin.concurrent.thread
 
 /**
  * `am broadcast -n com.baer.cupola.debug/com.baer.cupola.wallpaper.GateReceiver --es cmd load --ei iterations N`
  * Commands: load, trace (--es arg start|stop), stats (--es arg reset|dump), freeze (--es arg on|off),
+ * clock (--es time 2026-03-20T12:00:00Z: the live scene continues from that instant, look-around live; --es arg clear),
  * fault (--es arg orbit|surface|clear), capture (--es arg NAME [--ei w --ei h], or --es arg diff --es a A.png --es b B.png
  * [--ei threshold N]; files in getExternalFilesDir/captures), scene (--es arg dump|clear, or any of: --es time 2026-03-20T22:00:00Z; --ef lat --ef lon --ef alt_km for the ISS
  * position, geodetic deg and km; --ef az --ef el camera direction in deg from north / above the local horizon at
@@ -48,6 +51,12 @@ class GateReceiver : BroadcastReceiver() {
                 Log.w("CupolaGate", "gate bad scene time: ${e.message}")
             } catch (e: IllegalArgumentException) {
                 Log.w("CupolaGate", "gate bad scene arg: ${e.message}")
+            }
+            "clock" -> try {
+                val time = intent.getStringExtra("time")
+                Gate.setClockOffset(if (arg == "clear" || time == null) 0L else Instant.parse(time).toEpochMilli() - System.currentTimeMillis())
+            } catch (e: DateTimeParseException) {
+                Log.w("CupolaGate", "gate bad clock time: ${e.message}")
             }
             "freeze" -> when (arg) {
                 "on" -> Gate.setFrozen(true)
@@ -113,10 +122,10 @@ class GateReceiver : BroadcastReceiver() {
         }
     }
 
-    /** Renders each session's last frame inputs at full resolution to `<name>-<id>.png`. */
+    /** Renders each session's last frame, at the host's render scale, to `<name>-<id>.png`. */
     private fun capture(renderer: NativeRenderer, dir: File, name: String, width: Int, height: Int) {
-        for ((id, session) in Gate.sessions()) {
-            val inputs = session.lastFrameInputs() ?: continue
+        for (id in Gate.sessions().keys) {
+            val inputs = Gate.captureInputs(id) ?: continue
             val file = File(dir, "$name-$id.png")
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             try {
@@ -125,7 +134,7 @@ class GateReceiver : BroadcastReceiver() {
             } finally {
                 bitmap.recycle()
             }
-            Log.i("CupolaGate", "gate capture id=$id size=${width}x$height file=$file")
+            Log.i("CupolaGate", "gate capture id=$id size=${width}x$height scale=${inputs[FrameInputs.RENDER_SCALE]} file=$file")
         }
     }
 

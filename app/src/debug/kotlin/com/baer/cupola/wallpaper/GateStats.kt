@@ -15,7 +15,10 @@ internal class GateStats {
         @Synchronized get
         private set
 
-    private var scale = 0f
+    /** Earth render scale of the last recorded frame; 0 before the first. */
+    var scale = 0f
+        @Synchronized get
+        private set
     private var scaleMin = Float.NaN
 
     /** [gpuMs] below zero means unknown: the frame counts, the percentiles skip it. [renderScale] is the frame's Earth scale. */

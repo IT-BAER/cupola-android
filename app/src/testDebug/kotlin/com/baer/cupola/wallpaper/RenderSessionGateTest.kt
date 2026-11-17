@@ -37,6 +37,29 @@ class RenderSessionGateTest {
         Gate.setFrozen(false)
         Gate.setOrbitFault(false)
         Gate.setSceneOverride(null)
+        Gate.setClockOffset(0L)
+        Gate.closed(7)
+    }
+
+    /** G-PERF runs start the live scene (look-around included) at one fixed instant; time runs on from there. */
+    @Test fun gateClockShiftsTheLiveSceneAndTimeRunsOn() {
+        val start = good.plusSeconds(7200)
+        Gate.setClockOffset(start.toEpochMilli() - now.toEpochMilli())
+        session.nextFrameInputs()
+        assertEquals("clock" to start, session.lastScene?.let { it.source to it.instant })
+
+        now = now.plusSeconds(60)
+        session.nextFrameInputs()
+        assertEquals(start.plusSeconds(60), session.lastScene?.instant)
+    }
+
+    /** G-PR captures must show the Earth at the scale the wallpaper renders, not one full-resolution pass. */
+    @Test fun captureRendersTheLastFrameAtTheHostsRenderScale() {
+        Gate.opened(7, session)
+        Gate.onFrame(7, -1L, 0.5f)
+        session.nextFrameInputs()
+
+        assertEquals(0.5f, Gate.captureInputs(7)?.get(FrameInputs.RENDER_SCALE))
     }
 
     @Test fun freezeRepeatsTheLastFrameUntilReleased() {

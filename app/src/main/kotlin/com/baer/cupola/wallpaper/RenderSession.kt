@@ -30,8 +30,8 @@ internal data class EngineState(
 )
 
 /**
- * What a session's last frame showed; [source] is live, preview, override (gate time), pose (gate time and position),
- * last_good or epoch (orbit failure). [sunlit] is null for a gate pose.
+ * What a session's last frame showed; [source] is live, preview, clock (live at the gate clock offset), override (gate
+ * time), pose (gate time and position), last_good or epoch (orbit failure). [sunlit] is null for a gate pose.
  */
 internal data class SceneDump(
     val source: String,
@@ -194,12 +194,14 @@ internal class RenderSession(
                 return adapted(pose).write(inputs)
             }
         }
-        val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis())
+        val offsetMs = Gate.clockOffsetMs()
+        val instant = override?.instant ?: Instant.ofEpochMilli(clock.nowUtcMillis() + offsetMs)
         val orbit = orbit()
         val result = if (Gate.orbitFault()) OrbitStateResult.Failure(Sgp4Error.DECAYED) else orbit.stateAt(instant)
         var source = when {
             override?.instant != null -> "override"
             engineState.preview -> "preview"
+            offsetMs != 0L -> "clock"
             else -> "live"
         }
         val state = when (result) {

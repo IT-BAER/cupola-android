@@ -7,14 +7,14 @@ import kotlin.math.roundToInt
  * Adapts the quality step (higher index is higher quality) to frame load and thermal headroom.
  * Frames at [REFERENCE_INTERVAL_MS] (motion) are judged by missed vsync intervals, because the GPU clock ramps
  * with load and GPU time then measures the clock, not the work. Slower frames (still mode) are judged by GPU time:
- * [budgetMs] is the p95 allowed for a frame of [REFERENCE_INTERVAL_MS].
+ * [budgetMs] is the p95 allowed for a frame of [REFERENCE_INTERVAL_MS]; the default is the D7 GPU p95 limit.
  * [clockNs] must be the frame (vsync) time. Headroom follows Android semantics: 1.0 means severe throttling is
  * expected, NaN when unsupported.
  */
 class QualityGovernor(
     steps: Int,
     private val defaultStep: Int,
-    private val budgetMs: Double = 12.0,
+    private val budgetMs: Double = 16.7,
     private val clockNs: () -> Long,
     private val onChange: (from: Int, to: Int) -> Unit = { _, _ -> },
 ) {
@@ -112,7 +112,7 @@ class QualityGovernor(
         private const val WINDOW_FRAMES = 120
         private const val MOVING_WINDOW_FRAMES = 240
         private const val HEADROOM_DOWN = 0.85f
-        private const val HEADROOM_UP = 0.6f
+        private const val HEADROOM_UP = 0.75f
         private const val CALM_BUDGET_FRACTION = 0.75
 
         /** A 90 Hz panel alternates 11.1 and 22.2 ms gaps at 60 fps (1.33 intervals); a 120 Hz slip is 1.5. */

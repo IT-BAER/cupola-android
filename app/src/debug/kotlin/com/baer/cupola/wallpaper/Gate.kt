@@ -15,6 +15,7 @@ internal object Gate {
 
     @Volatile private var loadIterations = 0
     @Volatile private var override: SceneOverride? = null
+    @Volatile private var clockOffsetMs = 0L
     @Volatile private var frozen = false
     @Volatile private var orbitFault = false
     private val traceStartNs = AtomicLong(OFF)
@@ -50,6 +51,14 @@ internal object Gate {
 
     fun sceneOverride(): SceneOverride? = override
 
+    /** G-PERF: the live clock runs [ms] ahead (negative: behind) of real UTC; 0 is real time. Look-around stays live. */
+    fun setClockOffset(ms: Long) {
+        clockOffsetMs = ms
+        Log.i(TAG, "gate clock offset_ms=$ms")
+    }
+
+    fun clockOffsetMs() = clockOffsetMs
+
     /** While frozen every session repeats its last frame inputs: time, orbit and look-around stop. */
     fun setFrozen(value: Boolean) {
         frozen = value
@@ -84,9 +93,16 @@ internal object Gate {
 
     fun dumpInputs() {
         sessions.keys.sorted().forEach { id ->
-            Log.i(TAG, inputsLine(id, sessions[id]?.lastFrameInputs()))
+            Log.i(TAG, inputsLine(id, captureInputs(id)))
             Log.i(TAG, "gate look id=$id ${sessions[id]?.lookState()}")
         }
+    }
+
+    /** What `gate capture` renders for [id]: its last frame inputs at the render scale the host gave that frame. */
+    fun captureInputs(id: Int): FloatArray? {
+        val inputs = sessions[id]?.lastFrameInputs() ?: return null
+        stats[id]?.let { inputs[FrameInputs.RENDER_SCALE] = it.scale }
+        return inputs
     }
 
     /** Every [FrameInputs] slot of the last frame by name, one line; what `gate capture` would render. */
