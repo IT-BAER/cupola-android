@@ -152,10 +152,18 @@ class QualityGovernorTest {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.5f)
-        frames(240, 5.0, dtMs = 10.0) // motion window full again, calm starts
-        frames(900, 5.0, dtMs = 10.0) // 9 s calm
+        still(120 + 135, 5.0) // still window full (8 s), then 9 s calm
         assertEquals(2, g.step)
-        frames(150, 5.0, dtMs = 10.0)
+        still(15, 5.0)
+        assertEquals(3, g.step)
+    }
+
+    @Test fun stepReturnsAtRestAfterAMotionStepDown() {
+        g.onThermalHeadroom(0.5f)
+        frames(240, 8.0, dtMs = 16.667)
+        frames(25, 8.0, dtMs = 33.333) // over 10 % of vsyncs missed
+        assertEquals(2, g.step)
+        still(120 + 150, 8.0)
         assertEquals(3, g.step)
     }
 
@@ -166,7 +174,7 @@ class QualityGovernorTest {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(Float.NaN)
-        frames(241 + 1100, 5.0, dtMs = 10.0)
+        still(120 + 150, 5.0)
         assertEquals(3, g.step)
     }
 
@@ -174,7 +182,7 @@ class QualityGovernorTest {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.75f)
-        frames(3000, 5.0, dtMs = 10.0)
+        still(3000, 5.0)
         assertEquals(2, g.step)
     }
 
@@ -183,7 +191,7 @@ class QualityGovernorTest {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.74f)
-        frames(3000, 5.0, dtMs = 10.0)
+        still(3000, 5.0)
         assertEquals(3, g.step)
     }
 
@@ -199,13 +207,13 @@ class QualityGovernorTest {
         g.onThermalHeadroom(0.9f)
         frames(1, 5.0)
         g.onThermalHeadroom(0.3f)
-        frames(240 + 800, 5.0, dtMs = 10.0)
+        still(120 + 120, 5.0) // 8 s calm
         g.onThermalHeadroom(0.8f)
-        frames(1, 5.0)
+        still(1, 5.0)
         g.onThermalHeadroom(0.3f)
-        frames(800, 5.0, dtMs = 10.0)
+        still(121, 5.0) // 16 s since the first calm frame, 8 s since the restart
         assertEquals(2, g.step)
-        frames(300, 5.0, dtMs = 10.0)
+        still(40, 5.0)
         assertEquals(3, g.step)
     }
 
@@ -216,9 +224,9 @@ class QualityGovernorTest {
         now += 16_000_000L
         reported.onFrame(5.0)
         reported.onThermalHeadroom(0.3f)
-        repeat(1300) {
-            now += 10_000_000L
-            reported.onFrame(5.0)
+        repeat(300) {
+            now += 66_666_667L
+            reported.onFrame(20.0, intervalMs = 1000.0 / 15)
         }
         assertEquals(listOf(3 to 2, 2 to 3), changes)
     }
@@ -228,6 +236,18 @@ class QualityGovernorTest {
         frames(1, 5.0)
         g.onThermalHeadroom(0.3f)
         repeat(100) { frames(57, 5.0, dtMs = 16.667); frames(3, 5.0, dtMs = 33.333) } // 5 %
+        assertEquals(2, g.step)
+    }
+
+    /**
+     * A35 look-around 17 Nov: render scale 0.5 missed about 13 % of vsyncs (median 52 fps), 0.4 none; stepping up after
+     * calm motion hunted 0.4 <-> 0.5 every ~15 s. Motion keeps the lower step.
+     */
+    @Test fun calmMotionNeverStepsUp() {
+        g.onThermalHeadroom(0.9f)
+        frames(1, 5.0)
+        g.onThermalHeadroom(0.5f)
+        frames(3600, 5.0, dtMs = 16.667) // 60 s
         assertEquals(2, g.step)
     }
 

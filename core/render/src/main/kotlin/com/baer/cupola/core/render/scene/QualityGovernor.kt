@@ -60,9 +60,9 @@ class QualityGovernor(
         val over: Boolean
         val light: Boolean
         if (moving) {
-            val missed = if (full) window.sum() else 0.0
-            over = missed > MISSED_DOWN
-            light = missed <= MISSED_CALM
+            over = full && window.sum() > MISSED_DOWN
+            // Steps up only at rest: a step-up in motion cannot know the cost of the higher scale (A35 hunted 0.4 <-> 0.5).
+            light = false
         } else {
             val p95 = if (full) p95() else Double.NaN
             over = p95 > budgetMs
@@ -123,7 +123,6 @@ class QualityGovernor(
          * so only a rate a lower scale can fix counts: over 10 % (about 54 fps).
          */
         private const val MISSED_DOWN = 24.0
-        private const val MISSED_CALM = 6.0
         private const val PAUSE_NS = 250_000_000L
         private const val CALM_NS = 10_000_000_000L
         private const val HYSTERESIS_NS = 5_000_000_000L
