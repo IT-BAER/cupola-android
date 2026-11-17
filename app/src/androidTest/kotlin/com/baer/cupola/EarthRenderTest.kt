@@ -46,7 +46,9 @@ import kotlin.math.acos
 import kotlin.math.asin
 import kotlin.math.atan
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.sin
 import kotlin.math.tan
@@ -532,6 +534,7 @@ class EarthRenderTest {
             "no effects" to Triple(true, 0, 0),
             "no clouds" to Triple(true, all, FrameInputs.DEBUG_NO_CLOUDS),
             "no lightning" to Triple(true, all, FrameInputs.DEBUG_NO_LIGHTNING),
+            "no ground contrast" to Triple(true, all, FrameInputs.DEBUG_NO_GROUND_CONTRAST),
             "no interior" to Triple(false, all, 0),
             "default again" to Triple(true, all, 0),
         )
@@ -608,11 +611,13 @@ class EarthRenderTest {
      * scale (3.5 x 5.3 px per texel here), not only at the monthly map's 28 x 42 px. Over 4 px the chromaticity of the
      * exposed linear colour (lighting is one scalar per pixel, so it cancels) steps by more than 0.07 of the ln-luma
      * step, which day_detail sets in both. A35 24 Oct: 0.040 with colour from the monthly map, 0.124 from day_detail.
+     * The ground local-contrast boost scales luminance only (ln-luma steps up to x1.9, chromaticity unchanged), so it is
+     * off here.
      */
     @Test
     fun groundColourHasDayDetailResolution() {
         val img = render(scene(DAY, 48.5, 7.8, 0.0, -90.0), interior = false,
-            debug = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_ATMOSPHERE)
+            debug = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_ATMOSPHERE or FrameInputs.DEBUG_NO_GROUND_CONTRAST)
         save("colour_detail", img)
         // (r / sum, b / sum, ln luma) of 2 x 2 block means; null where a channel clips or the pixel is dark.
         fun colour(x: Int, y: Int): Triple<Double, Double, Double>? {
@@ -1037,6 +1042,134 @@ class EarthRenderTest {
     }
 
     /**
+     * G-PR fix round 2 (Earth sharpness, dev pair p04: Bighorn Basin, Wyoming, fisheye Earth-only gate): clear ground has
+     * the photo's local contrast. Dev frame (1170 x 1080, default effects and render scale) like DevSceneRenderTest; over
+     * the box x 200..969, y 200..999, pixels with luma above 35 and no cloud (luma > 140, saturation < 0.25) within 6 px:
+     * LC = standard deviation of (Gaussian sigma 2 - sigma 16) luma. Photo 7.54 (5th luma percentile 74); render before
+     * the fix 5.36 (0.71x, 5th percentile 92). One photo per scene, so the band is wide.
+     */
+    @Test
+    fun clearGroundHasThePhotosLocalContrast() {
+        val override = gateSceneOverride(
+            mapOf("lat" to 44.19, "lon" to -108.02, "alt_km" to 385.0, "fov" to 78.1, "az" to 50.0, "el" to -70.0,
+                "roll" to 0.0, "fisheye_fov" to 95.7)::get,
+            mapOf("time" to "2012-06-27T20:42:25Z", "pass" to "asc", "projection" to "fisheye")::get,
+        )
+        val pose = checkNotNull(SceneInputs.buildPose(override))
+        val effects = (pose.effects and FrameInputs.EFFECTS_ALL.inv()) or RenderSettings().effects
+        val scene = pose.copy(effects = effects).let { it.copy(exposure = Exposure.steady(it)) }
+        val inputs = FrameInputs.empty().also { scene.write(it) }
+        inputs[FrameInputs.RENDER_SCALE] = RenderSettings().maxRenderScale
+        val w = 1170
+        val h = 1080
+        val img = renderer.renderOffscreen(w, h, inputs)
+        save("ground_contrast_p04", img, w, h)
+        val y = DoubleArray(w * h) { 0.2126 * ch(img, it * 4) + 0.7152 * ch(img, it * 4 + 1) + 0.0722 * ch(img, it * 4 + 2) }
+        // Integral image of cloud pixels: c[(yy) * (w + 1) + xx] = clouds above-left of (xx, yy).
+        val c = IntArray((w + 1) * (h + 1))
+        for (yy in 0 until h) for (xx in 0 until w) {
+            val i = (yy * w + xx) * 4
+            val mx = maxOf(ch(img, i), ch(img, i + 1), ch(img, i + 2))
+            val mn = minOf(ch(img, i), ch(img, i + 1), ch(img, i + 2))
+            val cloud = y[yy * w + xx] > 140 && (mx - mn).toDouble() / maxOf(mx, 1) < 0.25
+            c[(yy + 1) * (w + 1) + xx + 1] = (if (cloud) 1 else 0) + c[yy * (w + 1) + xx + 1] + c[(yy + 1) * (w + 1) + xx] -
+                c[yy * (w + 1) + xx]
+        }
+        val fine = gaussianBlur(y, w, h, 2.0)
+        val coarse = gaussianBlur(y, w, h, 16.0)
+        val band = ArrayList<Double>()
+        val lit = ArrayList<Double>()
+        for (yy in 200 until 1000) for (xx in 200 until 970) {
+            val y0 = maxOf(yy - 6, 0)
+            val y1 = minOf(yy + 7, h)
+            val x0 = maxOf(xx - 6, 0)
+            val x1 = minOf(xx + 7, w)
+            val clouds = c[y1 * (w + 1) + x1] - c[y0 * (w + 1) + x1] - c[y1 * (w + 1) + x0] + c[y0 * (w + 1) + x0]
+            if (clouds > 0 || y[yy * w + xx] <= 35) continue
+            band += fine[yy * w + xx] - coarse[yy * w + xx]
+            lit += y[yy * w + xx]
+        }
+        val mean = band.average()
+        val lc = sqrt(band.sumOf { (it - mean) * (it - mean) } / band.size)
+        lit.sort()
+        Log.i(TAG, "clear ground p04: LC $lc over ${band.size} px (photo $GROUND_LC_PHOTO), p05 ${lit[lit.size / 20]} (photo 74)")
+        assertTrue("too little clear ground: ${band.size}", band.size > 50_000)
+        assertTrue("clear ground local contrast $lc vs photo $GROUND_LC_PHOTO",
+            lc / GROUND_LC_PHOTO in GROUND_LC_RATIO)
+    }
+
+    /**
+     * The ground local-contrast boost leaves minified ground alone: near the limb (view 20 deg up from over Egypt, the
+     * limb crosses about row 1906; Turkey's salt flats lie in the rows below) the frame with the boost equals the frame
+     * without it. Boosting there blew small bright spots out to white and would make the turning Earth shimmer.
+     */
+    @Test
+    fun groundContrastLeavesMinifiedGroundAlone() {
+        val scene = scene(DAY, 25.0, 32.0, 0.0, 20.0)
+        val off = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_CITY_LIGHTS
+        val on = render(scene, interior = false, debug = off)
+        val plain = render(scene, interior = false, debug = off or FrameInputs.DEBUG_NO_GROUND_CONTRAST)
+        save("ground_contrast_limb", on)
+        var diff = 0.0
+        var max = 0.0
+        var n = 0
+        for (y in 1910 until 1970) for (x in 0 until W) {
+            val d = abs(luma(on, x, y) - luma(plain, x, y))
+            diff += d; max = maxOf(max, d); n++
+        }
+        Log.i(TAG, "ground contrast near the limb: mean abs luma diff ${diff / n}, max $max")
+        assertTrue("near-limb ground changed: mean ${diff / n} max $max", diff / n < 0.1 && max < 4.0)
+    }
+
+    /**
+     * The ground local-contrast boost puts no halos at strong edges: over the Egypt nadir view (Nile, Lake Nasser and the
+     * Toshka lakes, which the water mask does not hold) the exposed linear luminance with the boost stays within
+     * [GROUND_LC_EDGE_MAX] of the frame without it (99.9th percentile both ways). Unlimited (ratio clamped to 0.5-2 at
+     * gain 0.9) it read x1.49 / x0.73: the bright shore beside a dark lake glowed as a rim.
+     */
+    @Test
+    fun groundContrastPutsNoHalosAtStrongEdges() {
+        val scene = scene(DAY, 25.0, 32.0, 0.0, -90.0)
+        val on = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS)
+        val off = render(scene, interior = false, debug = FrameInputs.DEBUG_NO_CLOUDS or FrameInputs.DEBUG_NO_GROUND_CONTRAST)
+        save("ground_contrast_edges", on)
+        val ratios = ArrayList<Double>()
+        for (y in 0 until H step 2) for (x in 0 until W step 2) {
+            val i = at(x, y)
+            if (luma(on, x, y) !in 20.0..250.0 || luma(off, x, y) !in 20.0..250.0) continue
+            val a = linearRgb(on, i)
+            val b = linearRgb(off, i)
+            ratios += (0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]) / (0.2126 * b[0] + 0.7152 * b[1] + 0.0722 * b[2])
+        }
+        ratios.sort()
+        val low = ratios[(ratios.size * 0.001).toInt()]
+        val high = ratios[(ratios.size * 0.999).toInt()]
+        Log.i(TAG, "ground contrast edges: luminance on/off p0.1 $low p99.9 $high over ${ratios.size} px")
+        assertTrue("boost halo: p99.9 $high, p0.1 $low", high <= GROUND_LC_EDGE_MAX && low >= 1.0 / GROUND_LC_EDGE_MAX)
+    }
+
+    /** Separable Gaussian of [v] (w x h), radius ceil(4 sigma), edge pixels repeated. */
+    private fun gaussianBlur(v: DoubleArray, w: Int, h: Int, sigma: Double): DoubleArray {
+        val r = ceil(4 * sigma).toInt()
+        val k = DoubleArray(2 * r + 1) { exp(-0.5 * ((it - r) / sigma).let { d -> d * d }) }
+        val sum = k.sum()
+        for (i in k.indices) k[i] /= sum
+        val tmp = DoubleArray(w * h)
+        for (yy in 0 until h) for (xx in 0 until w) {
+            var a = 0.0
+            for (j in -r..r) a += k[j + r] * v[(yy + j).coerceIn(0, h - 1) * w + xx]
+            tmp[yy * w + xx] = a
+        }
+        val out = DoubleArray(w * h)
+        for (yy in 0 until h) for (xx in 0 until w) {
+            var a = 0.0
+            for (j in -r..r) a += k[j + r] * tmp[yy * w + (xx + j).coerceIn(0, w - 1)]
+            out[yy * w + xx] = a
+        }
+        return out
+    }
+
+    /**
      * G-PR fix F3 (dev pair p08, Nile at night): city lights are settlements, points of light with dark gaps, not smooth
      * blobs of the 4.9 km map. Over pixels whose 9 x 9 mean luma is above 60: relative spottiness mean |luma - mean| /
      * mean (photo 0.177, render before the fix 0.076 in the dev frame), and the share of the frame above luma 128 (photo
@@ -1144,6 +1277,7 @@ class EarthRenderTest {
             debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
         val day = render(scene(DAY, 25.0, 32.0, 0.0, 20.0), interior = false, debug = FrameInputs.DEBUG_NO_CITY_LIGHTS)
         save("stars_night", night)
+        save("stars_day", day)
         Log.i(TAG, "star points night ${points(night)} day ${points(day)}")
         assertTrue("night stars ${points(night)}", points(night) > 40)
         assertTrue("day stars ${points(day)}", points(day) == 0)
@@ -2008,9 +2142,9 @@ class EarthRenderTest {
         return Triple(r / n, g / n, b / n)
     }
 
-    private fun save(name: String, img: ByteArray) {
+    private fun save(name: String, img: ByteArray, w: Int = W, h: Int = H) {
         val dir = File(context.getExternalFilesDir(null), "p3").apply { mkdirs() }
-        val bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(img))
         File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         Log.i(TAG, "saved ${File(dir, "$name.png")}")
@@ -2059,6 +2193,9 @@ class EarthRenderTest {
         private const val GROUND_GRID_COHERENCE_MAX = 0.05 // BMNG source 0.036 at the same scale, ASTC 12x12 bilinear 0.164
         // One photo per scene: the two Earth-lit cabin photos alone differ 3x in frame median (7 vs 21). ACES read 0.40 / 0.58.
         private val DARK_MEDIAN_RATIO = 0.67..1.5
+        private const val GROUND_LC_PHOTO = 7.54 // dev photo p04, same metric on the photo's dev frame
+        private val GROUND_LC_RATIO = 0.9..1.25
+        private const val GROUND_LC_EDGE_MAX = 1.2
         private const val CITY_SPOTTINESS_MIN = 0.13 // photo p08 0.177
         private const val CITY_LIT_MAX = 0.03 // photo p08 0.022 of the frame above luma 128
         private const val STAR_PEAK_MIN = 30.0

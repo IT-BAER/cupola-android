@@ -40,6 +40,9 @@ object FrameInputs {
     /** State, not a setting: the system reduces motion (animator scale 0), so nothing flashes (lightning). */
     const val MOTION_REDUCED = 1 shl 8
 
+    /** Debug: day map without the ground local-contrast boost (earth.frag GROUND_LC_*). */
+    const val DEBUG_NO_GROUND_CONTRAST = 1 shl 13
+
     /**
      * Debug (gate): equisolid fisheye of [FISHEYE_FOV] instead of the rectilinear lens. Set with [DEBUG_NO_STATION]:
      * the rasterised station cannot follow the curved rays.

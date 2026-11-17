@@ -26,6 +26,7 @@ layout(push_constant) uniform Push {
 } pc;
 
 // FrameInputs.DEBUG_* bits; the renderer also sets DEBUG_NO_STATION when it drew no station this frame.
+const int DEBUG_NO_GROUND_CONTRAST = 1 << 13;
 const int DEBUG_FISHEYE = 1 << 14;  // set together with DEBUG_NO_STATION (Scene.write)
 const int DEBUG_NO_STATION = 1 << 15;
 const int DEBUG_NO_ATMOSPHERE = 1 << 16;
@@ -101,6 +102,11 @@ const float JULY_LAYER = 6.0;              // day_detail is July 2004
 const vec3 POLAR_ALBEDO = vec3(0.55, 0.58, 0.62);
 // Deep-ocean diffuse reflectance (linear, water-leaving, no atmosphere): BMNG paints seafloor relief instead.
 const vec3 OCEAN_ALBEDO = vec3(0.010, 0.022, 0.050);
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+const float GROUND_LC_PX = 8.0;
+const float GROUND_LC_TEXELS = 4.0;
+const float GROUND_LC_GAIN = 1.2;
+const float GROUND_LC_LIMIT = 0.15;
 // Ocean slope variance (Cox-Munk, about 7 m/s wind) for the Beckmann glint lobe; water F0.
 const float GLINT_M2 = 0.04;
 const float WATER_F0 = 0.02;
@@ -978,6 +984,26 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
 
     vec2 nxy = textureGrad(terrainNormal, uv, gx, gy).ga * 2.0 - 1.0;
     float water = textureGrad(waterMask, uv, gx, gy).r;
+
+    // Ground local contrast (G-PR fix round 2, dev p04: without it clear ground has about 0.7x the photo's local
+    // contrast at 2-16 px): the ln ratio of the day map's luminance to its own lookup over a footprint of at least
+    // GROUND_LC_PX pixels and GROUND_LC_TEXELS texels, times GROUND_LC_GAIN, scales the albedo. Faded out where that
+    // footprint holds water, so coasts and lakes get no bright rim, and
+    // where the map is minified (towards the limb): there it would blow out small bright spots such as salt flats and
+    // make the turning Earth shimmer.
+    vec2 tileScale = vec2(textureSize(dayDetail, 0).xy) / vec2(0.5 * PI, LAT_MAX);
+    float texelsPerPx = max(length(dLonLatX * tileScale), length(dLonLatY * tileScale));
+    float k = max(GROUND_LC_PX, GROUND_LC_TEXELS / max(texelsPerPx, 1e-3));
+    float coarseWater = textureGrad(waterMask, uv, gx * k, gy * k).r;
+    float lcWeight = (pc.effects & DEBUG_NO_GROUND_CONTRAST) != 0 ? 0.0
+        : (1.0 - smoothstep(0.0, 0.2, coarseWater)) * (1.0 - smoothstep(2.0, 4.0, texelsPerPx));
+    if (lcWeight > 0.0) {
+        vec3 coarse = dayDetailAt(lon, lat, dLonLatX * k, dLonLatY * k);
+        // ln ratio soft-limited to +-GROUND_LC_LIMIT: terrain keeps most of the gain, strong edges (a dark lake the
+        // water mask lacks, snow on forest) at most exp(GAIN x LIMIT), so they get no glowing rim.
+        float lr = log(max(dot(detail, LUMA), 1e-4) / max(dot(coarse, LUMA), 1e-4));
+        albedo *= mix(1.0, exp(GROUND_LC_GAIN * GROUND_LC_LIMIT * tanh(lr / GROUND_LC_LIMIT)), lcWeight);
+    }
     vec3 east = normalize(vec3(-n.y, n.x, 0.0));
     vec3 north = cross(n, east);
     vec3 relief = normalize(east * nxy.x + north * nxy.y + n * sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
