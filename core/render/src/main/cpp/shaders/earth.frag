@@ -675,10 +675,11 @@ vec2 cloudCells(float c, vec2 lonLat, vec2 dkmx, vec2 dkmy, float kmPerPx, vec3 
 // Cloud cover 0..1 at map uv: the Blue Marble 2002 map advected in two flow phases half a period apart (each fades
 // out where it restarts), thinned or thickened over days by a slowly moving low-frequency field, then broken into
 // cumulus by cloudCells (once, on the blended cover: eroding each phase alone left ghost copies in the cross-fade).
-// x = opacity, y = cloud-top brightness (cloudCells; sun.z = 0 skips the lit and shaded sides).
+// x = opacity, y = cloud-top brightness (cloudCells; sun.z = 0 skips the lit and shaded sides). cells = false returns
+// the plain cover: the cloud shadow uses it, because cells there cost 1.7 ms per A35 frame and did not show.
 const float CLOUD_WARP_KM = 3.0;
 const float CLOUD_WARP_SCALE_KM = 15.0;
-vec2 cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy, vec3 sun) {
+vec2 cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy, bool cells, vec3 sun) {
     if (abs(latRad) > LAT_MAX) return vec2(0.0, 1.0);
     vec2 kmScale = vec2(2.0 * PI * A_KM * cos(latRad), 2.0 * LAT_MAX * A_KM);
     float kmPerPx = max(length(gx * kmScale), length(gy * kmScale));
@@ -699,8 +700,8 @@ vec2 cloudCover(vec2 uv, float latRad, vec2 gx, vec2 gy, vec3 sun) {
     float d = textureLod(noiseTex, vec2(uv.x, uv.y * 0.4) + s.clouds.z * vec2(1.0 / 64.0, 1.0 / 128.0), 0.0).b;
     float thin = max(d - 0.5, 0.0) * 0.5;
     float thick = max(0.5 - d, 0.0) * 0.6;
-    return cloudCells(clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0), lonLat,
-                      gx * kmScale, gy * kmScale, kmPerPx, sun);
+    c = clamp((c - thin) / (1.0 - thin) * (1.0 + thick), 0.0, 1.0);
+    return cells ? cloudCells(c, lonLat, gx * kmScale, gy * kmScale, kmPerPx, sun) : vec2(c, 1.0);
 }
 
 // Stars map coordinate of an ECEF direction (galactic plate carree, l increasing to the left).
@@ -1036,14 +1037,14 @@ vec3 earthRadiance(vec2 p, vec2 stepPx) {
     float horizontal = length(toSun);
     vec3 cloudSunDir = horizontal > 1e-4 && muS > 0.0
         ? vec3(vec2(toSun.x, -toSun.y) / horizontal, min(horizontal / max(muS, 0.05), 3.0)) : vec3(0.0);
-    vec2 cells = clouds ? cloudCover(uv, lat, gx, gy, cloudSunDir) : vec2(0.0, 1.0);
+    vec2 cells = clouds ? cloudCover(uv, lat, gx, gy, true, cloudSunDir) : vec2(0.0, 1.0);
     float cover = cells.x;
     float shadow = 1.0;
     if (clouds && (pc.effects & DEBUG_NO_CLOUD_SHADOWS) == 0 && muS > 0.0) {
         vec2 km = horizontal > 1e-4 ? toSun / horizontal * CLOUD_ALT_KM * min(horizontal / max(muS, 0.05), 20.0)
                                     : vec2(0.0);
         vec2 suv = uv + vec2(km.x / (2.0 * PI * A_KM * max(cos(lat), 0.2)), -km.y / (2.0 * LAT_MAX * A_KM));
-        shadow = 1.0 - CLOUD_SHADOW * cloudCover(suv, lat + km.y / A_KM, gx, gy, vec3(0.0)).x;
+        shadow = 1.0 - CLOUD_SHADOW * cloudCover(suv, lat + km.y / A_KM, gx, gy, false, vec3(0.0)).x;
     }
     vec3 diffuse = albedo * (max(dot(relief, l), 0.0) * sun * shadow + sky);
 

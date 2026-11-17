@@ -57,6 +57,7 @@ import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -587,6 +588,36 @@ class EarthRenderTest {
                     }
                 }
             }
+        } finally {
+            renderer.detachSurface(SURFACE_ID)
+            reader.close()
+        }
+    }
+
+    /**
+     * D7 budget (G2): at the shipped defaults the NADIR day Earth pass, scaled to the top GPU clock, fits
+     * [EARTH_PASS_TOP_MS_MAX], which leaves 4.7 ms of the 16.7 ms frame for sky and composite (A35: 4.0-4.5 ms).
+     * A35 only (Samsung GPU clock node); frames back-to-back as in [gpuTimePerFeature], at [BUDGET_MIN_MHZ] or more.
+     */
+    @Test
+    fun earthPassFitsTheD7BudgetAtNadirDay() {
+        assumeTrue("no GPU clock node", gpuClockMhz() >= 0) // the node reads 0 while the GPU is idle
+        val shipped = RenderSettings()
+        val reader = ImageReader.newInstance(W, H, PixelFormat.RGBA_8888, 3, HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        try {
+            renderer.attachSurface(SURFACE_ID, reader.surface)
+            renderer.updateScheduler(SURFACE_ID) { setVisible(false) }
+            val inputs = inputs(restScene(DAY, RestView.NADIR), shipped.maxRenderScale, effects = shipped.effects)
+            busyFrames(reader, inputs, BUSY_RAMP)
+            val counted = (1..BUSY_ROUNDS).flatMap { busyFrames(reader, inputs) }
+            val frames = counted.filter { it[3] >= BUDGET_MIN_MHZ }
+            assertTrue("frames at $BUDGET_MIN_MHZ MHz or more: ${frames.size}", frames.size >= BUSY_FRAMES)
+            val earthTop = frames.map { it[1] * it[3] / GPU_TOP_MHZ }.sorted()[(frames.size - 1) / 2]
+            val byClock = counted.groupBy { it[3].toInt() }.toSortedMap().entries.joinToString { (mhz, v) ->
+                "%d MHz n=%d earth p50 %.2f".format(mhz, v.size, v.map { it[1] }.sorted()[(v.size - 1) / 2])
+            }
+            Log.i(TAG, "budget NADIR day earth@top p50 %.2f ms over %d frames; raw %s".format(earthTop, frames.size, byClock))
+            assertTrue("Earth pass %.2f ms at the top clock".format(earthTop), earthTop <= EARTH_PASS_TOP_MS_MAX)
         } finally {
             renderer.detachSurface(SURFACE_ID)
             reader.close()
@@ -2238,6 +2269,8 @@ class EarthRenderTest {
         private const val BUSY_FRAMES = 60
         private const val BUSY_ROUNDS = 3
         private const val GPU_TOP_MHZ = 949.0 // A35 Mali-G68 /sys/kernel/gpu/gpu_max_clock
+        private const val BUDGET_MIN_MHZ = 600.0 // busy frames settle at 650-949 MHz; lower clocks are memory-bound
+        private const val EARTH_PASS_TOP_MS_MAX = 12.0
         private const val STATION_GPU_SAMPLES = 200
         private var wingViewCache: Pair<Scene, List<DoubleArray>>? = null // the search renders 2 x ~340 views
         private const val STATION_MIN_PX = 400
