@@ -93,7 +93,8 @@ uint64_t layersPerChunk(const ktx2::Info& info, uint32_t level) {
     return kStagingCapBytes / (length / info.layers);
 }
 
-int32_t load(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult) {
+int32_t load(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult,
+             VkImageUsageFlags extraUsage) {
     AssetHandle asset{AAssetManager_open(assets, path, AASSET_MODE_STREAMING)};
     if (asset.asset == nullptr) return code(TextureStatus::kAssetOpen);
     const off64_t length = AAsset_getLength64(asset.asset);
@@ -144,7 +145,7 @@ int32_t load(Device& device, AAssetManager* assets, const char* path, Texture* o
     imageInfo.arrayLayers = info.layers;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | extraUsage;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     TEXTURE_VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &r.texture.image));
@@ -244,17 +245,18 @@ int32_t load(Device& device, AAssetManager* assets, const char* path, Texture* o
 
 }  // namespace
 
-int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult) {
+int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult,
+                    VkImageUsageFlags extraUsage) {
     TraceSection trace("cupola.loadTexture");
     *out = Texture{};
     *vkResult = VK_SUCCESS;
-    int32_t status = load(device, assets, path, out, vkResult);
+    int32_t status = load(device, assets, path, out, vkResult, extraUsage);
     if (status != code(TextureStatus::kOk)) LOGW("loadTexture %s failed: status %d, VkResult %d", path, status, *vkResult);
     return status;
 }
 
-VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, const void* texels,
-                       VkDeviceSize bytes, Texture* out) {
+VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, uint32_t layers,
+                       const void* texels, VkDeviceSize bytes, Texture* out) {
     *out = Texture{};
     UploadResources r;
     r.device = &device;
@@ -262,7 +264,8 @@ VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t
     r.texture.info.width = width;
     r.texture.info.height = height;
     r.texture.info.levels = 1;
-    r.texture.info.layers = 1;
+    r.texture.info.layers = layers;
+    r.texture.info.array = layers > 1;
     r.texture.info.format = static_cast<ktx2::Format>(format);
 
     VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -270,7 +273,7 @@ VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t
     imageInfo.format = format;
     imageInfo.extent = {width, height, 1};
     imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
+    imageInfo.arrayLayers = layers;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -282,9 +285,9 @@ VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t
     VK_TRY(vkBindImageMemory(dev, r.texture.image, r.texture.memory, 0));
     VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     viewInfo.image = r.texture.image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.viewType = layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = format;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers};
     VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &r.texture.view));
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -314,7 +317,7 @@ VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t
     vkCmdPipelineBarrier(r.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                          nullptr, 1, &toDst);
     VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layers};
     region.imageExtent = {width, height, 1};
     vkCmdCopyBufferToImage(r.cmd, r.staging, r.texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     VkImageMemoryBarrier toRead = imageBarrier(r.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,

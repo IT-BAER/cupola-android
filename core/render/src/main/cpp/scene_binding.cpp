@@ -1,14 +1,17 @@
 #include "scene_binding.h"
 
 #include <cstring>
+#include <iterator>
 
+#include "descriptor_bindings.h"
 #include "frame_inputs.h"
 #include "texture_set.h"
 
 namespace cupola {
 namespace {
 
-constexpr uint32_t kSets = 3;
+constexpr uint32_t kEarthSets = 3;
+constexpr uint32_t kSets = kEarthSets + 1;
 
 }  // namespace
 
@@ -16,7 +19,8 @@ VkResult SceneBinding::init(Device& device) {
     VkDevice dev = device.device;
     VkDescriptorPoolSize sizes[] = {
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * (kBindingCount - 1)},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+         kEarthSets * (earth_binding::kCount - 1) + station_binding::kCount - 1},
     };
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.maxSets = kSets;
@@ -25,7 +29,8 @@ VkResult SceneBinding::init(Device& device) {
     VK_TRY(vkCreateDescriptorPool(dev, &poolInfo, nullptr, &pool_));
     VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     alloc.descriptorPool = pool_;
-    const VkDescriptorSetLayout layouts[kSets] = {device.sceneSetLayout, device.sceneSetLayout, device.sceneSetLayout};
+    const VkDescriptorSetLayout layouts[kSets] = {device.sceneSetLayout, device.sceneSetLayout, device.sceneSetLayout,
+                                                  device.stationSetLayout};
     VkDescriptorSet sets[kSets];
     alloc.descriptorSetCount = kSets;
     alloc.pSetLayouts = layouts;
@@ -33,6 +38,7 @@ VkResult SceneBinding::init(Device& device) {
     set = sets[0];
     earthSet = sets[1];
     skySet = sets[2];
+    stationSet = sets[3];
 
     VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = kSceneUniformBytes;
@@ -73,7 +79,9 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
                               VkImageView stationImage) {
     const TextureSet* textures = nullptr;
     VK_TRY(device.textures(&textures));
+    // Any view of the binding's type: 2D, and 2D array for the view LUT.
     const VkImageView placeholder = textures->textures[kInteriorEarth].view;
+    const VkImageView arrayPlaceholder = textures->generated[kAtmosphereLuts].view;
     auto image = [](VkSampler sampler, VkImageView view) {
         return VkDescriptorImageInfo{sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     };
@@ -92,40 +100,44 @@ VkResult SceneBinding::update(Device& device, const float* inputs, VkImageView e
     if (stationImage == VK_NULL_HANDLE) stationImage = placeholder;
     const VkDescriptorImageInfo earthInfo = image(textures->clamp, earthImage);
     const VkDescriptorImageInfo stationInfo = image(textures->clamp, stationImage);
-    const VkWriteDescriptorSet frameWrites[3] = {write(set, kEarthImageBinding, 1, &earthInfo),
-                                                 write(set, kStationImageBinding, 1, &stationInfo),
-                                                 write(earthSet, kStationImageBinding, 1, &stationInfo)};
+    const VkWriteDescriptorSet frameWrites[3] = {write(set, earth_binding::kEarthImage, 1, &earthInfo),
+                                                 write(set, earth_binding::kStationImage, 1, &stationInfo),
+                                                 write(earthSet, earth_binding::kStationImage, 1, &stationInfo)};
     vkUpdateDescriptorSets(device.device, 3, frameWrites, 0, nullptr);
-    // `set` and `earthSet` read the view LUT; `skySet` (the pass that renders it) gets placeholders.
-    const VkImageView inscatter = sky.inscatter != VK_NULL_HANDLE ? sky.inscatter : placeholder;
-    const VkImageView transmittance = sky.transmittance != VK_NULL_HANDLE ? sky.transmittance : placeholder;
-    if (inscatter != skyInscatter_) {
-        const VkDescriptorImageInfo views[2] = {image(textures->clamp, inscatter), image(textures->clamp, transmittance)};
-        const VkWriteDescriptorSet w[2] = {write(set, kSkyInscatterBinding, 2, views),
-                                           write(earthSet, kSkyInscatterBinding, 2, views)};
+    // `set` and `earthSet` read the view LUT; `skySet` (the pass that renders it) gets a placeholder.
+    const VkImageView skyView = sky.view != VK_NULL_HANDLE ? sky.view : arrayPlaceholder;
+    if (skyView != skyView_) {
+        const VkDescriptorImageInfo info = image(textures->clamp, skyView);
+        const VkWriteDescriptorSet w[2] = {write(set, earth_binding::kSkyView, 1, &info),
+                                           write(earthSet, earth_binding::kSkyView, 1, &info)};
         vkUpdateDescriptorSets(device.device, 2, w, 0, nullptr);
-        skyInscatter_ = inscatter;
+        skyView_ = skyView;
     }
     if (!texturesBound_) {
-        VkDescriptorImageInfo images[kTextureSlots];
-        for (uint32_t s = 0; s < kTextureSlots; ++s) images[s] = image(textures->sampler(s), textures->textures[s].view);
-        VkDescriptorImageInfo generated[kGeneratedSlots];
-        for (uint32_t g = 0; g < kGeneratedSlots; ++g) {
-            generated[g] = image(textures->generatedSampler(g), textures->generated[g].view);
-        }
+        const auto slot = [&](uint32_t s) { return image(textures->sampler(s), textures->textures[s].view); };
+        const auto generated = [&](uint32_t g) {
+            return image(textures->generatedSampler(g), textures->generated[g].view);
+        };
+        // earth_binding::kDayDetail to kNoiseTex in binding order.
+        const VkDescriptorImageInfo fixed[] = {
+            slot(kDayDetail), slot(kMonthlyColour), slot(kClouds), slot(kCityLights), slot(kTerrainNormal),
+            slot(kStars), slot(kWaterMask), slot(kInteriorEarth), image(textures->clamp, textures->interiorLight.view),
+            slot(kInteriorAmbient), slot(kCloudDetail), generated(kAtmosphereLuts), generated(kNoise),
+        };
+        static_assert(std::size(fixed) == earth_binding::kNoiseTex - earth_binding::kDayDetail + 1);
+        static_assert(station_binding::kOrmMap == station_binding::kAlbedoMap + 1);
+        const VkDescriptorImageInfo station[] = {slot(kStationAlbedo), slot(kStationOrm)};
         const VkDescriptorImageInfo hold = image(textures->clamp, placeholder);
-        const VkDescriptorImageInfo holdPair[2] = {hold, hold};
+        const VkDescriptorImageInfo holdArray = image(textures->clamp, arrayPlaceholder);
         const VkWriteDescriptorSet w[] = {
-            write(set, 1, kTextureSlots, images),
-            write(earthSet, 1, kTextureSlots, images),
-            write(skySet, 1, kTextureSlots, images),
-            write(set, kGeneratedBinding, kGeneratedSlots, generated),
-            write(earthSet, kGeneratedBinding, kGeneratedSlots, generated),
-            write(skySet, kGeneratedBinding, kGeneratedSlots, generated),
-            write(earthSet, kEarthImageBinding, 1, &hold),
-            write(skySet, kEarthImageBinding, 1, &hold),
-            write(skySet, kSkyInscatterBinding, 2, holdPair),
-            write(skySet, kStationImageBinding, 1, &hold),
+            write(set, earth_binding::kDayDetail, std::size(fixed), fixed),
+            write(earthSet, earth_binding::kDayDetail, std::size(fixed), fixed),
+            write(skySet, earth_binding::kDayDetail, std::size(fixed), fixed),
+            write(earthSet, earth_binding::kEarthImage, 1, &hold),
+            write(skySet, earth_binding::kEarthImage, 1, &hold),
+            write(skySet, earth_binding::kSkyView, 1, &holdArray),
+            write(skySet, earth_binding::kStationImage, 1, &hold),
+            write(stationSet, station_binding::kAlbedoMap, std::size(station), station),
         };
         vkUpdateDescriptorSets(device.device, sizeof(w) / sizeof(w[0]), w, 0, nullptr);
         texturesBound_ = true;

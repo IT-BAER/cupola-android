@@ -294,7 +294,8 @@ VkResult SurfaceTarget::drawFrame() {
                          earth ? frame.scene.set : VK_NULL_HANDLE, extent_,
                          makePushConstants(inputs_, extent_, rotation_), queries_,
                          frameIndex_ * Device::kTimestampsPerFrame, scaled ? &earthPass_ : nullptr, frame.scene.earthSet,
-                         sky ? &skyPass_ : nullptr, frame.scene.skySet, station ? &stationPass_ : nullptr);
+                         sky ? &skyPass_ : nullptr, frame.scene.skySet, station ? &stationPass_ : nullptr,
+                         frame.scene.stationSet);
     VK_TRY_OR_DIE(vkEndCommandBuffer(frame.cmd));
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

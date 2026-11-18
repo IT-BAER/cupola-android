@@ -68,9 +68,9 @@ public:
     VkShaderModule vertexShader = VK_NULL_HANDLE;
     VkShaderModule patternShader = VK_NULL_HANDLE;
     VkShaderModule earthShader = VK_NULL_HANDLE;
-    // Set 0: binding 0 scene uniform block, bindings 1.. the TextureSet slots, then the scaled Earth image
-    // (fragment stage).
+    // Set 0 of the Earth pipelines (earth_binding) and of the station pipeline (station_binding), fragment stage.
     VkDescriptorSetLayout sceneSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout stationSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 
     // Asset manager for the texture set; set before the first Earth frame (JNI setAssetManager).
@@ -99,13 +99,14 @@ public:
                       VkDeviceMemory* out) const;
     // kTimestampsPerFrame timestamps per frame at query index `first`: begin, after the sky pass, after the
     // station and Earth passes, end. A non-null `skyPass` is recorded first (with `skyScene`), a non-null
-    // `stationPass` next (with `skyScene`; without one the push block gets kDebugNoStation), a non-null `earthPass`
-    // next (with `earthScene`), and the main pass then uses the composite pipeline.
+    // `stationPass` next (with `stationScene`; without one the push block gets kDebugNoStation), a non-null
+    // `earthPass` next (with `earthScene`), and the main pass then uses the composite pipeline.
     void recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebuffer framebuffer,
                      VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                      VkQueryPool queries, uint32_t first, const EarthPass* earthPass = nullptr,
                      VkDescriptorSet earthScene = VK_NULL_HANDLE, const SkyPass* skyPass = nullptr,
-                     VkDescriptorSet skyScene = VK_NULL_HANDLE, const StationPass* stationPass = nullptr) const;
+                     VkDescriptorSet skyScene = VK_NULL_HANDLE, const StationPass* stationPass = nullptr,
+                     VkDescriptorSet stationScene = VK_NULL_HANDLE) const;
     VkResult createTimestampPool(uint32_t count, VkQueryPool* out) const;
     void collectGpuTime(VkQueryPool queries, uint32_t first);
 

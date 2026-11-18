@@ -388,7 +388,7 @@ VkResult StationPass::ensure(Device& device, VkExtent2D full, float scale) {
     VkPushConstantRange range{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(StationPush)};
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts = &device.sceneSetLayout;
+    layoutInfo.pSetLayouts = &device.stationSetLayout;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &range;
     VK_TRY(vkCreatePipelineLayout(dev, &layoutInfo, nullptr, &layout_));

@@ -1,12 +1,15 @@
 #include "texture_set.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <vector>
 
 #include "atmosphere_lut.h"
+#include "atmosphere_params.h"
 #include "device.h"
 
 namespace cupola {
@@ -51,29 +54,10 @@ VkResult createSampler(const Device& device, VkSamplerAddressMode u, VkSampler* 
     return vkCreateSampler(device.device, &info, nullptr, out);
 }
 
-VkResult createFallback(Device& device, const SlotInfo& slot, Texture* out) {
+// Records `record(cmd)` into a one-time command buffer, submits it and waits for it.
+template <typename Record>
+VkResult submitOnce(const Device& device, Record record) {
     VkDevice dev = device.device;
-    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    imageInfo.extent = {1, 1, 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &out->image));
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(dev, out->image, &req);
-    VK_TRY(device.allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &out->memory));
-    VK_TRY(vkBindImageMemory(dev, out->image, out->memory, 0));
-    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewInfo.image = out->image;
-    viewInfo.viewType = slot.array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &out->view));
-
     VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     alloc.commandPool = device.commandPool;
     alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -87,24 +71,7 @@ VkResult createFallback(Device& device, const SlotInfo& slot, Texture* out) {
         VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmd, &begin);
-        VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = out->image;
-        b.subresourceRange = range;
-        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                             nullptr, 1, &b);
-        vkCmdClearColorImage(cmd, out->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &slot.fallback, 1, &range);
-        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                             0, nullptr, 1, &b);
+        record(cmd);
         result = vkEndCommandBuffer(cmd);
         if (result == VK_SUCCESS) {
             VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -117,6 +84,118 @@ VkResult createFallback(Device& device, const SlotInfo& slot, Texture* out) {
     }
     vkFreeCommandBuffers(dev, device.commandPool, 1, &cmd);
     return result;
+}
+
+VkImageMemoryBarrier layoutBarrier(VkImage image, VkImageSubresourceRange range, VkImageLayout from, VkImageLayout to,
+                                   VkAccessFlags srcAccess, VkAccessFlags dstAccess) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = range;
+    return b;
+}
+
+// A 1 x 1 RGBA8 image, layer i cleared to colors[i]; an array view when `array`.
+VkResult createFallback(Device& device, const VkClearColorValue* colors, uint32_t layers, bool array, Texture* out) {
+    VkDevice dev = device.device;
+    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.extent = {1, 1, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = layers;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &out->image));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(dev, out->image, &req);
+    VK_TRY(device.allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &out->memory));
+    VK_TRY(vkBindImageMemory(dev, out->image, out->memory, 0));
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, layers};
+    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    viewInfo.image = out->image;
+    viewInfo.viewType = array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.subresourceRange = range;
+    VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &out->view));
+    return submitOnce(device, [&](VkCommandBuffer cmd) {
+        VkImageMemoryBarrier b = layoutBarrier(out->image, range, VK_IMAGE_LAYOUT_UNDEFINED,
+                                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &b);
+        for (uint32_t i = 0; i < layers; ++i) {
+            const VkImageSubresourceRange layer{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, i, 1};
+            vkCmdClearColorImage(cmd, out->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colors[i], 1, &layer);
+        }
+        b = layoutBarrier(out->image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &b);
+    });
+}
+
+// Copies `count` loaded single-layer textures of one format, extent and level count (TRANSFER_SRC usage) into the
+// layers of a new 2D array texture.
+VkResult stackLayers(Device& device, const Texture* src, uint32_t count, Texture* out) {
+    VkDevice dev = device.device;
+    const ktx2::Info& info = src[0].info;
+    out->info = info;
+    out->info.layers = count;
+    out->info.array = true;
+    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = static_cast<VkFormat>(info.format);
+    imageInfo.extent = {info.width, info.height, 1};
+    imageInfo.mipLevels = info.levels;
+    imageInfo.arrayLayers = count;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &out->image));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(dev, out->image, &req);
+    VK_TRY(device.allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &out->memory));
+    VK_TRY(vkBindImageMemory(dev, out->image, out->memory, 0));
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, info.levels, 0, count};
+    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    viewInfo.image = out->image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    viewInfo.format = imageInfo.format;
+    viewInfo.subresourceRange = range;
+    VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &out->view));
+    return submitOnce(device, [&](VkCommandBuffer cmd) {
+        std::vector<VkImageMemoryBarrier> barriers{layoutBarrier(out->image, range, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                                                                 VK_ACCESS_TRANSFER_WRITE_BIT)};
+        for (uint32_t i = 0; i < count; ++i) {
+            barriers.push_back(layoutBarrier(src[i].image, {VK_IMAGE_ASPECT_COLOR_BIT, 0, info.levels, 0, 1},
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, VK_ACCESS_TRANSFER_READ_BIT));
+        }
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, static_cast<uint32_t>(barriers.size()), barriers.data());
+        for (uint32_t i = 0; i < count; ++i) {
+            for (uint32_t n = 0; n < info.levels; ++n) {
+                VkImageCopy region{};
+                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, n, 0, 1};
+                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, n, i, 1};
+                region.extent = {std::max(1u, info.width >> n), std::max(1u, info.height >> n), 1};
+                vkCmdCopyImage(cmd, src[i].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, out->image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            }
+        }
+        const VkImageMemoryBarrier toRead =
+            layoutBarrier(out->image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &toRead);
+    });
 }
 
 // IEEE half from float, mantissa truncated (relative error below 0.1 %, enough for LUT data).
@@ -134,10 +213,24 @@ uint16_t toHalf(float f) {
     return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | (mant >> 13));
 }
 
-VkResult uploadLut(Device& device, const atmosphere::Lut& lut, Texture* out) {
-    std::vector<uint16_t> half(lut.rgba.size());
-    for (size_t i = 0; i < half.size(); ++i) half[i] = toHalf(lut.rgba[i]);
-    return uploadTexture(device, VK_FORMAT_R16G16B16A16_SFLOAT, lut.width, lut.height, half.data(),
+// The atmosphere LUTs as the layers of one array in earth.frag LUT_* order, each padded to the transmittance size by
+// repeating its last row and column.
+static_assert(ATMO_MULTI_SCATTER_N <= ATMO_TRANSMITTANCE_W && ATMO_MULTI_SCATTER_N <= ATMO_TRANSMITTANCE_H &&
+              ATMO_IRRADIANCE_W <= ATMO_TRANSMITTANCE_W);
+VkResult uploadLuts(Device& device, const atmosphere::Luts& luts, Texture* out) {
+    const atmosphere::Lut* layers[] = {&luts.transmittance, &luts.multiScatter, &luts.irradiance};
+    const uint32_t width = luts.transmittance.width, height = luts.transmittance.height;
+    std::vector<uint16_t> half(size_t{width} * height * 4 * std::size(layers));
+    uint16_t* dst = half.data();
+    for (const atmosphere::Lut* lut : layers) {
+        for (uint32_t y = 0; y < height; ++y) {
+            for (uint32_t x = 0; x < width; ++x, dst += 4) {
+                const size_t texel = size_t{std::min(y, lut->height - 1)} * lut->width + std::min(x, lut->width - 1);
+                for (size_t c = 0; c < 4; ++c) dst[c] = toHalf(lut->rgba[texel * 4 + c]);
+            }
+        }
+    }
+    return uploadTexture(device, VK_FORMAT_R16G16B16A16_SFLOAT, width, height, std::size(layers), half.data(),
                          half.size() * sizeof(uint16_t), out);
 }
 
@@ -188,7 +281,7 @@ VkResult createNoise(Device& device, Texture* out) {
             }
         }
     }
-    return uploadTexture(device, VK_FORMAT_R8G8B8A8_UNORM, kNoiseSize, kNoiseSize, texels.data(), texels.size(),
+    return uploadTexture(device, VK_FORMAT_R8G8B8A8_UNORM, kNoiseSize, kNoiseSize, 1, texels.data(), texels.size(),
                          out);
 }
 
@@ -198,9 +291,7 @@ VkResult createGenerated(Device& device, TextureSet* out) {
     atmosphere::computeLuts(&luts);
     const long lutMs = static_cast<long>(
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
-    VK_TRY(uploadLut(device, luts.transmittance, &out->generated[kTransmittanceLut]));
-    VK_TRY(uploadLut(device, luts.multiScatter, &out->generated[kMultiScatterLut]));
-    VK_TRY(uploadLut(device, luts.irradiance, &out->generated[kSkyIrradianceLut]));
+    VK_TRY(uploadLuts(device, luts, &out->generated[kAtmosphereLuts]));
     VK_TRY(createNoise(device, &out->generated[kNoise]));
     LOGI("atmosphere LUTs computed in %ld ms", lutMs);
     return VK_SUCCESS;
@@ -216,12 +307,16 @@ VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) 
     VK_TRY(createSampler(device, VK_SAMPLER_ADDRESS_MODE_REPEAT, &out->wrap, VK_SAMPLER_ADDRESS_MODE_REPEAT));
     VK_TRY(createGenerated(device, out));
     std::string missing;
+    // interior_cabin and interior_emissive are copied into the layers of interiorLight below.
+    static_assert(kInteriorEmissive == kInteriorCabin + 1);
+    const uint32_t lightBits = 3u << kInteriorCabin;
     for (uint32_t s = 0; s < kTextureSlots; ++s) {
         int32_t status = static_cast<int32_t>(TextureStatus::kAssetOpen);
         VkResult vkResult = VK_SUCCESS;
         if (assets != nullptr) {
             std::string path = std::string("textures/") + kSlots[s].name + ".ktx2";
-            status = loadTexture(device, assets, path.c_str(), &out->textures[s], &vkResult);
+            status = loadTexture(device, assets, path.c_str(), &out->textures[s], &vkResult,
+                                 (lightBits >> s & 1u) != 0 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
         }
         if (status == static_cast<int32_t>(TextureStatus::kOk) && out->textures[s].info.array == kSlots[s].array) {
             out->loadedMask |= 1u << s;
@@ -229,8 +324,24 @@ VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) 
         }
         destroyTexture(device, &out->textures[s]);
         missing += std::string(missing.empty() ? "" : ", ") + kSlots[s].name + " (" + std::to_string(status) + ")";
-        VK_TRY(createFallback(device, kSlots[s], &out->textures[s]));
+        VK_TRY(createFallback(device, &kSlots[s].fallback, 1, kSlots[s].array, &out->textures[s]));
     }
+    const Texture* light = &out->textures[kInteriorCabin];
+    if ((out->loadedMask & lightBits) == lightBits && light[0].info.format == light[1].info.format &&
+        light[0].info.width == light[1].info.width && light[0].info.height == light[1].info.height &&
+        light[0].info.levels == light[1].info.levels) {
+        VK_TRY(stackLayers(device, light, 2, &out->interiorLight));
+    } else {
+        for (uint32_t s = kInteriorCabin; s <= kInteriorEmissive; ++s) {
+            if ((out->loadedMask >> s & 1u) == 0) continue;
+            missing += std::string(missing.empty() ? "" : ", ") + kSlots[s].name + " (unpaired)";
+        }
+        out->loadedMask &= ~lightBits;
+        const VkClearColorValue colors[2] = {kSlots[kInteriorCabin].fallback, kSlots[kInteriorEmissive].fallback};
+        VK_TRY(createFallback(device, colors, 2, true, &out->interiorLight));
+    }
+    destroyTexture(device, &out->textures[kInteriorCabin]);
+    destroyTexture(device, &out->textures[kInteriorEmissive]);
     long ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now() - start)
                                     .count());
@@ -244,6 +355,7 @@ VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out) 
 
 void destroyTextureSet(const Device& device, TextureSet* set) {
     for (Texture& t : set->textures) destroyTexture(device, &t);
+    destroyTexture(device, &set->interiorLight);
     for (Texture& t : set->generated) destroyTexture(device, &t);
     vkDestroySampler(device.device, set->wrap, nullptr);
     vkDestroySampler(device.device, set->wrapU, nullptr);

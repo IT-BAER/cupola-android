@@ -54,36 +54,37 @@ VkResult createRenderPass(VkDevice dev, VkRenderPass* out) {
 VkResult SkyPass::ensure(Device& device) {
     if (pipeline_ != VK_NULL_HANDLE) return VK_SUCCESS;
     VkDevice dev = device.device;
-    VkImageView views[2];
-    for (int i = 0; i < 2; ++i) {
-        VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.format = kFormat;
-        imageInfo.extent = {kExtent.width, kExtent.height, 1};
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &images_[i]));
-        VkMemoryRequirements req;
-        vkGetImageMemoryRequirements(dev, images_[i], &req);
-        VK_TRY(device.allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &memory_[i]));
-        VK_TRY(vkBindImageMemory(dev, images_[i], memory_[i], 0));
-        VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-        viewInfo.image = images_[i];
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = kFormat;
-        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &views[i]));
-        (i == 0 ? inscatter : transmittance) = views[i];
+    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = kFormat;
+    imageInfo.extent = {kExtent.width, kExtent.height, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 2;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VK_TRY(vkCreateImage(dev, &imageInfo, nullptr, &image_));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(dev, image_, &req);
+    VK_TRY(device.allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &memory_));
+    VK_TRY(vkBindImageMemory(dev, image_, memory_, 0));
+    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    viewInfo.image = image_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    viewInfo.format = kFormat;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 2};
+    VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &view));
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    for (uint32_t i = 0; i < 2; ++i) {
+        viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, i, 1};
+        VK_TRY(vkCreateImageView(dev, &viewInfo, nullptr, &layers_[i]));
     }
     VK_TRY(createRenderPass(dev, &renderPass_));
     VkFramebufferCreateInfo fbInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fbInfo.renderPass = renderPass_;
     fbInfo.attachmentCount = 2;
-    fbInfo.pAttachments = views;
+    fbInfo.pAttachments = layers_;
     fbInfo.width = kExtent.width;
     fbInfo.height = kExtent.height;
     fbInfo.layers = 1;
@@ -95,12 +96,10 @@ void SkyPass::destroy(VkDevice dev) {
     vkDestroyPipeline(dev, pipeline_, nullptr);
     vkDestroyFramebuffer(dev, framebuffer_, nullptr);
     vkDestroyRenderPass(dev, renderPass_, nullptr);
-    vkDestroyImageView(dev, inscatter, nullptr);
-    vkDestroyImageView(dev, transmittance, nullptr);
-    for (int i = 0; i < 2; ++i) {
-        vkDestroyImage(dev, images_[i], nullptr);
-        vkFreeMemory(dev, memory_[i], nullptr);
-    }
+    vkDestroyImageView(dev, view, nullptr);
+    for (VkImageView layer : layers_) vkDestroyImageView(dev, layer, nullptr);
+    vkDestroyImage(dev, image_, nullptr);
+    vkFreeMemory(dev, memory_, nullptr);
     *this = SkyPass{};
 }
 

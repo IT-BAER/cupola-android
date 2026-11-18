@@ -127,7 +127,7 @@ VkResult renderOffscreen(Device& device, uint32_t width, uint32_t height, const 
     device.recordFrame(r.cmd, r.renderPass, r.framebuffer, r.pipeline, earth ? r.scene.set : VK_NULL_HANDLE, extent,
                        makePushConstants(inputs, extent, 0), r.queries, 0, scaled ? &r.earthPass : nullptr,
                        r.scene.earthSet, earth ? &r.skyPass : nullptr, r.scene.skySet,
-                       station ? &r.stationPass : nullptr);
+                       station ? &r.stationPass : nullptr, r.scene.stationSet);
     VkBufferImageCopy region{};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {width, height, 1};

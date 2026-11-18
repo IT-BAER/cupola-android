@@ -23,8 +23,8 @@ layout(set = 0, binding = 0, std140) uniform Scene {
     vec4 sunLight;  // xyz sunlight at the camera per unit sunlight (0 behind the Earth)
 } s;
 
-layout(set = 0, binding = 12) uniform sampler2D albedoMap;  // station_albedo (sRGB)
-layout(set = 0, binding = 13) uniform sampler2D ormMap;     // station_orm: occlusion, roughness, metalness
+layout(set = 0, binding = 1) uniform sampler2D albedoMap;  // station_albedo (sRGB)
+layout(set = 0, binding = 2) uniform sampler2D ormMap;     // station_orm: occlusion, roughness, metalness
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;

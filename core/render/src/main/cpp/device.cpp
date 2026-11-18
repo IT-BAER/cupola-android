@@ -7,6 +7,7 @@
 #include <cstring>
 #include <vector>
 
+#include "descriptor_bindings.h"
 #include "earth_pass.h"
 #include "frame_inputs.h"
 #include "shaders.h"
@@ -287,8 +288,8 @@ VkResult Device::init() {
     shaderInfo.pCode = shaders::kEarthFrag;
     VK_TRY(vkCreateShaderModule(device, &shaderInfo, nullptr, &earthShader));
 
-    VkDescriptorSetLayoutBinding bindings[kBindingCount]{};
-    for (uint32_t i = 0; i < kBindingCount; ++i) {
+    VkDescriptorSetLayoutBinding bindings[earth_binding::kCount]{};
+    for (uint32_t i = 0; i < earth_binding::kCount; ++i) {
         bindings[i].binding = i;
         bindings[i].descriptorType =
             i == 0 ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -296,9 +297,11 @@ VkResult Device::init() {
         bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     }
     VkDescriptorSetLayoutCreateInfo setInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    setInfo.bindingCount = kBindingCount;
+    setInfo.bindingCount = earth_binding::kCount;
     setInfo.pBindings = bindings;
     VK_TRY(vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &sceneSetLayout));
+    setInfo.bindingCount = station_binding::kCount;  // the same binding types, fewer samplers
+    VK_TRY(vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &stationSetLayout));
 
     VkPushConstantRange range{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)};
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -321,6 +324,7 @@ Device::~Device() {
         if (station_) destroyStationMesh(device, station_.get());
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         vkDestroyDescriptorSetLayout(device, sceneSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(device, stationSetLayout, nullptr);
         vkDestroyShaderModule(device, earthShader, nullptr);
         vkDestroyShaderModule(device, patternShader, nullptr);
         vkDestroyShaderModule(device, vertexShader, nullptr);
@@ -462,7 +466,7 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
                          VkPipeline pipeline, VkDescriptorSet scene, VkExtent2D extent, const PushConstants& push,
                          VkQueryPool queries, uint32_t first, const EarthPass* earthPass,
                          VkDescriptorSet earthScene, const SkyPass* skyPass, VkDescriptorSet skyScene,
-                         const StationPass* stationPass) const {
+                         const StationPass* stationPass, VkDescriptorSet stationScene) const {
     if (queries != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(cmd, queries, first, kTimestampsPerFrame);
         vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, first);
@@ -473,7 +477,7 @@ void Device::recordFrame(VkCommandBuffer cmd, VkRenderPass renderPass, VkFramebu
     }
     PushConstants framePush = push;
     if (stationPass != nullptr) {
-        stationPass->record(*this, cmd, skyScene);
+        stationPass->record(*this, cmd, stationScene);
     } else {
         framePush.effects |= inputs::kDebugNoStation;
     }

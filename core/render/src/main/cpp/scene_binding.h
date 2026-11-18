@@ -5,8 +5,8 @@
 
 namespace cupola {
 
-// One descriptor set (set 0 of Device::pipelineLayout) with its own host-visible scene uniform buffer.
-// A target keeps one per frame in flight; update it only while the GPU is not using that frame.
+// The descriptor sets of one frame (set 0 of the Earth and station pipeline layouts) with their own host-visible
+// scene uniform buffer. A target keeps one per frame in flight; update it only while the GPU is not using that frame.
 class SceneBinding {
 public:
     VkResult init(Device& device);
@@ -18,12 +18,13 @@ public:
                     VkImageView stationImage);
 
     VkDescriptorSet set = VK_NULL_HANDLE;
-    // Same uniform buffer and textures, binding 12 always the placeholder: the scaled Earth pass renders into the
+    // Same uniform buffer and textures, kEarthImage always the placeholder: the scaled Earth pass renders into the
     // image that `set` binds there, and a bound attachment must not be a sampled descriptor of the same draw.
     VkDescriptorSet earthSet = VK_NULL_HANDLE;
-    // Same again with the view LUT and station bindings also on placeholders: the sky and station passes render into
-    // those images (the station pass draws with this set).
+    // Same again with the view LUT and station image also on placeholders: the sky pass renders into the view LUT.
     VkDescriptorSet skySet = VK_NULL_HANDLE;
+    // The station pipeline's set: the same uniform buffer and the station textures.
+    VkDescriptorSet stationSet = VK_NULL_HANDLE;
 
 private:
     VkDescriptorPool pool_ = VK_NULL_HANDLE;
@@ -31,7 +32,7 @@ private:
     VkDeviceMemory memory_ = VK_NULL_HANDLE;
     void* mapped_ = nullptr;
     bool texturesBound_ = false;
-    VkImageView skyInscatter_ = VK_NULL_HANDLE;
+    VkImageView skyView_ = VK_NULL_HANDLE;
 };
 
 }  // namespace cupola

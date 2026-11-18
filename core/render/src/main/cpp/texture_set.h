@@ -10,7 +10,7 @@ namespace cupola {
 
 class Device;
 
-// Descriptor binding of slot s is s + 1 (binding 0 is the scene uniform block); see earth.frag.
+// Assets textures/<name>.ktx2, bit s of TextureSet::loadedMask (Gate.TEXTURE_SLOTS); bindings: descriptor_bindings.h.
 enum TextureSlot : uint32_t {
     kDayDetail = 0,
     kMonthlyColour,
@@ -29,30 +29,20 @@ enum TextureSlot : uint32_t {
     kTextureSlots,
 };
 
-// Binding of the scaled Earth image (EarthPass), after the texture slots.
-constexpr uint32_t kEarthImageBinding = kTextureSlots + 1;
-
-// Textures computed at load time (no asset): atmosphere LUTs (atmosphere_lut.h) and a tiling noise; bindings
-// from kGeneratedBinding in this order.
+// Textures computed at load time (no asset): the atmosphere LUTs (atmosphere_lut.h) as the layers of one array
+// (earth.frag LUT_*) and a tiling noise.
 enum GeneratedSlot : uint32_t {
-    kTransmittanceLut = 0,
-    kMultiScatterLut,
-    kSkyIrradianceLut,
+    kAtmosphereLuts = 0,
     kNoise,
     kGeneratedSlots,
 };
-constexpr uint32_t kGeneratedBinding = kEarthImageBinding + 1;
-// The per-frame view LUT of SkyPass (inscatter, transmittance).
-constexpr uint32_t kSkyInscatterBinding = kGeneratedBinding + kGeneratedSlots;
-constexpr uint32_t kSkyTransmittanceBinding = kSkyInscatterBinding + 1;
-// The StationPass target (station exterior, alpha = coverage), then the binding count of set 0.
-constexpr uint32_t kStationImageBinding = kSkyTransmittanceBinding + 1;
-constexpr uint32_t kBindingCount = kStationImageBinding + 1;
 
 // The Earth and sky textures of the process (decision 33): loaded once per device, shared by every
 // surface target and offscreen render, destroyed with the device.
 struct TextureSet {
+    // The kInteriorCabin and kInteriorEmissive entries are empty: those assets are the layers of interiorLight.
     Texture textures[kTextureSlots];
+    Texture interiorLight;
     VkSampler wrapU = VK_NULL_HANDLE;  // REPEAT on u, CLAMP_TO_EDGE on v (equirectangular maps)
     VkSampler clamp = VK_NULL_HANDLE;  // CLAMP_TO_EDGE on u and v (day_detail tiles, interior atlases, LUTs)
     VkSampler wrap = VK_NULL_HANDLE;   // REPEAT on u and v (noise, cloud_detail tile)
@@ -68,7 +58,8 @@ struct TextureSet {
 };
 
 // Loads textures/<name>.ktx2 for every slot. A missing or failing asset (or no asset manager) gets a 1 x 1
-// fallback and one log line for the whole set. Returns a Vulkan error only if samplers or fallbacks fail.
+// fallback and one log line for the whole set; interior_cabin and interior_emissive fall back together unless both
+// load with the same format, extent and levels. Returns a Vulkan error only if samplers, fallbacks or copies fail.
 VkResult loadTextureSet(Device& device, AAssetManager* assets, TextureSet* out);
 
 void destroyTextureSet(const Device& device, TextureSet* set);

@@ -31,15 +31,17 @@ struct Texture {
 // Staging buffer cap; a level above it is uploaded in groups of whole layers.
 constexpr VkDeviceSize kStagingCapBytes = 32ull << 20;
 
-// Streams a KTX2 asset into a sampled image in SHADER_READ_ONLY_OPTIMAL (all levels and layers).
-// Render thread only (uses Device::queue and Device::commandPool). Waits on a fence per submission.
-// On failure nothing is left allocated and `*out` is empty; `*vkResult` holds the failing VkResult.
-int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult);
+// Streams a KTX2 asset into a sampled image in SHADER_READ_ONLY_OPTIMAL (all levels and layers), with
+// `extraUsage` added to the image usage. Render thread only (uses Device::queue and Device::commandPool). Waits on a
+// fence per submission. On failure nothing is left allocated and `*out` is empty; `*vkResult` holds the failing VkResult.
+int32_t loadTexture(Device& device, AAssetManager* assets, const char* path, Texture* out, VkResult* vkResult,
+                    VkImageUsageFlags extraUsage = 0);
 
-// Uploads one 2D level of tightly packed texels (`bytes` = width x height x texel size) into a sampled image in
-// SHADER_READ_ONLY_OPTIMAL; the generated textures of the TextureSet. Returns the first failing VkResult.
-VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, const void* texels,
-                       VkDeviceSize bytes, Texture* out);
+// Uploads one level of tightly packed texels (`bytes` = width x height x layers x texel size, layer after layer) into
+// a sampled image in SHADER_READ_ONLY_OPTIMAL, an array view when `layers` > 1; the generated textures of the
+// TextureSet. Returns the first failing VkResult.
+VkResult uploadTexture(Device& device, VkFormat format, uint32_t width, uint32_t height, uint32_t layers,
+                       const void* texels, VkDeviceSize bytes, Texture* out);
 
 void destroyTexture(const Device& device, Texture* texture);
 

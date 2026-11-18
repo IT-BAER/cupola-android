@@ -75,21 +75,16 @@ layout(set = 0, binding = 5) uniform sampler2D terrainNormal;
 layout(set = 0, binding = 6) uniform sampler2D stars;
 layout(set = 0, binding = 7) uniform sampler2D waterMask;
 layout(set = 0, binding = 8) uniform sampler2D interiorEarth;
-layout(set = 0, binding = 9) uniform sampler2D interiorCabin;
-layout(set = 0, binding = 10) uniform sampler2D interiorEmissive;
-layout(set = 0, binding = 11) uniform sampler2D interiorAmbient;
-// Bindings 12 and 13: station_albedo and station_orm (station.frag only).
-layout(set = 0, binding = 14) uniform sampler2D cloudDetail;  // cloud_detail: cumulus rank tile (REPEAT), see cloudCells
-layout(set = 0, binding = 15) uniform sampler2D earthImage;  // MODE 2: the scaled Earth target (linear)
-// Atmosphere LUTs computed at start (atmosphere_lut.cpp, mappings mirrored below) and the per-frame view LUT.
-layout(set = 0, binding = 16) uniform sampler2D transmittanceLut;
-layout(set = 0, binding = 17) uniform sampler2D multiScatterLut;
-layout(set = 0, binding = 18) uniform sampler2D irradianceLut;
-layout(set = 0, binding = 19) uniform sampler2D noiseTex;  // tiling fBm, 4 independent channels (REPEAT)
-layout(set = 0, binding = 20) uniform sampler2D skyInscatter;
-layout(set = 0, binding = 21) uniform sampler2D skyTransmittance;
+layout(set = 0, binding = 9) uniform sampler2DArray interiorLight;  // layer 0 interior_cabin, layer 1 interior_emissive
+layout(set = 0, binding = 10) uniform sampler2D interiorAmbient;
+layout(set = 0, binding = 11) uniform sampler2D cloudDetail;  // cloud_detail: cumulus rank tile (REPEAT), see cloudCells
+// Atmosphere LUTs computed at start (atmosphere_lut.cpp, mappings mirrored below), layers LUT_*.
+layout(set = 0, binding = 12) uniform sampler2DArray atmosphereLuts;
+layout(set = 0, binding = 13) uniform sampler2D noiseTex;  // tiling fBm, 4 independent channels (REPEAT)
+layout(set = 0, binding = 14) uniform sampler2D earthImage;  // MODE 2: the scaled Earth target (linear)
+layout(set = 0, binding = 15) uniform sampler2DArray skyView;  // per-frame view LUT: layer 0 inscatter, 1 transmittance
 // StationPass target (MODES 0-2): exposed station radiance as encodeHdr, alpha = coverage; Earth resolution.
-layout(set = 0, binding = 22) uniform sampler2D stationImage;
+layout(set = 0, binding = 16) uniform sampler2D stationImage;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outTransmittance;  // MODE 3 only
@@ -336,8 +331,8 @@ vec4 interiorAt(vec3 d) {
     vec4 earth = textureLod(interiorEarth, a, 0.0);
     vec2 b = atlasUv(vec2(textureSize(interiorAmbient, 0)), uv, 512.0, SLOT_512[f], Y0_512[f]);
     vec3 ambient = textureLod(interiorAmbient, b, 0.0).rgb * SCALE_AMBIENT;
-    vec3 cabin = textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN);
-    cabin += textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN) + ambient * AMBIENT_GAIN;
+    vec3 cabin = textureLod(interiorLight, vec3(a, 0.0), 0.0).rgb * (SCALE_CABIN * CABIN_GAIN);
+    cabin += textureLod(interiorLight, vec3(a, 1.0), 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN) + ambient * AMBIENT_GAIN;
     vec3 earthlit = earth.rgb * (SCALE_EARTH * EARTHLIGHT_GAIN) + ambient * EARTH_FILL_GAIN;
     return vec4(earthlit * s.iUp.w + cabin * STATIC_SCALE, earth.a);
 }
@@ -360,9 +355,9 @@ vec3 cabinLightAt(vec3 d) {
     vec2 uv;
     int f = cubeFace(d, uv);
     if (f == 5) return NODE3_CABIN * (CABIN_GAIN * STATIC_SCALE);
-    vec2 a = atlasUv(vec2(textureSize(interiorCabin, 0)), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
-    return (textureLod(interiorCabin, a, 0.0).rgb * (SCALE_CABIN * CABIN_GAIN) +
-            textureLod(interiorEmissive, a, 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN)) * STATIC_SCALE;
+    vec2 a = atlasUv(vec2(textureSize(interiorLight, 0).xy), uv, 2048.0, SLOT_2048[f], Y0_2048[f]);
+    return (textureLod(interiorLight, vec3(a, 0.0), 0.0).rgb * (SCALE_CABIN * CABIN_GAIN) +
+            textureLod(interiorLight, vec3(a, 1.0), 0.0).rgb * (SCALE_EMISSIVE * EMISSIVE_GAIN)) * STATIC_SCALE;
 }
 
 // Outward normal (cabin frame) of the pane the unit cabin-frame ray d looks through, and the ray's point on it (m).
@@ -384,6 +379,16 @@ vec3 pane(vec3 d, out vec3 hit) {
 float texcoordFromUnit(float x, float n) { return 0.5 / n + x * (1.0 - 1.0 / n); }
 float unitFromTexcoord(float u, float n) { return (u - 0.5 / n) / (1.0 - 1.0 / n); }
 
+// atmosphereLuts layers (texture_set.cpp uploadLuts), each padded to the transmittance size: a smaller LUT fills the
+// corner (uv scaled by a power of two, exact) and the padding repeats its last row and column, as CLAMP_TO_EDGE does.
+const float LUT_TRANSMITTANCE = 0.0;
+const float LUT_MULTI_SCATTER = 1.0;
+const float LUT_IRRADIANCE = 2.0;
+const vec2 LUT_SIZE = vec2(ATMO_TRANSMITTANCE_W, ATMO_TRANSMITTANCE_H);
+const vec2 MULTI_SCATTER_SCALE = vec2(ATMO_MULTI_SCATTER_N) / LUT_SIZE;
+const vec2 IRRADIANCE_SCALE = vec2(ATMO_IRRADIANCE_W, 1) / LUT_SIZE;
+vec3 lutAt(float layer, vec2 uv, vec2 scale) { return textureLod(atmosphereLuts, vec3(uv * scale, layer), 0.0).rgb; }
+
 // Transmittance LUT (atmosphere_lut.cpp transmittanceUv): from radius r along cos(zenith) mu to the top boundary.
 vec3 transmittanceToTop(float r, float mu) {
     float h = sqrt(RT * RT - RG * RG);
@@ -394,7 +399,7 @@ vec3 transmittanceToTop(float r, float mu) {
     float dMax = rho + h;
     vec2 uv = vec2(texcoordFromUnit(clamp((d - dMin) / (dMax - dMin), 0.0, 1.0), float(ATMO_TRANSMITTANCE_W)),
                    texcoordFromUnit(clamp(rho / h, 0.0, 1.0), float(ATMO_TRANSMITTANCE_H)));
-    return textureLod(transmittanceLut, uv, 0.0).rgb;
+    return lutAt(LUT_TRANSMITTANCE, uv, vec2(1.0));
 }
 
 // Sunlight reaching radius r with the Sun at cos(zenith) muS: the LUT transmittance, faded over the Sun's disc as
@@ -406,7 +411,7 @@ vec3 sunlight(float r, float muS) {
 }
 
 // Sky irradiance on the ground per unit sun illuminance (irradiance LUT, u = 0.5 + 0.5 muS).
-vec3 skyIrradiance(float muS) { return textureLod(irradianceLut, vec2(0.5 + 0.5 * muS, 0.5), 0.0).rgb; }
+vec3 skyIrradiance(float muS) { return lutAt(LUT_IRRADIANCE, vec2(0.5 + 0.5 * muS, 0.5), IRRADIANCE_SCALE); }
 
 float rayleighPhase(float nu) { return 3.0 / (16.0 * PI) * (1.0 + nu * nu); }
 
@@ -443,7 +448,7 @@ void marchSegment(float r, float mu, float nu, float muS0, float a, float b, boo
         vec3 extinction = rayleigh + ATMO_MIE_EXTINCTION * mieDensity +
                           OZONE_ABSORB * max(0.0, 1.0 - abs(h - ATMO_OZONE_CENTER_KM) / ATMO_OZONE_HALF_WIDTH_KM);
         float muS = clamp((r * muS0 + t * nu) / ri, -1.0, 1.0);
-        vec3 multi = textureLod(multiScatterLut, vec2(0.5 + 0.5 * muS, h / (RT - RG)), 0.0).rgb;
+        vec3 multi = lutAt(LUT_MULTI_SCATTER, vec2(0.5 + 0.5 * muS, h / (RT - RG)), MULTI_SCATTER_SCALE);
         vec3 source = sunlight(ri, muS) * (rayleigh * phaseR + mie * phaseM) + (rayleigh + mie) * multi;
         inscatter += transmittance * source * stepIntegral(extinction, dt);
         transmittance *= exp(-extinction * dt);
@@ -506,8 +511,8 @@ void skyLookup(vec3 dir, bool hit, out vec3 inscatter, out vec3 transmittance) {
     float v = hit ? 0.5 * texcoordFromUnit(1.0 - sqrt(1.0 - clamp(theta / thetaH, 0.0, 1.0)), halfH)
                   : 0.5 + 0.5 * texcoordFromUnit(sqrt(clamp((theta - thetaH) / (thetaT - thetaH), 0.0, 1.0)), halfH);
     vec2 uv = vec2(texcoordFromUnit(phi / PI, float(ATMO_VIEW_W)), v);
-    inscatter = textureLod(skyInscatter, uv, 0.0).rgb * SUN_ILLUMINANCE;
-    transmittance = textureLod(skyTransmittance, uv, 0.0).rgb;
+    inscatter = textureLod(skyView, vec3(uv, 0.0), 0.0).rgb * SUN_ILLUMINANCE;
+    transmittance = textureLod(skyView, vec3(uv, 1.0), 0.0).rgb;
 }
 
 // Unit-ellipsoid ray cast; c comes in precomputed in double. t = c / (-b + sqrt(disc)) avoids cancellation.
