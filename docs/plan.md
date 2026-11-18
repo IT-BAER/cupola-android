@@ -25,6 +25,7 @@ Asked with AskUserQuestion and answered by the owner on 18 October 2026.
 | D6 | Station exterior (P3.6) for v1 | Build it for v1, 4 November 2026 |
 | D7 | G-PERF budget after the A35 run of 4 November 2026 (GPU p95 16.6 ms, pacing 96.5 %) | Accepted 5 November 2026: the pacing rules exclude the designed 15 fps idle hold; at most 0.2 % of intervals above 33.4 ms and none above 116 ms (was: none above 33.4 ms); the GPU p95 budget is the 60 Hz frame (16.7 ms). If D3 (battery) fails, the default render scale goes down first |
 | D8 | G-PR iteration limit | Time box, 17 November 2026: one more fix round (round 2, started 17 November 2026) and one more blind run. After that run the gate closes whatever the result; cues still open go to the ledger as ranked items. Replaces "no iteration cap" (decision 27) for G-PR |
+| D9 | Release battery at rest (G1; owner target of 17 November 2026: at most 1.5 %/h, the release build confirms) | Accepted 18 November 2026: v1 keeps the defaults Quality High and 15 fps at rest, measured 1.90 %/h (93.4 mA above the static wallpaper, A35 release 875a3d0, 17 November 2026), a recorded deviation. Measured alternatives on the same A35: Quality Low 15 fps 1.27 %/h, High 10 fps 1.18 %/h; power work moves to v1.1. Replaces the D7 clause "the default render scale goes down first" for v1 |
 
 Defaults taken without a question (the owner can override any of them):
 
